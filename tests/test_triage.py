@@ -1,4 +1,4 @@
-from insta360 import triage
+from spherekit import triage
 
 
 def _touch(path, size=1024):

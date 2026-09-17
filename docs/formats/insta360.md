@@ -210,7 +210,7 @@ GPU acceleration applies to encoding, not to the projection.
 ## Reproducing this
 
 ```sh
-insta360 probe FILE -v      # records, metadata, all four calibration models
-insta360 thumb FILE -o t.jpg
+spherekit probe FILE -v      # records, metadata, all four calibration models
+spherekit thumb FILE -o t.jpg
 exiftool -ee3 -G1 -s FILE   # independent cross-check
 ```

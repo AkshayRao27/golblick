@@ -17,7 +17,7 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-from .trailer import Insta360Error
+from ...errors import ThumbnailError
 
 _SOI = b"\xff\xd8"
 _APP1 = 0xFFE1
@@ -25,10 +25,6 @@ _EXIF_SIGNATURE = b"Exif\x00\x00"
 
 _TAG_THUMBNAIL_OFFSET = 0x0201
 _TAG_THUMBNAIL_LENGTH = 0x0202
-
-
-class ThumbnailError(Insta360Error):
-    """No embedded thumbnail could be extracted."""
 
 
 def _read_app1(handle) -> bytes:

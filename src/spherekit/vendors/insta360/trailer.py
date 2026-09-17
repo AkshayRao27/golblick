@@ -33,6 +33,8 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
+from ...errors import FormatError, UnsupportedFile
+
 MAGIC = b"8db42d694ccc418790edff439fe026bf"
 
 _FOOTER = struct.Struct("<II")  # trailer_size, version
@@ -52,18 +54,6 @@ RECORD_NAMES = {
 
 METADATA = 0x0101
 IMU = 0x0300
-
-
-class Insta360Error(Exception):
-    """Base class for every error this package raises."""
-
-
-class NotInsta360(Insta360Error):
-    """The file carries no Insta360 trailer."""
-
-
-class TrailerError(Insta360Error):
-    """The trailer is present but could not be parsed."""
 
 
 @dataclass(frozen=True)
@@ -126,23 +116,23 @@ def read_trailer(path: str | Path) -> Trailer:
         handle.seek(0, 2)
         file_size = handle.tell()
         if file_size < len(MAGIC) + _FOOTER.size:
-            raise NotInsta360(f"{path}: too small to carry a trailer")
+            raise UnsupportedFile(f"{path}: too small to carry a trailer")
 
         handle.seek(-len(MAGIC), 2)
         if handle.read(len(MAGIC)) != MAGIC:
-            raise NotInsta360(f"{path}: no Insta360 trailer magic")
+            raise UnsupportedFile(f"{path}: no Insta360 trailer magic")
 
         handle.seek(-(len(MAGIC) + _FOOTER.size), 2)
         size, version = _FOOTER.unpack(handle.read(_FOOTER.size))
         if not 0 < size <= file_size:
-            raise TrailerError(f"{path}: trailer size {size} is impossible in {file_size} bytes")
+            raise FormatError(f"{path}: trailer size {size} is impossible in {file_size} bytes")
 
         trailer_offset = file_size - size
         handle.seek(trailer_offset)
         blob = handle.read(size)
 
     if len(blob) != size:
-        raise TrailerError(f"{path}: short read of trailer ({len(blob)} of {size})")
+        raise FormatError(f"{path}: short read of trailer ({len(blob)} of {size})")
 
     footer_start = size - len(MAGIC) - _FOOTER.size
     for pad in _CANDIDATE_PADS:
@@ -162,7 +152,7 @@ def read_trailer(path: str | Path) -> Trailer:
                 ),
             )
 
-    raise TrailerError(
+    raise FormatError(
         f"{path}: no padding width in {_CANDIDATE_PADS} makes the record walk "
         f"consume the trailer exactly; the layout may have changed"
     )

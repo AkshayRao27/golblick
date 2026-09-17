@@ -7,8 +7,8 @@ reproduced here.
 
 import pytest
 
-from insta360 import metadata
-from insta360.calibration import CalibrationError, REFERENCE_FRAME, best, parse
+from spherekit.vendors.insta360 import metadata
+from spherekit.vendors.insta360.calibration import CalibrationError, REFERENCE_FRAME, best, parse
 
 EQUIDISTANT = (
     "2_2650.989_2691.500_2693.820_-0.873_0.140_90.047"

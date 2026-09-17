@@ -7,60 +7,67 @@ import json
 import sys
 from pathlib import Path
 
-from . import calibration, metadata, thumbnail, triage
-from .trailer import METADATA, Insta360Error, RECORD_NAMES, read_trailer
+from . import triage
+from .errors import SphereKitError, UnsupportedFile
+from .vendors import VENDORS, detect
 
 
 def _human(size: float) -> str:
-    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
-        if abs(size) < 1024 or unit == "TiB":
-            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+    if abs(size) < 1024:
+        return f"{int(size)} B"
+    for unit in ("KiB", "MiB", "GiB", "TiB"):
         size /= 1024
+        if abs(size) < 1024 or unit == "TiB":
+            return f"{size:.1f} {unit}"
     return f"{size:.1f} TiB"
 
 
+def _require_vendor(path: str):
+    vendor = detect(path)
+    if vendor is None:
+        raise UnsupportedFile(f"{path}: no registered vendor recognises this file")
+    return vendor
+
+
 def cmd_probe(args: argparse.Namespace) -> int:
-    trailer = read_trailer(args.file)
+    vendor = _require_vendor(args.file)
+    info = vendor.describe(args.file)
+    trailer = info["trailer"]
+
     print(f"{args.file}")
+    print(f"  vendor      {vendor.NAME}")
     print(f"  trailer     version {trailer.version}, {_human(trailer.size)} "
           f"at offset {trailer.offset}, pad {trailer.pad}")
     print(f"  records     {len(trailer.records)}")
     for record in trailer.records:
-        known = "" if record.id in RECORD_NAMES else "  (unrecognised)"
-        print(f"    0x{record.id:04x}  {record.name:<16} {record.size:>9} bytes{known}")
+        mark = "  (unrecognised)" if record.name.startswith("unknown_") else ""
+        print(f"    0x{record.id:04x}  {record.name:<16} {record.size:>9} bytes{mark}")
 
-    blob = trailer.get(METADATA)
-    if blob is None:
-        print("  metadata    absent")
+    if any(info[key] for key in ("serial", "model", "firmware", "dimensions")):
+        print("  metadata")
+        for key in ("model", "firmware", "serial"):
+            print(f"    {key:<11} {info[key] or '-'}")
+        if info["dimensions"]:
+            width, height = info["dimensions"]
+            print(f"    {'dimensions':<11} {width}x{height}")
+
+    calibrations = info["calibrations"]
+    if not calibrations:
         return 0
 
-    grouped = metadata.by_number(blob.data)
-    print("  metadata")
-    for number, label in (
-        (metadata.SERIAL, "serial"),
-        (metadata.MODEL, "model"),
-        (metadata.FIRMWARE, "firmware"),
-    ):
-        print(f"    {label:<11} {metadata.first_text(grouped, number) or '-'}")
-    dimensions = metadata.dimensions(grouped)
-    if dimensions:
-        print(f"    {'dimensions':<11} {dimensions[0]}x{dimensions[1]}")
-
-    found = calibration.from_metadata(grouped)
-    print(f"  calibration {len(found)} model(s)")
-    for field_number in metadata.CALIBRATION_FIELDS:
-        model = found.get(field_number)
-        if model is None:
-            continue
+    print(f"  calibration {len(calibrations)} model(s)")
+    for field_number in sorted(calibrations):
+        model = calibrations[field_number]
         scale = ""
-        if dimensions:
-            scale = f", scale x{model.scale_for(dimensions[0]):.6f}"
+        if info["dimensions"]:
+            scale = f", scale x{model.scale_for(info['dimensions'][0]):.6f}"
+        reference = model.reference_frame
         print(f"    field {field_number:<4} {model.kind:<13} "
               f"{model.lens_count} lenses x {len(model.lenses[0])} params"
-              f", reference {model.reference_frame[0]}x{model.reference_frame[1]}{scale}")
+              f", reference {reference[0]}x{reference[1]}{scale}")
         if args.verbose:
             for index, lens in enumerate(model.lenses):
-                print(f"        lens {index}: {' '.join(f'{v:g}' for v in lens)}")
+                print(f"        lens {index}: {' '.join(f'{value:g}' for value in lens)}")
     return 0
 
 
@@ -72,17 +79,17 @@ def cmd_triage(args: argparse.Namespace) -> int:
             "clips": [
                 {
                     "directory": str(clip.directory),
-                    "stamp": clip.stamp,
-                    "sequence": clip.sequence,
+                    "group": clip.group,
+                    "vendor": clip.vendor,
                     "status": clip.status,
-                    "masters": [str(a.path) for a in clip.masters],
-                    "proxies": [str(a.path) for a in clip.proxies],
+                    "masters": [str(asset.path) for asset in clip.masters],
+                    "proxies": [str(asset.path) for asset in clip.proxies],
                     "bytes": clip.size,
                 }
                 for clip in report.clips
             ],
-            "photos": [str(a.path) for a in report.photos],
-            "unmatched": [str(p) for p in report.unmatched],
+            "photos": [str(asset.path) for asset in report.photos],
+            "unmatched": [str(path) for path in report.unmatched],
             "redundant_bytes": report.redundant_bytes,
             "at_risk_bytes": report.at_risk_bytes,
         }, indent=2))
@@ -119,7 +126,7 @@ def cmd_triage(args: argparse.Namespace) -> int:
 
     if report.unmatched:
         print()
-        print(f"  {len(report.unmatched)} file(s) with an Insta360 extension but an unexpected name:")
+        print(f"  {len(report.unmatched)} file(s) with a known extension but an unexpected name:")
         for path in report.unmatched[:10]:
             print(f"    {path}")
 
@@ -127,24 +134,30 @@ def cmd_triage(args: argparse.Namespace) -> int:
 
 
 def cmd_thumb(args: argparse.Namespace) -> int:
-    data = thumbnail.extract(args.file)
-    if args.output is None:
-        output = Path(args.file).with_suffix(".thumb.jpg")
-    else:
-        output = Path(args.output)
+    vendor = _require_vendor(args.file)
+    data = vendor.extract_thumbnail(args.file)
+    output = Path(args.output) if args.output else Path(args.file).with_suffix(".thumb.jpg")
     output.write_bytes(data)
     print(f"{output}  ({_human(len(data))})")
     return 0
 
 
+def cmd_vendors(args: argparse.Namespace) -> int:
+    for vendor in VENDORS:
+        extensions = " ".join(sorted(f".{e}" for e in vendor.EXTENSIONS))
+        print(f"{vendor.NAME:<12} {vendor.DESCRIPTION}")
+        print(f"{'':<12} {extensions}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="insta360",
-        description="Inspect and triage Insta360 .insp / .insv files on Linux.",
+        prog="spherekit",
+        description="Read, inspect and triage 360 camera files on Linux.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    probe = sub.add_parser("probe", help="dump trailer records, metadata and calibration")
+    probe = sub.add_parser("probe", help="dump container records, metadata and calibration")
     probe.add_argument("file")
     probe.add_argument("-v", "--verbose", action="store_true", help="print calibration parameters")
     probe.set_defaults(func=cmd_probe)
@@ -154,10 +167,13 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--json", action="store_true", help="machine-readable output")
     scan.set_defaults(func=cmd_triage)
 
-    thumb = sub.add_parser("thumb", help="extract the camera's embedded stitched thumbnail")
+    thumb = sub.add_parser("thumb", help="extract the camera's embedded stitched preview")
     thumb.add_argument("file")
     thumb.add_argument("-o", "--output")
     thumb.set_defaults(func=cmd_thumb)
+
+    listing = sub.add_parser("vendors", help="list supported formats")
+    listing.set_defaults(func=cmd_vendors)
 
     return parser
 
@@ -166,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except Insta360Error as exc:
+    except SphereKitError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

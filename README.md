@@ -1,20 +1,36 @@
-# insta360-tools
+# spherekit
 
-Read, inspect and triage Insta360 `.insp` and `.insv` files on Linux.
+Read, inspect and triage 360 camera files on Linux.
 
-Insta360 ships no Linux software. That leaves anyone on Linux unable to do even
-basic things with their own footage — including working out which clips they
-still have. This project starts from the observation that **everything needed is
-already inside the files**, in plain ASCII, and none of it requires proprietary
-code to read.
+360 cameras wrap their footage in vendor-specific containers. Standard tools
+open them and show *something* — which is exactly why they are confusing. An
+Insta360 `.insp` opens in any image viewer as two fisheye circles side by side,
+because that is what it contains: the camera does not store a stitched image.
+Everything describing how to turn those circles into a viewable panorama lives
+in a proprietary trailer the decoder skipped over.
+
+Vendors ship little or nothing for Linux, which leaves people unable to do basic
+things with their own footage — including working out which clips they still
+have. It turns out the necessary information is already in the files, in plain
+ASCII, readable without any proprietary code.
 
 Status: **early.** Reading, inspection and triage work. Rendering does not exist
 yet — see [Roadmap](#roadmap).
 
+## Supported formats
+
+| Vendor | Formats |
+|---|---|
+| Insta360 | `.insp`, `.insv`, `.lrv` — [format notes](docs/formats/insta360.md) |
+
+One vendor so far, but the architecture is built around a
+[registry](src/spherekit/vendors/__init__.py) rather than assuming it. Adding a
+second is a new module, not a refactor — see [Adding a vendor](#adding-a-vendor).
+
 ## Install
 
 ```sh
-uv tool install insta360-tools     # or: pipx install insta360-tools
+uv tool install spherekit     # or: pipx install spherekit
 ```
 
 The library and CLI have **no dependencies**. Rendering, when it lands, will
@@ -24,21 +40,22 @@ need numpy and Pillow as an optional extra.
 
 ### Find clips whose master has gone missing
 
-The camera writes a full-quality master and a low-resolution proxy for every
-video clip:
+Cameras commonly write a full-quality master and a low-resolution proxy for
+every clip:
 
 ```
 VID_20260227_142557_00_005.insv    master, two HEVC fisheye streams
 LRV_20260227_142557_01_005.lrv     proxy, one low-bitrate H.264 stream
 ```
 
-Both are dual-fisheye — the proxy is *not* a stitched preview, so it is pure
-duplication while its master is present, and the only surviving copy once the
-master is gone. Deleting masters and forgetting the proxies is easy, and the
-result is indistinguishable from data loss unless you go looking:
+The proxy is *not* a stitched preview — it is dual fisheye too, so it is no more
+viewable than the master, and pure duplication while the master is present. Once
+the master is deleted the proxy becomes the only surviving copy of that clip, at
+a fraction of the quality. That is easy to do by accident and invisible
+afterwards:
 
 ```sh
-$ insta360 triage ~/Photos/Trips
+$ spherekit triage ~/Photos/Trips
   13 clip(s), 2 photo(s)
     paired          8
     master only     0
@@ -56,12 +73,14 @@ $ insta360 triage ~/Photos/Trips
   4.2 GiB of proxies duplicate a master that is still present.
 ```
 
-`--json` gives the same thing machine-readably.
+`--json` gives the same thing machine-readably. Nothing records whether a
+deletion was deliberate, so the tool reports and does not judge.
 
 ### Inspect a file
 
 ```sh
-$ insta360 probe IMG_20260314_090809_00_007.insp
+$ spherekit probe IMG_20260314_090809_00_007.insp
+  vendor      insta360
   trailer     version 3, 4.7 MiB at offset 7775494, pad 32
   records     5
     0x0300  imu                   2000 bytes
@@ -80,50 +99,50 @@ Add `-v` to print the calibration parameters themselves.
 
 ### Get a viewable image today
 
-An `.insp` is a dual-fisheye JPEG — two circles side by side — so viewing it
-directly is useless. But the camera embeds a **stitched, horizon-levelled
-equirectangular thumbnail** in EXIF, and that is immediately usable:
+Insta360 stills embed a **stitched, horizon-levelled equirectangular preview**
+in EXIF, produced on the camera:
 
 ```sh
-insta360 thumb IMG_20260314_090809_00_007.insp -o preview.jpg
+spherekit thumb IMG_20260314_090809_00_007.insp -o preview.jpg
 ```
 
 It is only 320×160 on the X5, so it is a preview, not a substitute for a real
 stitch. It is also this project's ground truth: a stitch built from the
-calibration data can be scored against the camera's own, which means accuracy
-can be measured without reference renders from Insta360 Studio.
+calibration data can be scored against the camera's own output, so accuracy is
+measurable without reference renders from the vendor's desktop software.
 
-## What is actually in these files
+## Adding a vendor
 
-Full detail in [docs/FORMAT.md](docs/FORMAT.md). In short:
+A vendor is a module exposing `NAME`, `DESCRIPTION`, `EXTENSIONS`, and the
+functions `matches`, `classify`, `describe` and `extract_thumbnail`. Listing it
+in `VENDORS` is the only change needed elsewhere. Two conventions matter:
 
-| | |
-|---|---|
-| `.insp` | JPEG, dual fisheye, unstitched, plus a trailer |
-| `.insv` | MP4 with **two separate HEVC streams**, one per lens, plus a trailer |
-| `.lrv` | low-bitrate proxy, also dual fisheye |
-| Trailer | length-prefixed records walked backwards from a 32-byte magic at EOF |
-
-The lens calibration lives in a protobuf record as underscore-delimited ASCII,
-stored **four times** at increasing fidelity. It is not obfuscated or encrypted.
+- **Detect by content, not extension.** `matches()` should sniff the file, so a
+  renamed file is still recognised and an impostor is not claimed.
+- **Refuse rather than guess.** A reader that cannot prove it understood a
+  layout should raise `FormatError` instead of returning a plausible-looking
+  result. See the padding discovery in
+  [the Insta360 notes](docs/formats/insta360.md#the-self-check) for why.
 
 ## Roadmap
 
-- [x] Trailer parsing, metadata, calibration, embedded thumbnails, triage
-- [ ] Equirectangular rendering from the calibration models, scored against the
-      camera's own stitch
+- [x] Container parsing, metadata, calibration, embedded previews, triage
+- [ ] Equirectangular rendering, scored against the camera's own stitch
 - [ ] GPano XMP output, so standard 360 viewers work
-- [ ] Nextcloud app: preview provider for `.insp`
+- [ ] Nextcloud app: preview provider
 - [ ] 360 viewing in Nextcloud Memories (upstream)
 - [ ] Video
 
 ## Prior art
 
 [insv-stitch](https://github.com/BenjaminHenriksson/insv-stitch) (MIT) is a
-video-only X5 stitching pipeline and a useful reference for the projection
-maths. It is not vendored here.
+video-only Insta360 X5 stitching pipeline and a useful reference for the
+projection maths. It is not vendored here.
 
 ## Licence
 
 MIT. The Nextcloud app, when added, will be AGPLv3 under `nextcloud-app/` as
 that ecosystem requires.
+
+Not affiliated with, endorsed by, or connected to any camera manufacturer.
+Vendor names are used only to identify the file formats this software reads.
