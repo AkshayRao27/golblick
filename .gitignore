@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
+# Never commit media: originals are large and are the user's own photographs.
+*.insp
+*.insv
+*.lrv
+*.thumb.jpg

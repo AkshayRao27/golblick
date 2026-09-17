@@ -1,0 +1,86 @@
+"""Parsing of the four calibration models, using strings measured from an X5.
+
+These are verbatim from a real file.  They carry no identifying information --
+the serial number lives in a different protobuf field and is deliberately not
+reproduced here.
+"""
+
+import pytest
+
+from insta360 import metadata
+from insta360.calibration import CalibrationError, REFERENCE_FRAME, best, parse
+
+EQUIDISTANT = (
+    "2_2650.989_2691.500_2693.820_-0.873_0.140_90.047"
+    "_2644.985_8069.050_2693.770_1.015_0.005_89.714_10752_5376_1137"
+)
+POLYNOMIAL = (
+    "2_2659.375_2691.500_2693.820_-0.873_0.140_90.047_0.000000_0.000000_0.000000"
+    "_1.00000000_-0.18948607_0.27191675_-0.08897080_10752_5376_113"
+    "_2654.540_8069.050_2693.770_1.015_0.005_89.714_-0.000868_0.000085_-0.032509"
+    "_1.00000000_-0.18783575_0.26932722_-0.08787999_10752_5376_113_132096"
+)
+
+
+def test_equidistant_shape():
+    model = parse(EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
+
+    assert model.kind == "equidistant"
+    assert model.lens_count == 2
+    assert all(len(lens) == 6 for lens in model.lenses)
+    assert model.reference_frame == REFERENCE_FRAME
+
+
+def test_equidistant_values():
+    model = parse(EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
+    radius, centre_x, centre_y, roll, pitch, yaw = model.lenses[0]
+
+    assert radius == pytest.approx(2650.989)
+    assert (centre_x, centre_y) == pytest.approx((2691.5, 2693.82))
+    # Both lens axes sit near 90 degrees, which is why a naive dual-fisheye
+    # stitch that assumes 0/180 comes out rotated.
+    assert yaw == pytest.approx(90.047, abs=0.1)
+    assert model.lenses[1][5] == pytest.approx(89.714, abs=0.1)
+
+
+def test_polynomial_repeats_reference_frame_per_lens():
+    model = parse(POLYNOMIAL, metadata.CALIBRATION_POLY)
+
+    assert model.lens_count == 2
+    assert all(len(lens) == 16 for lens in model.lenses)
+    assert model.reference_frame == REFERENCE_FRAME
+
+
+def test_lens_circle_lands_inside_its_half_cell():
+    """The scaling rule, checked geometrically rather than asserted."""
+    model = parse(EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
+    width, height = 5888, 2944
+    scale = model.scale_for(width)
+
+    radius = model.lenses[0][0] * scale
+    half_cell = width / 2 / 2  # two square fisheye cells side by side
+
+    assert radius < half_cell
+    assert radius > half_cell * 0.95, "circle should very nearly fill its cell"
+    assert radius == pytest.approx(1451.7, abs=0.5)
+    assert height == width // 2
+
+
+def test_wrong_part_count_is_rejected():
+    with pytest.raises(CalibrationError):
+        parse("2_1.0_2.0_3.0", metadata.CALIBRATION_EQUIDISTANT)
+
+
+def test_non_numeric_is_rejected():
+    with pytest.raises(CalibrationError):
+        parse("2_nope_2.0", metadata.CALIBRATION_EQUIDISTANT)
+
+
+def test_best_prefers_the_richest_model():
+    models = {
+        metadata.CALIBRATION_EQUIDISTANT: parse(EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT),
+        metadata.CALIBRATION_POLY: parse(POLYNOMIAL, metadata.CALIBRATION_POLY),
+    }
+
+    assert best(models).field == metadata.CALIBRATION_POLY
+    assert best({}) is None
