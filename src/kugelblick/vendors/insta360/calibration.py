@@ -1,15 +1,23 @@
 """Lens calibration strings carried in the 0x0101 metadata record.
 
 The camera stores calibration as underscore-delimited ASCII, not packed binary,
-and stores it *four times* at increasing fidelity.  Every string starts with a
+and the richer cameras store it several times at increasing fidelity: four
+models on an X5, three on an X3, and only the equidistant one on a OneR, so
+nothing may require the richest model to be present.  Every string starts with a
 lens count and ends with one or more global values; between those sit one block
 per lens::
 
     <lens_count> _ <lens 0 block> _ <lens 1 block> _ <globals>
 
-All four are quoted against a 10752x5376 reference frame regardless of the
-actual image size, so parameters must be scaled by ``actual_width / 10752``
-before use.  That scaling is verified: on a 5888x2944 X5 still, the equidistant
+Parameters are quoted against a reference frame carried in the string itself,
+which is usually not the image size, so they must be scaled by
+``actual_width / reference_width`` before use.  The reference frame is *per
+camera* -- 6080x3040 on a OneR, 11904x5952 on an X3, 10752x5376 on an X5 -- so
+it is always read from the string and never assumed.  The scale is not always a
+reduction either: the X5's high-resolution still mode is wider than its own
+reference frame.
+
+That scaling is verified geometrically: on a 5888x2944 X5 still, the equidistant
 model's lens radius of 2650.989 scales to 1451.7 px against a 1472 px half-cell,
 placing the image circle just inside its half of the frame as it should be.
 
@@ -23,7 +31,7 @@ The interior layout of the richer models is *not* yet confirmed.  The names in
 MODELS are descriptions of shape, not claims about meaning, and the parameters
 are deliberately exposed as a raw tuple rather than as named attributes so that
 nothing here reads as a fact it has not earned.  Identifying them is the first
-experiment of the rendering work; see docs/FORMAT.md.
+experiment of the rendering work; see docs/formats/insta360.md.
 """
 
 from __future__ import annotations
@@ -40,7 +48,9 @@ MODELS = {
     metadata.CALIBRATION_MEI_EXTENDED: (27, 1, "mei-extended"),
 }
 
-#: Frame the stored parameters are expressed against, on every file measured.
+#: Fallback only, for a string that carries no reference frame of its own.
+#: This is the X5's value; a OneR quotes 6080x3040 and an X3 11904x5952, so it
+#: is a last resort rather than a property of the format.
 REFERENCE_FRAME = (10752, 5376)
 
 

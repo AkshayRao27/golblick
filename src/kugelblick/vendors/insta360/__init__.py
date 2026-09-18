@@ -10,6 +10,8 @@ from pathlib import Path
 from . import calibration as _calibration
 from . import metadata as _metadata
 from .naming import EXTENSIONS, classify
+from .preview import Preview
+from .preview import extract as extract_preview
 from .thumbnail import extract as extract_thumbnail
 from .trailer import MAGIC, METADATA, Record, Trailer, read_trailer
 
@@ -22,10 +24,12 @@ __all__ = [
     "MAGIC",
     "METADATA",
     "NAME",
+    "Preview",
     "Record",
     "Trailer",
     "classify",
     "describe",
+    "extract_preview",
     "extract_thumbnail",
     "matches",
     "read_trailer",

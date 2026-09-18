@@ -1,15 +1,21 @@
-"""Extraction of the stitched preview the camera embeds in every ``.insp``.
+"""Extraction of the 320x160 thumbnail from EXIF IFD1.
 
-This is the most useful thing in the file for anyone who just wants to *see* the
-photo.  An ``.insp`` is a dual-fisheye JPEG -- two circles side by side, useless
-to display directly -- but its EXIF IFD1 thumbnail is a genuine equirectangular
-panorama that the camera has already stitched *and* horizon-levelled on device.
+Every ``.insp`` measured carries one, and on an X5 it is a genuine
+equirectangular panorama that the camera stitched *and* horizon-levelled on
+device -- which makes it ground truth, because a stitch built from the
+calibration data can be scored against the camera's own answer.
 
-It is small (320x160 on the X5), so it is no substitute for a real stitch.  It
-is, however, free, instant, correct, and enough for a photo-grid thumbnail.  It
-also serves as ground truth: a stitch produced from the calibration data can be
-scored against it, which is how this project measures its own accuracy without
-needing reference renders from Insta360 Studio.
+WHETHER IT IS A STITCH DEPENDS ON THE CAMERA
+--------------------------------------------
+It is *not* a stitch on a OneR or an X3.  There the thumbnail is the
+dual-fisheye pair shrunk to 320x160: two circles side by side, not viewable as
+a panorama, and useless as ground truth.  Measured over 1,415 ``.insp`` files:
+all 25 X5 files carry a stitch, and all 1,344 OneR and 40 X3 files do not.
+An earlier version of this project generalised from two X5 stills and recorded
+the stitch as a property of the format; it is a property of the camera.
+
+So callers must not assume this returns something displayable.
+:mod:`.preview` reports its layout explicitly, and is much larger besides.
 """
 
 from __future__ import annotations

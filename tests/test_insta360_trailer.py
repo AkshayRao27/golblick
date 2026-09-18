@@ -36,6 +36,35 @@ def test_pad_width_is_discovered(tmp_path, pad):
     assert trailer.get(METADATA).data == b"meta"
 
 
+def test_zero_length_records_are_read(tmp_path):
+    """OneR and X3 files declare 0x0900 and 0x0b00 with no payload.
+
+    Treating an empty record as the end of the walk stopped six bytes short of
+    the trailer boundary and failed the self-check, which refused 63% of a real
+    library.  The empty records must be read, and must keep their ids.
+    """
+    path = write_file(tmp_path / "a.insp", [(0x0B00, b""), (0x0900, b""), (METADATA, b"meta")])
+    trailer = read_trailer(path)
+
+    assert [record.id for record in trailer.records] == [0x0B00, 0x0900, METADATA]
+    assert trailer.get(0x0900).size == 0
+    assert trailer.get(METADATA).data == b"meta"
+
+
+def test_all_zero_footer_is_padding_not_a_record(tmp_path):
+    """A pad whose length divides by six must not read as phantom records.
+
+    Six zero bytes look exactly like a record footer with id 0 and size 0, so
+    without this the discovered pad width is ambiguous and the boundary check
+    stops being decisive.
+    """
+    path = write_file(tmp_path / "a.insp", [(METADATA, b"meta")], pad=64)
+    trailer = read_trailer(path)
+
+    assert trailer.pad == 64
+    assert [record.id for record in trailer.records] == [METADATA]
+
+
 def test_walk_consumes_the_trailer_exactly(tmp_path):
     """Offset plus size must equal the file length -- the parser's correctness proof."""
     path = write_file(tmp_path / "a.insp", [(METADATA, b"meta"), (0x0900, b"z" * 64)])

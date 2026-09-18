@@ -97,7 +97,15 @@ def _walk(blob: bytes, end: int) -> tuple[list[Record], int]:
     while pos >= _REC_FOOTER.size:
         record_id, size = _REC_FOOTER.unpack_from(blob, pos - _REC_FOOTER.size)
         start = pos - _REC_FOOTER.size - size
-        if size == 0 or start < 0:
+        # A zero-length record is legal and common: OneR and X3 files declare
+        # 0x0900 and 0x0b00 with no payload, and refusing those loses 63% of a
+        # real library.  But an all-zero footer is the *pad*, not a record, and
+        # a run of zero bytes that divides by six would otherwise be read as
+        # phantom records and make the pad width ambiguous.  No record id of 0
+        # has ever been observed, so treating it as the end of the walk keeps
+        # the boundary check decisive -- and if such a record ever exists, the
+        # walk stops short and the reader raises rather than misreporting.
+        if start < 0 or record_id == 0:
             break
         records.append(Record(record_id, start, size, blob[start : pos - _REC_FOOTER.size]))
         pos = start

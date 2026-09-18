@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import triage
+from . import imaging, triage
 from .errors import KugelblickError, UnsupportedFile
 from .vendors import VENDORS, detect
 
@@ -142,6 +142,33 @@ def cmd_thumb(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_preview(args: argparse.Namespace) -> int:
+    vendor = _require_vendor(args.file)
+    if not hasattr(vendor, "extract_preview"):
+        raise UnsupportedFile(f"{vendor.NAME} exposes no full-size preview")
+
+    preview = vendor.extract_preview(args.file)
+    default_suffix = ".preview.jpg" if preview.encoding == "jpeg" else ".preview.png"
+    output = Path(args.output) if args.output else Path(args.file).with_suffix(default_suffix)
+
+    if preview.encoding == "jpeg":
+        # Already a JPEG, so copy it out rather than decoding and re-encoding it.
+        data = preview.data
+    else:
+        data = imaging.write_png(
+            imaging.nv12_to_rgb(preview.data, preview.width, preview.height),
+            preview.width,
+            preview.height,
+        )
+    output.write_bytes(data)
+
+    print(f"{output}  ({_human(len(data))})")
+    print(f"  {preview.width}x{preview.height}  {preview.encoding}  {preview.layout}")
+    if not preview.is_stitched:
+        print("  This camera stores the lens pair, not a stitch -- it is not viewable as a panorama.")
+    return 0
+
+
 def cmd_vendors(args: argparse.Namespace) -> int:
     for vendor in VENDORS:
         extensions = " ".join(sorted(f".{e}" for e in vendor.EXTENSIONS))
@@ -167,10 +194,15 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--json", action="store_true", help="machine-readable output")
     scan.set_defaults(func=cmd_triage)
 
-    thumb = sub.add_parser("thumb", help="extract the camera's embedded stitched preview")
+    thumb = sub.add_parser("thumb", help="extract the 320x160 EXIF thumbnail")
     thumb.add_argument("file")
     thumb.add_argument("-o", "--output")
     thumb.set_defaults(func=cmd_thumb)
+
+    full = sub.add_parser("preview", help="extract the camera's own full-size preview")
+    full.add_argument("file")
+    full.add_argument("-o", "--output")
+    full.set_defaults(func=cmd_preview)
 
     listing = sub.add_parser("vendors", help="list supported formats")
     listing.set_defaults(func=cmd_vendors)

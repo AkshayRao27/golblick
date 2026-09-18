@@ -29,7 +29,7 @@ CALIBRATION_EQUIDISTANT = 5     # exiftool exposes this one as "Parameters"
 DIMENSIONS = 19                 # {1: width, 2: height}
 CALIBRATION_POLY = 53
 CALIBRATION_MEI = 54
-CALIBRATION_MEI_EXTENDED = 111  # richest model present; see docs/FORMAT.md
+CALIBRATION_MEI_EXTENDED = 111  # X5 only; see docs/formats/insta360.md
 
 FIELDS = {
     SERIAL: "serial",

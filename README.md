@@ -29,6 +29,8 @@ yet — see [Roadmap](#roadmap).
 |---|---|
 | Insta360 | `.insp`, `.insv`, `.lrv` — [format notes](docs/formats/insta360.md) |
 
+Verified against OneR, X3 and X5 files.
+
 One vendor so far, but the architecture is built around a
 [registry](src/kugelblick/vendors/__init__.py) rather than assuming it. Adding a
 second is a new module, not a refactor — see [Adding a vendor](#adding-a-vendor).
@@ -105,23 +107,36 @@ Add `-v` to print the calibration parameters themselves.
 
 ### Get a viewable image today
 
-Insta360 stills embed a **stitched, horizon-levelled equirectangular preview**
-in EXIF, produced on the camera:
+Insta360 stills carry the camera's own preview, larger and more useful than the
+320×160 EXIF thumbnail:
 
 ```sh
-kugelblick thumb IMG_20260314_090809_00_007.insp -o preview.jpg
+kugelblick preview IMG_20260314_090809_00_007.insp -o preview.png
+  2560x1280  nv12  equirectangular
 ```
 
-It is only 320×160 on the X5, so it is a preview, not a substitute for a real
-stitch. It is also this project's ground truth: a stitch built from the
+**What you get depends on the camera**, and the command says which you got:
+
+| Camera | Preview | Viewable as a panorama? |
+|---|---|---|
+| X5 | 2560×1280, stitched and horizon-levelled on device | yes |
+| X3, OneR | 1920×960, the dual-fisheye pair | no — it still needs stitching |
+
+On an X5 that is also this project's ground truth: a stitch built from the
 calibration data can be scored against the camera's own output, so accuracy is
-measurable without reference renders from the vendor's desktop software.
+measurable without reference renders from the vendor's desktop software. On the
+other cameras there is no embedded stitch to score against, which is a real
+constraint on the rendering work rather than a gap in the reader.
+
+`kugelblick thumb` still extracts the small EXIF thumbnail, with the same
+caveat: it is a stitch on an X5 and the fisheye pair everywhere else.
 
 ## Adding a vendor
 
 A vendor is a module exposing `NAME`, `DESCRIPTION`, `EXTENSIONS`, and the
-functions `matches`, `classify`, `describe` and `extract_thumbnail`. Listing it
-in `VENDORS` is the only change needed elsewhere. Two conventions matter:
+functions `matches`, `classify`, `describe` and `extract_thumbnail`, plus an
+optional `extract_preview`. Listing it in `VENDORS` is the only change needed
+elsewhere. Three conventions matter:
 
 - **Detect by content, not extension.** `matches()` should sniff the file, so a
   renamed file is still recognised and an impostor is not claimed.
@@ -129,6 +144,10 @@ in `VENDORS` is the only change needed elsewhere. Two conventions matter:
   layout should raise `FormatError` instead of returning a plausible-looking
   result. See the padding discovery in
   [the Insta360 notes](docs/formats/insta360.md#the-self-check) for why.
+- **Test against more than one camera.** Much of what looks like a property of a
+  format turns out to be a property of the camera that wrote the file — which
+  model carries a stitch, what reference frame calibration is quoted against,
+  how the lenses are oriented. The Insta360 notes mark each of those explicitly.
 
 ## Roadmap
 

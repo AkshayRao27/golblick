@@ -18,6 +18,11 @@ organised per vendor behind a small contract.  A vendor module provides:
     Metadata for display.
 ``extract_thumbnail(path) -> bytes``
     An embedded preview image, if the format carries one.
+``extract_preview(path) -> Preview``
+    Optional.  The camera's own full-size preview, where one exists and is
+    bigger or better than the thumbnail.  It reports its own encoding and
+    layout, because a preview that is a fisheye pair cannot be displayed as
+    a panorama and a caller has to be able to tell.
 
 Adding a vendor means writing a module with those names and listing it in
 ``VENDORS`` -- nothing else in the package needs to change.
