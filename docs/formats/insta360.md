@@ -219,18 +219,39 @@ camera** and differs sharply between them:
 | X3 | 88.99° | 89.86° | 40 | 1 |
 | X5 | 90.05° | 89.71° | 25 | 1 |
 
-So a OneR uses the conventional front/back arrangement, and an X3 or X5 does
-not. Any stitch that hard-codes either one comes out rotated on the other
-camera, and this is the single most common reason a naive
-`ffmpeg v360=dfisheye` conversion looks wrong.
+✅ **Yaw is the sensor's rotation within its own image circle — not the
+direction the lens points.** That is why both X5 lenses read ~90°: the sensors
+are mounted a quarter turn round, and the two lenses face opposite ways by
+construction. The OneR's 179° difference is the same thing plus the
+back-to-back flip stated explicitly, which the X3 and X5 leave implicit.
+
+So what a renderer needs is the **relative** rotation, taken modulo 180°:
+
+| Model | Stored yaw 0 | Stored yaw 1 | Difference | mod 180° | Measured |
+|---|---|---|---|---|---|
+| OneR | −178.890° | +0.218° | +179.108° | **−0.892°** | −1.39° |
+| X3 | +88.992° | +89.858° | +0.866° | **+0.866°** | +0.87° |
+| X5 | +90.047° | +89.714° | −0.333° | **−0.333°** | +0.17° |
+
+"Measured" is the relative rotation recovered independently, by maximising the
+agreement between the two lenses where they overlap (see
+[Scoring without a reference](#scoring-without-a-reference)). It matches the
+stored value within ±0.5° on all three cameras and exactly on the X3, which is
+what earns the identification.
 
 🔴 An earlier version of this document stated "both lens axes sit near 90° and
-270°" as a fact about the format. It is X3/X5 behaviour, it is wrong for the
-OneR, and the "270°" was wrong in any case — on an X5 *both* lenses read ~90°.
-⚠️ How two lenses pointing in opposite directions both come to be quoted near
-90° is **not established**; the 180° separation must be carried somewhere other
-than this field. Until that is measured, treat the three angles as a per-lens
-reference frame of unknown convention rather than as a compass bearing.
+270°" as a fact about the format. It was wrong twice over: 270° was never
+measured at all, and the angles are not bearings.
+
+⚠️ **`roll` and `pitch` remain unidentified.** They are under 1° on every camera
+measured, and applying them as tilts about the X and Y axes scores *worse* than
+ignoring them, so the convention is wrong rather than the values meaningless.
+They are not applied.
+
+⚠️ **The rim angle is not in the file.** The equidistant model gives the image
+circle's radius in pixels but not the angle that rim corresponds to, so it has
+to be fitted. Recovered by scoring: **194° on the X5 and the OneR, 192° on the
+X3.**
 
 ### The calibration is the same in every file from one camera body
 
@@ -248,6 +269,9 @@ consequence stands: 1,415 files provide only **three** independent calibration
 samples, so agreement across the library is not corroboration.
 
 ### What is *not* verified
+
+Field 5's six per-lens values *are* identified: radius, centre x, centre y,
+roll, pitch, yaw — with roll and pitch's convention still open, as noted above.
 
 The **interior layout of fields 53, 54 and 111 is inferred from shape**, not
 confirmed. The names above describe how many numbers appear where; they are not
@@ -360,6 +384,36 @@ Two consequences, both now conditional on the camera:
    this way. Since the X5 is also the only camera that carries all four
    calibration models, the accuracy harness and the richest calibration data
    happen to coincide on the same 25 files.
+
+## Scoring without a reference
+
+Only the X5 embeds a stitch, so for 98% of the library there is nothing to
+compare a render against. There is, however, evidence every file carries: the
+lenses see **past** 180°, so there is a band where both observe the same scene,
+and a correct projection makes those two views coincide.
+
+Pearson correlation over that overlap band, on one still per camera:
+
+| Model | Fitted rim angle | Overlap agreement |
+|---|---|---|
+| X5 | 194° | +0.75 |
+| OneR | 194° | +0.71 |
+| X3 | 192° | +0.90 |
+
+A wrong rotation convention drops this to about **+0.02**, so it discriminates
+sharply. It is also what identified the yaw, and it needs no vendor software and
+no embedded stitch.
+
+🔴 **What it cannot do.** It compares the lenses to *each other*, not to the
+world, so it is blind to the absolute orientation of the result. Because lens 1
+faces backwards, a rotation of the world about the lens axis appears as +a in
+one lens and −a in the other and leaves the score untouched. A render scored
+this way can still be upside down. Levelling has to come from the camera's own
+stitch (X5 only) or from the gravity vector in the IMU record, which is
+[not yet decoded](#record-0x0300--imu).
+
+⚠️ It is also not a sharpness measure: it rewards the hemispheres agreeing, and
+says nothing about parallax at the seam, which no calibration fixes.
 
 ## A measured baseline for naive stitching
 

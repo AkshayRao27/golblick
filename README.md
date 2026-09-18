@@ -20,8 +20,11 @@ things with their own footage — including working out which clips they still
 have. It turns out the necessary information is already in the files, in plain
 ASCII, readable without any proprietary code.
 
-Status: **early.** Reading, inspection and triage work. Rendering does not exist
-yet — see [Roadmap](#roadmap).
+Status: **early.** Reading, inspection and triage work. Rendering is partly
+there: the projection is built and validated on three camera models, but the
+result is not yet levelled, so it comes out correctly stitched and arbitrarily
+oriented. There is no `stitch` command until that is fixed — see
+[Roadmap](#roadmap).
 
 ## Supported formats
 
@@ -41,8 +44,13 @@ second is a new module, not a refactor — see [Adding a vendor](#adding-a-vendo
 uv tool install kugelblick     # or: pipx install kugelblick
 ```
 
-The library and CLI have **no dependencies**. Rendering, when it lands, will
-need numpy and Pillow as an optional extra.
+The library and CLI have **no dependencies**, and the test suite is run both
+with and without the extra to keep it that way. Rendering needs numpy under the
+optional `render` extra:
+
+```sh
+uv tool install 'kugelblick[render]'
+```
 
 ## Usage
 
@@ -152,11 +160,33 @@ elsewhere. Three conventions matter:
 ## Roadmap
 
 - [x] Container parsing, metadata, calibration, embedded previews, triage
-- [ ] Equirectangular rendering, scored against the camera's own stitch
+- [~] Equirectangular rendering — projection and accuracy harness done; the
+      output still needs levelling before it is worth a command
 - [ ] GPano XMP output, so standard 360 viewers work
 - [ ] Nextcloud app: preview provider
 - [ ] 360 viewing in Nextcloud Memories (upstream)
 - [ ] Video
+
+## How accuracy is measured
+
+A stitch has to be checked against something. The obvious reference is the
+camera's own stitched preview — but only some cameras embed one (on this
+project's sample, the X5 does and the OneR and X3 do not), so it cannot be the
+basis for the whole library.
+
+Every file carries a better-distributed reference: the lenses see **past** 180°,
+so there is a band where both observe the same scene, and a correct projection
+makes those two views coincide. Correlating them over that band scores a render
+with no vendor software, no reference image, and no embedded stitch — on any
+dual-fisheye camera.
+
+On correctly-projected stills this sits around +0.7 to +0.9; a wrong rotation
+convention drops it to +0.02, so it discriminates sharply. It is what identified
+the meaning of the stored lens angles.
+
+🔴 It compares the lenses to each other, not to the world, so it is blind to the
+absolute orientation of the result — a render that scores well can still be
+upside down. That is exactly the gap that remains.
 
 ## Prior art
 
