@@ -1,7 +1,7 @@
 import pytest
 
 from conftest import build_exif_jpeg
-from spherekit.vendors.insta360.thumbnail import ThumbnailError, extract
+from kugelblick.vendors.insta360.thumbnail import ThumbnailError, extract
 
 FAKE_THUMBNAIL = b"\xff\xd8\xff\xdbthumbnail bytes\xff\xd9"
 

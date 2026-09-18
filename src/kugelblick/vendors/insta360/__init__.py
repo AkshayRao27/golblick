@@ -1,6 +1,6 @@
 """Insta360 reader.
 
-Implements the vendor contract described in :mod:`spherekit.vendors`.
+Implements the vendor contract described in :mod:`kugelblick.vendors`.
 """
 
 from __future__ import annotations

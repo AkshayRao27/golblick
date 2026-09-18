@@ -1,6 +1,10 @@
-# spherekit
+# kugelblick
 
 Read, inspect and triage 360 camera files on Linux.
+
+*Kugelblick* — German, roughly "sphere view". The name is deliberately
+vendor-neutral and says nothing about lens count or output projection, so it
+does not go stale as formats are added.
 
 360 cameras wrap their footage in vendor-specific containers. Standard tools
 open them and show *something* — which is exactly why they are confusing. An
@@ -24,13 +28,13 @@ yet — see [Roadmap](#roadmap).
 | Insta360 | `.insp`, `.insv`, `.lrv` — [format notes](docs/formats/insta360.md) |
 
 One vendor so far, but the architecture is built around a
-[registry](src/spherekit/vendors/__init__.py) rather than assuming it. Adding a
+[registry](src/kugelblick/vendors/__init__.py) rather than assuming it. Adding a
 second is a new module, not a refactor — see [Adding a vendor](#adding-a-vendor).
 
 ## Install
 
 ```sh
-uv tool install spherekit     # or: pipx install spherekit
+uv tool install kugelblick     # or: pipx install kugelblick
 ```
 
 The library and CLI have **no dependencies**. Rendering, when it lands, will
@@ -55,7 +59,7 @@ a fraction of the quality. That is easy to do by accident and invisible
 afterwards:
 
 ```sh
-$ spherekit triage ~/Photos/Trips
+$ kugelblick triage ~/Photos/Trips
   13 clip(s), 2 photo(s)
     paired          8
     master only     0
@@ -79,7 +83,7 @@ deletion was deliberate, so the tool reports and does not judge.
 ### Inspect a file
 
 ```sh
-$ spherekit probe IMG_20260314_090809_00_007.insp
+$ kugelblick probe IMG_20260314_090809_00_007.insp
   vendor      insta360
   trailer     version 3, 4.7 MiB at offset 7775494, pad 32
   records     5
@@ -103,7 +107,7 @@ Insta360 stills embed a **stitched, horizon-levelled equirectangular preview**
 in EXIF, produced on the camera:
 
 ```sh
-spherekit thumb IMG_20260314_090809_00_007.insp -o preview.jpg
+kugelblick thumb IMG_20260314_090809_00_007.insp -o preview.jpg
 ```
 
 It is only 320×160 on the X5, so it is a preview, not a substitute for a real

@@ -6,15 +6,15 @@ everything describing how to turn it into a viewable panorama lives in a
 proprietary trailer the decoder skipped.
 
 This package reads those containers.  Support is organised per vendor behind a
-small contract; see :mod:`spherekit.vendors`.
+small contract; see :mod:`kugelblick.vendors`.
 """
 
-from .errors import FormatError, SphereKitError, ThumbnailError, UnsupportedFile
+from .errors import FormatError, KugelblickError, ThumbnailError, UnsupportedFile
 from .vendors import VENDORS, detect
 
 __all__ = [
     "FormatError",
-    "SphereKitError",
+    "KugelblickError",
     "ThumbnailError",
     "UnsupportedFile",
     "VENDORS",

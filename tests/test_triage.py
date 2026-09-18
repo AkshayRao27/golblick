@@ -1,4 +1,4 @@
-from spherekit import triage
+from kugelblick import triage
 
 
 def _touch(path, size=1024):

@@ -13,7 +13,7 @@ organised per vendor behind a small contract.  A vendor module provides:
     Whether this vendor recognises the file.  Sniff content where possible
     rather than trusting the extension.
 ``classify(path) -> AssetInfo | None``
-    Role and grouping key for master/proxy pairing.  See :mod:`spherekit.triage`.
+    Role and grouping key for master/proxy pairing.  See :mod:`kugelblick.triage`.
 ``describe(path) -> dict``
     Metadata for display.
 ``extract_thumbnail(path) -> bytes``

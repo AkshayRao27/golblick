@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import triage
-from .errors import SphereKitError, UnsupportedFile
+from .errors import KugelblickError, UnsupportedFile
 from .vendors import VENDORS, detect
 
 
@@ -152,7 +152,7 @@ def cmd_vendors(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="spherekit",
+        prog="kugelblick",
         description="Read, inspect and triage 360 camera files on Linux.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -182,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except SphereKitError as exc:
+    except KugelblickError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

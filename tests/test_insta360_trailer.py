@@ -3,8 +3,8 @@ import struct
 import pytest
 
 from conftest import build_trailer, write_file
-from spherekit.errors import FormatError, UnsupportedFile
-from spherekit.vendors.insta360.trailer import METADATA, read_trailer
+from kugelblick.errors import FormatError, UnsupportedFile
+from kugelblick.vendors.insta360.trailer import METADATA, read_trailer
 
 
 def test_reads_records_in_file_order(tmp_path):
@@ -61,7 +61,7 @@ def test_tiny_file_is_rejected(tmp_path):
 
 
 def test_impossible_trailer_size_is_rejected(tmp_path):
-    from spherekit.vendors.insta360.trailer import MAGIC
+    from kugelblick.vendors.insta360.trailer import MAGIC
 
     path = tmp_path / "bad.insp"
     path.write_bytes(b"\xff\xd8" + struct.pack("<II", 1 << 30, 3) + MAGIC)
@@ -72,7 +72,7 @@ def test_impossible_trailer_size_is_rejected(tmp_path):
 
 def test_corrupt_record_sizes_are_rejected(tmp_path):
     """A walk that does not land on the boundary must fail rather than guess."""
-    from spherekit.vendors.insta360.trailer import MAGIC
+    from kugelblick.vendors.insta360.trailer import MAGIC
 
     body = b"data" + struct.pack("<HI", METADATA, 999999)
     body += b"\x00" * 32

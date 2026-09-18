@@ -1,15 +1,15 @@
 """Exceptions shared by every vendor reader."""
 
 
-class SphereKitError(Exception):
+class KugelblickError(Exception):
     """Base class for every error this package raises."""
 
 
-class UnsupportedFile(SphereKitError):
+class UnsupportedFile(KugelblickError):
     """No registered vendor recognises this file."""
 
 
-class FormatError(SphereKitError):
+class FormatError(KugelblickError):
     """The file was recognised but could not be parsed.
 
     Raised in preference to returning a partial or guessed result: a reader that
@@ -18,5 +18,5 @@ class FormatError(SphereKitError):
     """
 
 
-class ThumbnailError(SphereKitError):
+class ThumbnailError(KugelblickError):
     """No embedded preview image could be extracted."""

@@ -400,7 +400,7 @@ wheels = [
 ]
 
 [[package]]
-name = "spherekit"
+name = "kugelblick"
 version = "0.1.0"
 source = { editable = "." }
 
