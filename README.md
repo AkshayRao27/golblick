@@ -2,9 +2,11 @@
 
 Read, inspect and triage 360 camera files on Linux.
 
-*Kugelblick* — German, roughly "sphere view". The name is deliberately
-vendor-neutral and says nothing about lens count or output projection, so it
-does not go stale as formats are added.
+> ⚠️ **The name is provisional and will change before release.**
+> [kugelblick.de](http://kugelblick.de) is an existing site about interactive 360°
+> panoramas — the same subject matter — so shipping under this name would be
+> confusing. A replacement needs to be free on PyPI, npm and GitHub, absent from
+> the web, and must bake in no assumption: not a vendor, and not a lens geometry.
 
 360 cameras wrap their footage in vendor-specific containers. Standard tools
 open them and show *something* — which is exactly why they are confusing. An
