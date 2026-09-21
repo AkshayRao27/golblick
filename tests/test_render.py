@@ -192,3 +192,88 @@ def test_no_overlap_reports_none():
     _, hemispheres = render.equirectangular(image, lenses, (256, 128), 170.0)
 
     assert render.overlap_agreement(hemispheres) is None
+
+
+def test_rotation_is_a_rotation():
+    matrix = render.rotation(31.0, -12.0, 57.0)
+
+    assert numpy.allclose(matrix @ matrix.T, numpy.eye(3), atol=1e-12)
+    assert numpy.linalg.det(matrix) == pytest.approx(1.0)
+
+
+def test_rendering_with_an_orientation_matches_turning_the_render():
+    """Two routes to the same panorama, and they have to agree.
+
+    The fitter leans on the cheap one -- it turns a small equirectangular
+    frame instead of re-projecting a 70-megapixel fisheye pair for every
+    candidate -- so if these two ever disagreed, every solved rotation would
+    be wrong by however much they differ.
+    """
+    image, lenses = synthetic_pair()
+    matrix = render.rotation(37.0, 12.0, -8.0)
+
+    direct, _ = render.equirectangular(image, lenses, (256, 128), 194.0, orientation=matrix)
+    plain, _ = render.equirectangular(image, lenses, (256, 128), 194.0)
+    turned = render.rotate(plain, matrix)
+
+    both = (direct > 2).all(-1) & (turned > 2).all(-1)
+    assert both.sum() > 10000
+    assert numpy.abs(direct[both] - turned[both]).mean() < 3.0
+
+
+def test_level_puts_the_given_direction_at_the_top():
+    for up in ([0, 1, 0], [1, 0, 0], [0, -1, 0], [0.3, 0.9, -0.2]):
+        vector = numpy.array(up, float)
+        vector /= numpy.linalg.norm(vector)
+
+        lifted = render.level(vector) @ vector
+
+        assert lifted == pytest.approx([0, 1, 0], abs=1e-9)
+
+
+def test_level_yaw_turns_the_panorama_without_tipping_it():
+    """Gravity fixes two axes of three; which way the result faces is free."""
+    up = numpy.array([0.3, 0.9, -0.2])
+    up /= numpy.linalg.norm(up)
+
+    plain = render.level(up)
+    turned = render.level(up, yaw=90.0)
+
+    assert (turned @ up) == pytest.approx([0, 1, 0], abs=1e-9)
+    assert not numpy.allclose(plain, turned)
+
+
+def test_fit_orientation_recovers_a_known_rotation():
+    image, lenses = synthetic_pair()
+    reference, _ = render.equirectangular(image, lenses, (128, 64), 194.0)
+    truth = render.rotation(23.0, 14.0, -7.0)
+    tilted = render.rotate(reference, truth.T)
+
+    angles, score = render.fit_orientation(tilted, reference, coarse_degrees=15.0)
+
+    assert score > 0.9, f"a recoverable rotation should align well, got {score}"
+    recovered = render.rotation(*angles)
+    # Compare the rotations themselves: the angles are one parameterisation of
+    # many, but the matrix they build is not.
+    error = numpy.degrees(numpy.arccos(numpy.clip((numpy.trace(recovered.T @ truth) - 1) / 2, -1, 1)))
+    assert error < 3.0, f"recovered rotation is {error:.1f} degrees off"
+
+
+def test_fit_orientation_refuses_a_blank_frame():
+    """One X5 still in the library is an all-black exposure.
+
+    Before this check it aligned to a confident-looking nonsense rotation.
+    """
+    blank = numpy.zeros((64, 128, 3), numpy.float32) + 5
+
+    with pytest.raises(ValueError, match="no structure"):
+        render.fit_orientation(blank, blank)
+
+
+def test_fit_orientation_refuses_frames_of_different_sizes():
+    image, lenses = synthetic_pair()
+    small, _ = render.equirectangular(image, lenses, (64, 32), 194.0)
+    large, _ = render.equirectangular(image, lenses, (128, 64), 194.0)
+
+    with pytest.raises(ValueError, match="differ in size"):
+        render.fit_orientation(small, large)

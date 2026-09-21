@@ -87,7 +87,7 @@ Record ids observed:
 |---|---|---|
 | `0x0101` | 2,956 B | protobuf: serial, model, firmware, dimensions, **calibration** |
 | `0x0200` | varies | The camera's own full-size preview — see [below](#record-0x0200--the-cameras-own-preview) |
-| `0x0300` | 2,000 B | IMU samples |
+| `0x0300` | 2,000 B | IMU samples — see [below](#record-0x0300--imu) |
 | `0x0900` | 7,008 B | **Unidentified**. Frequently zero-length |
 | `0x0b00` | 38,982 B | **Unidentified**. Frequently zero-length |
 
@@ -338,21 +338,45 @@ black:
 
 ## Record `0x0300` — IMU
 
-Fixed **20-byte entries** (100 of them in a 2,000-byte record):
+Each entry is a 64-bit millisecond timecode followed by six values: three
+accelerometer axes in **g**, then three angular velocities. Both are confirmed
+against exiftool, value for value, on files from all three cameras.
 
-```
-int64  timecode      increments by 1000 units between samples
-byte[12] payload     encoding undetermined
-```
+🔴 **Two encodings, and the entry stride is not a property of the camera
+model.**
 
-The timecode is confirmed: the decoded values match exiftool's output exactly
-and increase monotonically. The 12-byte payload is **not** yet decoded — it does
-not read as three floats, as doubles, or as plausibly-scaled int16, and on a
-still photograph every entry is identical, which limits what can be inferred.
+| Stride | Payload | Value |
+|---|---|---|
+| 20 B | `int64` timecode + 6 × `uint16` | `(raw − 32768) / 1000` |
+| 56 B | `int64` timecode + 6 × `float64` | as stored |
 
-exiftool does decode accelerometer and angular-velocity values from this record,
-so the information is recoverable; this library simply has not confirmed the
-layout yet. It matters for horizon levelling, which needs the gravity vector.
+Of the 379 OneR stills in one library that carry this record, **285 use the
+56-byte form and 94 use the 20-byte one** — the same camera model on both
+sides, so the stride must be *searched*, not looked up. `imu.entries` keeps
+only a stride that divides the record exactly and whose timecodes rise
+monotonically, and refuses when none fits or more than one does.
+
+⚠️ **Most files carry no IMU at all.** Over all 1,415 `.insp`:
+
+| | Files |
+|---|---|
+| Decoded | 442 |
+| No `0x0300` record | 965 — all OneR, 72% of that camera's stills |
+| No trailer at all | 6 |
+| Zero-length record | 2 (X3) |
+
+So an IMU-derived horizon serves **about a third** of this library. Levelling
+that has to work everywhere needs a second route.
+
+### Why this was previously recorded as undecoded
+
+An earlier pass reported that the payload "does not read as three floats, as
+doubles, or as plausibly-scaled int16". Two mistakes compounded: the 20-byte
+stride measured on an X5 was assumed to hold everywhere, so the 56-byte entries
+were being sliced at the wrong boundary; and the 16-bit form was tried as
+*signed* rather than as unsigned biased by `0x8000`. Both were settled in
+minutes once exiftool's decoded output was put beside the raw bytes, which is
+the cross-check that should have come first.
 
 ## The embedded thumbnail
 
@@ -409,11 +433,81 @@ world, so it is blind to the absolute orientation of the result. Because lens 1
 faces backwards, a rotation of the world about the lens axis appears as +a in
 one lens and −a in the other and leaves the score untouched. A render scored
 this way can still be upside down. Levelling has to come from the camera's own
-stitch (X5 only) or from the gravity vector in the IMU record, which is
-[not yet decoded](#record-0x0300--imu).
+stitch (X5 only) or from the gravity vector in the IMU record — see
+[Levelling](#levelling).
 
 ⚠️ It is also not a sharpness measure: it rewards the hemispheres agreeing, and
 says nothing about parallax at the seam, which no calibration fixes.
+
+## Levelling
+
+A projection built from the calibration is correct and **arbitrarily
+oriented**: the calibration fixes the lenses relative to each other, not
+relative to the world. Two routes put the horizon where it belongs, and they
+answer different questions.
+
+### Route 1 — solve the rotation against the camera's own stitch
+
+Record `0x0200` on an X5 is horizon-levelled, so the rotation between it and a
+raw render *is* the camera's levelling. `render.fit_orientation` searches for
+it: yaw is exactly a horizontal shift in equirectangular, so it comes out of one
+FFT cross-correlation per candidate tilt rather than a third axis of grid
+search, and three quartering passes take the grid from 10° to under 0.2°.
+
+Over the 25 X5 stills in one library: **24 aligned, 1 refused** — the refusal
+is an all-black exposure, which carries 0.3–0.6 grey levels of deviation where a
+real frame carries 50–65, and which aligned to a confident-looking nonsense
+rotation before that check existed.
+
+| | Correlation with the camera's stitch |
+|---|---|
+| No levelling | 0.18 median |
+| Solved rotation | **0.88 median** (0.82–0.96) |
+
+🔴 **Yaw is a constant, not a variable.** Across those 24 files it reads
+**180.3°, sd 1.8°** — our render faces the opposite way to the camera's stitch,
+and always by the same amount. Pitch and roll are not constant at all
+(−49.8°…+21.4° and −40.8°…+14.1°): those are how the camera was held.
+
+⚠️ This route is ground truth for **25 files in 1,415**. A OneR or X3 embeds the
+fisheye pair rather than a stitch, so there is nothing to solve against.
+
+### Route 2 — the gravity vector from the IMU
+
+The accelerometer says which way is down, on any camera that records one. The
+axis mapping between the IMU and the render was measured by fitting the 24
+solved rotations above; a least-squares fit over all of them landed within 3° of
+an exact signed permutation, and **the exact permutation scored better than the
+fit** — 2.3° median error against the camera's own levelling, versus 4.0°:
+
+```
+up_render = (a_z, −a_x, −a_y)          # Insta360 X5 only
+```
+
+Scored end to end, against the camera's own stitch, on the same 24 files:
+
+| | Correlation | n |
+|---|---|---|
+| No levelling | 0.18 | 24 |
+| **From the IMU alone** | **0.80** | 24 |
+| Solved against the stitch (ceiling) | 0.88 | 24 |
+| From the IMU, camera within 5° of upright | 0.82 | 14 |
+| From the IMU, camera tilted more than 5° | 0.66 | 10 |
+
+🔴 **The mapping is measured for the X5 and does not generalise.** Upright, an
+X5 reads gravity along −x and a OneR along +x; an X3's median reading falls
+between two axes and matches neither. Applying the X5 mapping to a OneR would
+hang the panorama upside down, so `imu.gravity_up` **refuses** a model it has
+not measured. Measuring one needs a levelled reference to score against, and
+only the X5 embeds one.
+
+⚠️ **Unverified: the azimuth of the gravity vector.** The tilt *magnitude* the
+IMU predicts matches the solved rotation within ±1.5° on 20 of 24 files, but the
+azimuth of that tilt does not, and the disagreement grows with tilt — which is
+why the tilted files score 0.66 rather than 0.82. A rotation about the vertical
+of the IMU's own frame would produce exactly this signature, but no single
+offset fits all the files, so the cause is **not established**. The near-upright
+case, which is most photographs, is unaffected.
 
 ## A measured baseline for naive stitching
 

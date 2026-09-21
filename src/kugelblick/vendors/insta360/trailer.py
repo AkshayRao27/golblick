@@ -46,7 +46,7 @@ _CANDIDATE_PADS = (32, 0, 16, 8, 64)
 # output and from direct inspection.
 RECORD_NAMES = {
     0x0101: "metadata",       # protobuf: serial, model, firmware, calibration
-    0x0200: "unknown_0200",   # 40-byte header + 4,915,200 bytes; not a JPEG
+    0x0200: "preview",        # full-size preview: NV12 stitch (X5) or JPEG pair (OneR, X3)
     0x0300: "imu",            # 20-byte entries: int64 timecode + 12-byte payload
     0x0900: "unknown_0900",
     0x0B00: "unknown_0b00",

@@ -122,21 +122,30 @@ def _sample(image, u, v, valid):
     return out
 
 
-def equirectangular(image, lenses, size, field_of_view, feather_degrees=5.0):
+def equirectangular(image, lenses, size, field_of_view, feather_degrees=5.0,
+                    orientation=None):
     """Project a dual-fisheye ``image`` into an equirectangular frame.
 
     ``field_of_view`` is the full angle each lens sees, in degrees; it is not
     carried in the file, so fit it with :func:`fit_field_of_view`.
 
-    ⚠️ The result's absolute orientation is arbitrary: the calibration fixes
-    the lenses relative to each other, not relative to the world.  Levelling it
-    needs the camera's own stitch or the gravity vector from the IMU.
+    ``orientation`` is an optional 3x3 rotation, from :func:`rotation`, that
+    turns the scene before it is written out -- this is how a levelled render
+    is produced.  Without it the result's orientation is whatever the camera
+    body happened to be doing, because the calibration fixes the lenses
+    relative to each other and not relative to the world.  Recover the rotation
+    with :func:`fit_orientation`, or eventually from the gravity vector in the
+    IMU record, which is still undecoded.
     """
     numpy = _numpy()
     width, height = size
     theta_max = numpy.deg2rad(field_of_view / 2)
     feather = numpy.deg2rad(feather_degrees)
     rays = _rays(width, height)
+    if orientation is not None:
+        # Rays are row vectors, so ``rays @ R`` is ``R.T @ ray`` -- for each
+        # output direction, the camera-frame direction that should land there.
+        rays = rays @ numpy.asarray(orientation, numpy.float64)
 
     total = numpy.zeros((height, width, 3), numpy.float32)
     weights = numpy.zeros((height, width, 1), numpy.float32)
@@ -218,3 +227,182 @@ def fit_field_of_view(image, lenses, candidates=None, size=(1024, 512)):
         raise ValueError("no candidate field of view produced an overlap")
     best = max(scored, key=lambda pair: pair[1])
     return best[0], scored
+
+
+def rotation(yaw: float, pitch: float, roll: float):
+    """A rotation of the scene, in degrees, as ``Ry(yaw) @ Rx(pitch) @ Rz(roll)``.
+
+    That order is not arbitrary.  Yaw is separable -- about the vertical axis it
+    is exactly a horizontal shift of an equirectangular frame -- so putting it
+    outermost lets :func:`fit_orientation` solve it by cross-correlation and
+    search only the other two.
+    """
+    numpy = _numpy()
+    y, p, r = numpy.deg2rad([yaw, pitch, roll])
+    cy, sy, cp, sp, cr, sr = (numpy.cos(y), numpy.sin(y), numpy.cos(p),
+                              numpy.sin(p), numpy.cos(r), numpy.sin(r))
+    ry = numpy.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    rx = numpy.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]])
+    rz = numpy.array([[cr, -sr, 0], [sr, cr, 0], [0, 0, 1]])
+    return ry @ rx @ rz
+
+
+def rotate(image, matrix):
+    """Turn an existing equirectangular frame by ``matrix``, bilinearly.
+
+    Equivalent to re-rendering with ``orientation=matrix``, and much cheaper,
+    because it resamples a small panorama instead of a 70-megapixel fisheye
+    pair.  :func:`fit_orientation` leans on that; a final render should still
+    go back to the source, since this costs one resampling.
+    """
+    numpy = _numpy()
+    height, width = image.shape[:2]
+    directions = _rays(width, height) @ numpy.asarray(matrix, numpy.float64)
+    lon = numpy.arctan2(directions[..., 0], directions[..., 2])
+    lat = numpy.arcsin(numpy.clip(directions[..., 1], -1, 1))
+
+    x = (lon + numpy.pi) / (2 * numpy.pi) * width - 0.5
+    y = (numpy.pi / 2 - lat) / numpy.pi * height - 0.5
+    x0 = numpy.floor(x).astype(numpy.int64)
+    y0 = numpy.floor(y).astype(numpy.int64)
+    fx, fy = x - x0, y - y0
+    if image.ndim == 3:
+        fx, fy = fx[..., None], fy[..., None]
+    # Longitude wraps; latitude does not.
+    left, right = x0 % width, (x0 + 1) % width
+    top, bottom = numpy.clip(y0, 0, height - 1), numpy.clip(y0 + 1, 0, height - 1)
+
+    upper = image[top, left] * (1 - fx) + image[top, right] * fx
+    lower = image[bottom, left] * (1 - fx) + image[bottom, right] * fx
+    return (upper * (1 - fy) + lower * fy).astype(numpy.float32)
+
+
+def _grey(image):
+    numpy = _numpy()
+    image = numpy.asarray(image, numpy.float32)
+    if image.ndim == 2:
+        return image
+    return image[..., 0] * 0.299 + image[..., 1] * 0.587 + image[..., 2] * 0.114
+
+
+def _centred(values, weight):
+    return (values - (values * weight).sum() / weight.sum()) * weight
+
+
+def _correlate_yaw(turned, reference, weight):
+    """Best horizontal shift of ``turned`` onto ``reference``, in degrees.
+
+    A yaw is a horizontal shift and nothing else, so one FFT per candidate
+    tilt replaces a whole third axis of the search.
+    """
+    numpy = _numpy()
+    width = turned.shape[1]
+    a, b = _centred(turned, weight), _centred(reference, weight)
+    spectrum = numpy.fft.rfft(b, axis=1) * numpy.conj(numpy.fft.rfft(a, axis=1))
+    correlation = numpy.fft.irfft(spectrum, n=width, axis=1).sum(0)
+    shift = int(numpy.argmax(correlation))
+    denominator = numpy.sqrt((a * a).sum() * (b * b).sum())
+    if denominator == 0:
+        return 0.0, 0.0
+    return shift / width * 360.0, float(correlation[shift] / denominator)
+
+
+def fit_orientation(image, reference, coarse_degrees=10.0, seed=None):
+    """Recover the rotation that puts ``image`` into ``reference``'s frame.
+
+    Both arguments are equirectangular frames of the same size and scene: the
+    render to be levelled, and something already levelled to level it against.
+    On an X5 that reference is the camera's own stitch, record ``0x0200``.
+
+    Returns ``((yaw, pitch, roll), score)`` in degrees, where ``score`` is the
+    correlation after alignment.  Feed the angles to :func:`rotation`.
+
+    ⚠️ This is ground truth only where a levelled reference exists, which is
+    25 files in 1,415 of one library -- X5 only.  A OneR or X3 embeds the
+    fisheye pair instead, so for those the rotation has to come from the IMU.
+
+    ``seed`` skips the coarse grid and refines around a known answer, which is
+    how a cheap low-resolution pass hands off to an accurate one.
+    """
+    numpy = _numpy()
+    a, b = _grey(image), _grey(reference)
+    if a.shape != b.shape:
+        raise ValueError(f"frames differ in size: {a.shape} vs {b.shape}")
+    # Score only where both frames have something to say: our render is blank
+    # past the lens rim, and the camera paints out its own nadir.
+    weight = ((a > 2) & (b > 2)).astype(numpy.float32)
+    if weight.sum() < 1000:
+        raise ValueError("frames have too little in common to align")
+
+    # Refuse a frame with no structure rather than return the angles that
+    # happen to score highest on noise.  One X5 still in the library is an
+    # all-black exposure, and it aligned to a confident-looking nonsense
+    # rotation before this check existed: it reads 0.3 to 0.6 grey levels of
+    # deviation where a real frame reads 50 to 65.
+    overlap = weight.astype(bool)
+    if a[overlap].std() < 2.0 or b[overlap].std() < 2.0:
+        raise ValueError("frames carry no structure to align: is one of them blank?")
+
+    best = (0.0, 0.0, 0.0, -2.0)
+    step = coarse_degrees
+    if seed is None:
+        for pitch in numpy.arange(-90.0, 90.1, step):
+            for roll in numpy.arange(-180.0, 180.0, step):
+                turned = rotate(a, rotation(0.0, pitch, roll))
+                yaw, score = _correlate_yaw(turned, b, weight)
+                if score > best[3]:
+                    best = (yaw, float(pitch), float(roll), score)
+    else:
+        best = (float(seed[0]), float(seed[1]), float(seed[2]), -2.0)
+        step = 2.0
+
+    # Three quartering passes take the grid from 10 degrees to under 0.2.
+    for _ in range(3):
+        step /= 4
+        _, pitch0, roll0, _ = best
+        for pitch in numpy.arange(pitch0 - 2 * step, pitch0 + 2.01 * step, step):
+            for roll in numpy.arange(roll0 - 2 * step, roll0 + 2.01 * step, step):
+                turned = rotate(a, rotation(0.0, pitch, roll))
+                yaw, score = _correlate_yaw(turned, b, weight)
+                if score > best[3]:
+                    best = (yaw, float(pitch), float(roll), score)
+
+    yaw, pitch, roll, score = best
+    return (yaw, pitch, roll), score
+
+
+def level(up, yaw: float = 0.0):
+    """Rotation that lifts ``up`` to the top of the frame.
+
+    ``up`` is which way is up expressed in the render's own frame -- from
+    :func:`kugelblick.vendors.insta360.imu.gravity_up`, or from the ``pitch``
+    and ``roll`` that :func:`fit_orientation` solved.  Pass the result to
+    :func:`equirectangular` as its ``orientation``.
+
+    The rotation is the shortest one that does the job, so it adds no spin of
+    its own; ``yaw`` then turns the levelled panorama about the vertical.
+    Which way it should face is a separate question that gravity cannot answer.
+    ⚠️ Matching an X5's own stitch takes ``yaw=180``: measured at 180.3 degrees,
+    sd 1.8, over the 24 files in one library that embed a stitch to measure
+    against.  For a camera that embeds none, nothing fixes the yaw at all.
+    """
+    numpy = _numpy()
+    vector = numpy.asarray(up, numpy.float64)
+    norm = numpy.linalg.norm(vector)
+    if norm < 1e-9:
+        raise ValueError("up vector has no direction")
+    vector = vector / norm
+
+    target = numpy.array([0.0, 1.0, 0.0])
+    axis = numpy.cross(vector, target)
+    sine = numpy.linalg.norm(axis)
+    cosine = float(vector @ target)
+    if sine < 1e-9:
+        # Already vertical, one way or the other.
+        upright = numpy.eye(3) if cosine > 0 else numpy.diag([1.0, -1.0, -1.0])
+    else:
+        cross = numpy.array([[0.0, -axis[2], axis[1]],
+                             [axis[2], 0.0, -axis[0]],
+                             [-axis[1], axis[0], 0.0]])
+        upright = numpy.eye(3) + cross + cross @ cross * ((1 - cosine) / sine ** 2)
+    return rotation(yaw, 0.0, 0.0) @ upright
