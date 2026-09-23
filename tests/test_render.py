@@ -277,3 +277,37 @@ def test_fit_orientation_refuses_frames_of_different_sizes():
 
     with pytest.raises(ValueError, match="differ in size"):
         render.fit_orientation(small, large)
+
+
+def test_body_orientation_undoes_the_sensor_mounting_angle():
+    """A OneR's sensor sits 90 degrees round from an X5's.
+
+    Without this rotation a OneR render comes out on its side, which is how
+    1,344 of the 1,415 files in one library looked.
+    """
+    from kugelblick.vendors.insta360 import calibration, metadata
+
+    oner = calibration.parse(
+        "2_1478.32_1515.09_1518.95_-0.17_0.73_-178.89"
+        "_1481.11_4563.81_1515.97_0.74_0.73_0.21768_6080_3040_3105",
+        metadata.CALIBRATION_EQUIDISTANT,
+    )
+    matrix = render.body_orientation(oner)
+
+    # Rolling about the lens axis leaves that axis alone and swings the
+    # vertical onto the horizontal.
+    assert (matrix @ numpy.array([0.0, 0.0, 1.0])) == pytest.approx([0, 0, 1], abs=1e-9)
+    assert abs((matrix @ numpy.array([0.0, 1.0, 0.0]))[0]) == pytest.approx(1.0, abs=0.02)
+    assert render.rotation(0.0, 0.0, oner.body_roll) == pytest.approx(matrix)
+
+
+def test_body_orientation_is_a_near_identity_for_an_x5():
+    from kugelblick.vendors.insta360 import calibration, metadata
+
+    x5 = calibration.parse(
+        "2_2650.989_2691.500_2693.820_-0.873_0.140_90.047"
+        "_2644.985_8069.050_2693.770_1.015_0.005_89.714_10752_5376_1137",
+        metadata.CALIBRATION_EQUIDISTANT,
+    )
+
+    assert render.body_orientation(x5) == pytest.approx(numpy.eye(3), abs=1e-3)

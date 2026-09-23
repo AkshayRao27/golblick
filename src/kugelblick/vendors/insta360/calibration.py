@@ -85,6 +85,45 @@ class Calibration:
             return int(self.lenses[0][-3]), int(self.lenses[0][-2])
         return REFERENCE_FRAME
 
+    @property
+    def body_roll(self) -> float:
+        """Degrees of roll taking a render in lens 0's sensor frame to the body frame.
+
+        A renderer can only recover the *relative* yaw between the lenses from
+        the file, so it renders in lens 0's sensor frame.  That frame is not the
+        camera body's: the sensor is mounted at an angle, and the angle differs
+        per camera.  The stored yaw is quoted against a reference 90 degrees
+        from the body's up, so rolling the finished panorama by ``90 - yaw``
+        about the lens axis puts it back upright.
+
+        This is worth having because it needs neither the IMU nor a reference
+        stitch, so it applies to every file -- including the 965 OneR stills
+        that carry no IMU record at all.  It corrects the *mounting* only; a
+        camera that was actually tilted when the shutter fired stays tilted.
+
+        Measured over 1,409 files from three bodies: the value has **zero
+        spread** within a model (OneR -178.89, X3 88.99, X5 90.05), giving
+        rolls of -91.11, +1.01 and -0.05 degrees.  Applying it turns a OneR
+        render from 90 degrees on its side into a level panorama, and leaves
+        the X3 and X5 where they already were.
+
+        ⚠️ The 90 in the formula is fitted to three camera bodies, not derived
+        from anything the file states.  It holds across a 90-degree difference
+        in mounting, which is why it is trusted at all, but a fourth camera
+        could still disagree.  ``docs/formats/insta360.md`` owns the evidence.
+        """
+        if self.field != metadata.CALIBRATION_EQUIDISTANT:
+            # Only the equidistant model's interior is confirmed, so only it
+            # has a yaw to read.  Refuse rather than index into a tuple whose
+            # meaning is unknown.
+            raise CalibrationError(
+                f"field {self.field}: body roll needs the equidistant model, "
+                f"whose parameter meanings are confirmed"
+            )
+        if not self.lenses or len(self.lenses[0]) < 6:
+            raise CalibrationError(f"field {self.field}: lens 0 carries no yaw")
+        return (90.0 - self.lenses[0][5] + 180.0) % 360.0 - 180.0
+
     def scale_for(self, width: int) -> float:
         """Factor converting stored parameters to an image ``width`` pixels wide."""
         reference_width = self.reference_frame[0]

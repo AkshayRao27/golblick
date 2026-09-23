@@ -17,6 +17,11 @@ Confirmed by measurement across three cameras:
   *within* its image circle, not the direction the lens points.  The relative
   rotation between the lenses is the stored yaw difference taken modulo 180
   degrees; a OneR states that 180 explicitly, an X3 and X5 leave it implicit.
+* The *absolute* yaw is the sensor's mounting angle in the camera body, and it
+  is a constant of the body -- zero spread over 1,409 files from three of them.
+  Rolling the render by ``90 - yaw`` lands it in the body frame, which levels a
+  OneR that would otherwise come out 90 degrees on its side.  See
+  :func:`body_orientation`.
 * Image rows run downward while world Y runs up, so the azimuth is negated.
   Without that the panorama comes out mirrored.
 
@@ -28,7 +33,10 @@ Confirmed by measurement across three cameras:
 * ``theta_max``, the angle the image circle's rim corresponds to.  It is not in
   the file.  :func:`fit_field_of_view` recovers it by scoring, and it differs
   per camera (194 degrees on an X5 and a OneR, 192 on an X3).
-* The absolute orientation of the result.  See :func:`overlap_agreement`.
+* The camera's attitude when the shutter fired.  :func:`body_orientation`
+  removes the mounting angle, but a camera that was genuinely tilted stays
+  tilted; that needs :func:`fit_orientation` or the IMU.  See
+  :func:`overlap_agreement` for why the projection alone cannot tell.
 """
 
 from __future__ import annotations
@@ -60,9 +68,10 @@ class Lens:
 def lenses_from_calibration(calibration, width: int):
     """Build the lens pair from an equidistant calibration string.
 
-    Only the relative spin between the lenses is used.  The absolute value is
-    not recoverable from the file alone -- see :func:`overlap_agreement` -- so
-    lens 0 is taken as the reference and lens 1 carries the difference.
+    Only the relative spin between the lenses is used here, so lens 0 is taken
+    as the reference and lens 1 carries the difference.  That renders in lens
+    0's sensor frame, which is not the camera body's; :func:`body_orientation`
+    reads the absolute yaw and supplies the rotation between the two.
     """
     numpy = _numpy()
     if len(calibration.lenses) != 2:
@@ -369,6 +378,22 @@ def fit_orientation(image, reference, coarse_degrees=10.0, seed=None):
 
     yaw, pitch, roll, score = best
     return (yaw, pitch, roll), score
+
+
+def body_orientation(calibration):
+    """Rotation putting a render into the camera-body frame, from the calibration.
+
+    The cheapest levelling there is: it needs no IMU and no reference stitch,
+    so unlike :func:`fit_orientation` and :func:`level` it works on every file.
+    What it fixes is the sensor's mounting angle, which is a constant of the
+    camera body -- so a shot taken with the camera genuinely tilted is still
+    tilted afterwards.  Compose it with :func:`level` when a gravity vector is
+    also available.
+
+    See :attr:`~kugelblick.vendors.insta360.calibration.Calibration.body_roll`
+    for what is measured and what is fitted.
+    """
+    return rotation(0.0, 0.0, calibration.body_roll)
 
 
 def level(up, yaw: float = 0.0):

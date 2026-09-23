@@ -130,3 +130,34 @@ def test_lens_orientation_is_not_assumed_to_be_front_back():
     assert oner.lenses[1][5] == pytest.approx(0.22, abs=0.01)
     assert x5.lenses[0][5] == pytest.approx(90.05, abs=0.01)
     assert x5.lenses[1][5] == pytest.approx(89.71, abs=0.01)
+
+
+def test_body_roll_is_the_complement_of_the_stored_yaw():
+    x5 = parse(EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
+    oner = parse(ONER_EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
+
+    # The X5's sensor sits at the reference angle, so it needs no correction.
+    assert x5.body_roll == pytest.approx(-0.047, abs=0.01)
+    # The OneR's sits 90 degrees round, which is why an uncorrected OneR render
+    # comes out on its side.
+    assert oner.body_roll == pytest.approx(-91.11, abs=0.01)
+
+
+def test_body_roll_stays_in_the_short_half_turn():
+    # A yaw just past the wrap must not produce a 269-degree roll.
+    model = parse(
+        "2_100_100_100_0_0_-179.5_100_300_100_0_0_0.5_1000_500_1",
+        metadata.CALIBRATION_EQUIDISTANT,
+    )
+
+    assert -180.0 < model.body_roll <= 180.0
+    assert model.body_roll == pytest.approx(-90.5)
+
+
+def test_body_roll_refuses_a_model_whose_interior_is_unknown():
+    # Field 53's parameters are not identified, so nothing may read a yaw out
+    # of them by position.
+    model = parse(POLYNOMIAL, metadata.CALIBRATION_POLY)
+
+    with pytest.raises(CalibrationError):
+        model.body_roll

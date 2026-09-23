@@ -253,6 +253,50 @@ circle's radius in pixels but not the angle that rim corresponds to, so it has
 to be fitted. Recovered by scoring: **194° on the X5 and the OneR, 192° on the
 X3.**
 
+### The absolute yaw is the mounting angle, and it levels the roll axis for free
+
+The *relative* yaw is what a renderer needs to place the two hemispheres
+correctly. The **absolute** value turns out to be worth just as much, and was
+discarded for longer than it should have been.
+
+Rendering with lens 0 as the reference produces a panorama in **lens 0's sensor
+frame**. That frame is not the camera body's, because the sensor is mounted at
+an angle — and the angle differs by 90° between a OneR and an X3/X5. So the
+same correct projection code yields an upright X3 and a OneR lying on its side.
+
+The stored yaw is quoted against a reference 90° from the body's up, so:
+
+```
+body_roll = 90° − yaw₀     (about the lens axis, i.e. the render's roll)
+```
+
+| Model | Lens 0 yaw | `body_roll` | Files | Spread over the library |
+|---|---|---|---|---|
+| OneR | −178.89° | **−91.11°** | 1,344 | **0.00°** |
+| X3 | +88.99° | **+1.01°** | 40 | **0.00°** |
+| X5 | +90.05° | **−0.05°** | 25 | **0.00°** |
+
+✅ **Verified**: the value has zero spread across all 1,409 files that carry a
+trailer, so it is a constant of the body rather than anything per-shot.
+Applying it turns a OneR render from 90° on its side into a level panorama, and
+moves the X3 and X5 by ~1° and ~0°, matching the fact that those two already
+rendered upright. Confirmed visually on eight OneR stills spread across the
+library and four years of capture.
+
+This matters because it is the only levelling that costs nothing: it needs
+neither a reference stitch (which only the X5 embeds) nor an IMU record (which
+965 of 1,344 OneR stills lack), so it applies to **every** file. See
+[Levelling](#levelling).
+
+⚠️ **It corrects the mounting, not the attitude.** A camera genuinely tilted
+when the shutter fired is still tilted afterwards. This fixes one axis — roll
+about the lens axis — and leaves pitch to the other two routes.
+
+⚠️ **The 90° in the formula is fitted to three bodies**, not derived from
+anything the file states. It holds across a 90° difference in mounting, which
+is what earns it any trust, but a fourth camera could disagree. The library
+carries one body per model, so these are three independent samples, not 1,409.
+
 ### The calibration is the same in every file from one camera body
 
 For every (camera, field) pair there is **exactly one** distinct calibration
@@ -443,8 +487,32 @@ says nothing about parallax at the seam, which no calibration fixes.
 
 A projection built from the calibration is correct and **arbitrarily
 oriented**: the calibration fixes the lenses relative to each other, not
-relative to the world. Two routes put the horizon where it belongs, and they
+relative to the world. Three routes put the horizon where it belongs, and they
 answer different questions.
+
+| Route | What it fixes | Needs | Files it reaches (of 1,415) |
+|---|---|---|---|
+| 0 — the mounting angle | Roll about the lens axis | Nothing beyond the calibration | **1,409** |
+| 1 — solve against the stitch | All three axes | An embedded stitch (X5 only) | 25 |
+| 2 — gravity from the IMU | Pitch and roll | An IMU record *and* a measured axis mapping | 25 |
+
+Routes 1 and 2 are the accurate ones and they reach almost nothing. Route 0 is
+partial and reaches everything, which makes it the one that changes what the
+library looks like in bulk.
+
+### Route 0 — the sensor mounting angle, from the calibration alone
+
+The cheapest correction, and the one that was missed longest. The absolute yaw
+in the equidistant model is the sensor's mounting angle in the camera body, so
+rolling the render by `90° − yaw₀` about the lens axis lands it in the body
+frame. On a OneR that is a **91° correction**; without it every one of the
+1,344 OneR stills renders on its side.
+
+It needs no reference and no IMU, so it applies to every file that carries a
+trailer. It fixes one axis only — a camera that was genuinely tilted stays
+tilted. See
+[The absolute yaw is the mounting angle](#the-absolute-yaw-is-the-mounting-angle-and-it-levels-the-roll-axis-for-free)
+for the measurement and its limits. `render.body_orientation`.
 
 ### Route 1 — solve the rotation against the camera's own stitch
 
