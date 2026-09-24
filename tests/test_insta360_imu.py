@@ -123,15 +123,55 @@ def test_gravity_up_is_vertical_for_a_level_x5(tmp_path):
     assert up[1] > 0.999, f"a level camera should point straight up, got {up}"
 
 
-def test_gravity_up_refuses_a_camera_whose_axes_are_unmeasured(tmp_path):
-    """An upright OneR reads +x where an upright X5 reads -x.
+def test_gravity_up_for_a_level_oner_points_where_the_calibration_says(tmp_path):
+    """Up is returned in the *render's* frame, not the camera body's.
 
-    Borrowing the X5 mapping would hang the panorama upside down, so the only
-    honest answer for a model nobody has measured is to refuse.
+    A OneR's sensor is mounted a quarter turn round, so a level OneR reads up
+    along -x rather than +y -- which is exactly the direction that camera's
+    ``Calibration.body_roll`` rotates to vertical.  Two independent sources,
+    a calibration string and an accelerometer, agreeing on the same axis.
     """
-    path = write_file(tmp_path / "i.insp", [
+    path = write_file(tmp_path / "j.insp", [
         (METADATA, model_record("Insta360 OneR")),
         (IMU, biased(1000, (0.995, 0.0, 0.0, 0.0, 0.0, 0.0))),
+    ])
+
+    up = imu.gravity_up(path)
+
+    assert up == pytest.approx((-1.0, 0.0, 0.0), abs=1e-6), (
+        f"a level OneR should read up along -x, got {up}"
+    )
+
+
+def test_the_two_measured_cameras_read_the_same_thing_differently(tmp_path):
+    """Guards the property that makes borrowing a mapping dangerous.
+
+    The same accelerometer reading means a different up on each camera.  If an
+    edit ever made them agree, the refusal below would quietly stop being
+    load-bearing.
+    """
+    reading = (0.995, 0.0, 0.0, 0.0, 0.0, 0.0)
+    ups = []
+    for index, model in enumerate(("Insta360 OneR", "Insta360 X5")):
+        path = write_file(tmp_path / f"k{index}.insp", [
+            (METADATA, model_record(model)),
+            (IMU, biased(1000, reading)),
+        ])
+        ups.append(imu.gravity_up(path))
+
+    agreement = sum(a * b for a, b in zip(*ups))
+    assert abs(agreement) < 0.01, (
+        f"the two mappings should send the same reading somewhere different, got {ups}"
+    )
+
+
+def test_gravity_up_refuses_a_camera_whose_axes_are_unmeasured(tmp_path):
+    """The X3 is deliberately absent: its readings cannot be reconciled with
+    the camera's attitude, so the only honest answer is to refuse.
+    """
+    path = write_file(tmp_path / "i.insp", [
+        (METADATA, model_record("Insta360 X3")),
+        (IMU, biased(1000, (-0.614, -0.789, 0.022, 0.0, 0.0, 0.0))),
     ])
 
     with pytest.raises(FormatError, match="has not been measured"):

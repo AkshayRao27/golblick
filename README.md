@@ -23,8 +23,9 @@ ASCII, readable without any proprietary code.
 Status: **early, but it renders now.** Reading, inspection and triage work, and
 `kugelblick render` turns a still into an equirectangular panorama with the
 GPano metadata that makes standard 360 viewers open it as a sphere. The horizon
-is levelled for roll; pitch is not yet, so a shot taken with the camera tilted
-comes out tilted. See [Roadmap](#roadmap).
+is levelled: fully, from the camera's inertial record, where the file carries
+one and that camera's axes have been measured; otherwise for roll only. See
+[Roadmap](#roadmap).
 
 ## Supported formats
 
@@ -164,10 +165,16 @@ Two numbers in that output are worth reading rather than ignoring:
 - **Lens agreement** scores the render against itself, by correlating the two
   lenses where they overlap. Around +0.7 to +0.9 is a correct projection; +0.02
   means something is wrong. See [How accuracy is measured](#how-accuracy-is-measured).
-- **Levelling** is derived from the calibration, so it costs nothing and works
-  on every file. ⚠️ It corrects the *sensor mounting angle* — which is 91° on a
-  OneR, so without it those renders come out on their side — and **not** the
-  camera's attitude. A handheld shot that was tilted stays tilted.
+- **Levelling** reports which of two routes it used. *From gravity* means the
+  file carried an inertial record and that camera's axes are known, so pitch
+  and roll are both corrected — a shot taken with the camera upside down comes
+  out the right way up. *From the calibration* is the fallback: it corrects the
+  sensor's *mounting angle* — 91° on a OneR, so without it those renders come
+  out on their side — but ⚠️ **not** how the camera was held, so a tilted shot
+  stays tilted.
+
+`--level` forces the choice. `imu` and `calibration` fail rather than quietly
+falling back, which is what you want when comparing the two.
 
 `--field-of-view` is worth knowing about: the angle the rim of each fisheye
 circle corresponds to is **not stored in the file**. The default of 194° is
@@ -208,8 +215,8 @@ elsewhere. Three conventions matter:
 
 - [x] Container parsing, metadata, calibration, embedded previews, triage
 - [x] Equirectangular rendering, with GPano XMP so standard 360 viewers open it
-- [~] Levelling — roll is corrected on every file from the calibration; pitch
-      needs the IMU, which only some files carry
+- [~] Levelling — pitch and roll from the inertial record where there is one;
+      roll everywhere else. One camera's inertial axes are still unmeasured
 - [ ] Nextcloud app: preview provider
 - [ ] 360 viewing in Nextcloud Memories (upstream)
 - [ ] Video

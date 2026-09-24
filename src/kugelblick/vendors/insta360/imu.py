@@ -28,9 +28,12 @@ exiftool's, value for value, over files from all three cameras.
 
 ⚠️ **Most files do not carry this record at all.**  Over all 1,415 ``.insp`` in
 that library: 442 decode, 965 have no ``0x0300`` (all of them OneR -- 72% of
-that camera's stills), 6 have no trailer, and 2 carry a zero-length record.  So
-an IMU-derived horizon serves about a third of the library, and any levelling
-that has to work everywhere needs a second route.
+that camera's stills), 6 have no trailer, and 2 carry a zero-length record.  Of
+the 442 that decode, 404 belong to a camera whose axis mapping is measured, so
+an IMU-derived horizon serves a little under a third of the library and any
+levelling that has to work everywhere needs a second route --
+:func:`kugelblick.render.body_orientation`, which reaches all 1,409 files that
+carry a trailer but corrects roll only.
 """
 
 from __future__ import annotations
@@ -126,18 +129,35 @@ def gravity(path) -> tuple[float, float, float]:
 #: How each camera's inertial axes sit relative to the render's, as rows of a
 #: rotation applied to the acceleration vector.
 #:
-#: 🔴 Measured for the X5 only, and it does **not** generalise: with the camera
-#: upright an X5 reads gravity along -x and a OneR along +x, so applying the X5
-#: mapping to a OneR would hang the panorama upside down.  An X3's median
-#: reading falls between two axes and matches neither.  The measurement needs a
-#: levelled reference to score against, and only the X5 embeds one -- see
-#: ``docs/formats/insta360.md``.  Refusing here is the point: a guessed axis
-#: mapping produces a confident, wrong horizon.
+#: 🔴 **Measured per camera, never borrowed.**  Upright, an X5 reads gravity
+#: along -x and a OneR along +x, so applying one camera's mapping to another
+#: hangs the panorama upside down.  Refusing an unmeasured model is the point:
+#: a guessed axis mapping produces a confident, wrong horizon.
+#:
+#: The X5 was measured directly, against the levelled stitch it embeds.  No
+#: other camera embeds one, so the OneR was measured a second way: over enough
+#: shots the camera is upright *on average*, so the signed permutation that
+#: carries the population's median reading to vertical is the mapping.  That
+#: estimator was validated by running it on the X5 first, where it recovers the
+#: directly-measured answer.  ``docs/formats/insta360.md`` has the evidence and
+#: the failure case.
 _AXES = {
     # up_render = (az, -ax, -ay).  Fitted against 24 solved rotations, then
     # replaced by the exact signed permutation, which scored better: 2.3
     # degrees median against the camera's own levelling, versus 4.0.
     "Insta360 X5": ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
+    # up_render = (-ax, ay, -az).  From 379 stills over 31 separate days; the
+    # runner-up class of permutations sits 82 degrees away, so the choice is
+    # not marginal.  Two independent sources agree on it: this puts the median
+    # reading within 5.9 degrees of the body-up that ``Calibration.body_roll``
+    # derives from the calibration string, which knows nothing of the IMU.
+    "Insta360 OneR": ((-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, -1.0)),
+    # ⛔ Deliberately absent: the Insta360 X3.  Its readings cannot be
+    # reconciled with the camera's attitude.  Two sessions that both render
+    # level without any tilt correction give median readings 26 degrees apart,
+    # and no fixed mapping can level both; the best-fitting rotation visibly
+    # *tips* shots that were already straight.  Something about that camera's
+    # inertial record is not understood, so it is refused rather than guessed.
 }
 
 

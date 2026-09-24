@@ -71,12 +71,23 @@ into an X5 one. A reader that scans only the first megabyte finds no frame
 header, and must not conclude the file is malformed. This cost one wrong
 census.
 
-⚠️ On a OneR and X3 those `APP2` payloads **begin with their own `FFD8` start-of-image
-marker**, so the container carries at least one further JPEG that is not
-accounted for here. The X5's are filled with `0xCF` padding instead. What they
-hold is **not identified** — a second image, a gain map and a multi-picture
-index are all consistent with what has been looked at, which is only the first
-few bytes of each segment.
+✅ **What the `APP2` run holds is the preview, again.** Concatenate every
+`APP2` payload in front of the `SOF` marker and the result is **byte-identical
+to the payload of trailer record `0x0200`** — the dual-fisheye JPEG on a OneR
+and X3, the raw NV12 plane on an X5. Measured on **all 1,384 files that carry
+record `0x0200`**; the other 31 are 25 OneR stills with no preview record and
+the 6 with no trailer.
+
+So the camera writes its preview twice: once through the standard JPEG segment
+mechanism, once in the proprietary trailer. That is worth knowing because the
+first copy is reachable **without parsing the trailer at all** — reassembling
+`APP2` segments is ordinary JPEG parsing, which any imaging library already
+does. On an X5 that yields the equirectangular stitch directly.
+
+⚠️ One caveat if you take that route: the `APP2` copy is the payload **without**
+record `0x0200`'s 40-byte header, and on the X5 that header is where the NV12
+dimensions are declared. A reader that skips the trailer gets X5 pixels with no
+stated geometry.
 
 ## The trailer
 
@@ -520,11 +531,15 @@ answer different questions.
 |---|---|---|---|
 | 0 — the mounting angle | Roll about the lens axis | Nothing beyond the calibration | **1,409** |
 | 1 — solve against the stitch | All three axes | An embedded stitch (X5 only) | 25 |
-| 2 — gravity from the IMU | Pitch and roll | An IMU record *and* a measured axis mapping | 25 |
+| 2 — gravity from the IMU | Pitch and roll | An IMU record *and* a measured axis mapping | **404** |
 
-Routes 1 and 2 are the accurate ones and they reach almost nothing. Route 0 is
-partial and reaches everything, which makes it the one that changes what the
-library looks like in bulk.
+Route 0 is partial and reaches everything; route 2 is the accurate one and now
+reaches 404 files rather than 25, because the OneR's axis mapping has been
+measured. The two compose in practice: prefer gravity where it exists, fall
+back to the mounting angle where it does not.
+
+⚠️ The 404 is 379 OneR plus 25 X5. The X3 is excluded deliberately — see
+[Why the X3 is refused](#why-the-x3-is-refused).
 
 ### Route 0 — the sensor mounting angle, from the calibration alone
 
@@ -588,12 +603,78 @@ Scored end to end, against the camera's own stitch, on the same 24 files:
 | From the IMU, camera within 5° of upright | 0.82 | 14 |
 | From the IMU, camera tilted more than 5° | 0.66 | 10 |
 
-🔴 **The mapping is measured for the X5 and does not generalise.** Upright, an
-X5 reads gravity along −x and a OneR along +x; an X3's median reading falls
-between two axes and matches neither. Applying the X5 mapping to a OneR would
-hang the panorama upside down, so `imu.gravity_up` **refuses** a model it has
-not measured. Measuring one needs a levelled reference to score against, and
-only the X5 embeds one.
+🔴 **The mapping is per camera and is never borrowed.** Upright, an X5 reads
+gravity along −x and a OneR along +x — opposite signs on the same axis, so
+applying one camera's mapping to the other hangs the panorama upside down.
+`imu.gravity_up` **refuses** a model it has not measured.
+
+### Measuring the mapping without a levelled reference
+
+Only the X5 embeds a stitch, so for every other camera there is nothing to
+score a candidate mapping against. What there is instead is *a lot of files*:
+over hundreds of handheld shots the camera is upright **on average**, so the
+signed permutation that carries the population's median reading to vertical is
+the mapping.
+
+That is an assumption about photographers, not a measurement, so it was
+**validated on the X5 first** — the one camera where the answer is already
+known from its own stitch. The estimator picks `(+z, −x, −y)`: exactly the
+mapping measured directly, at 0.24° off vertical, with the next candidate class
+89.7° away.
+
+Applied to the OneR it gives:
+
+```
+up_render = (−a_x, a_y, −a_z)          # Insta360 OneR
+```
+
+| Evidence | Result |
+|---|---|
+| Files, and separate days | 379 stills over **31 dates** — per-day medians agree within ~10° |
+| Separation from the runner-up | best 6.3° off vertical, next class **81.8°** |
+| Independent cross-check | lands within **5.9°** of the body-up that `body_roll` derives from the *calibration string*, which knows nothing of the IMU |
+| Visual, on the failure cases | shots the IMU calls tilted 90–152° go from upside-down to level; shots it calls upright render identically to route 0 |
+
+That last row is the one that matters. Route 0 applies the same constant to
+every file, so it cannot straighten a tilted shot — and the near-upright
+control rules out the mapping simply rotating everything at random.
+
+⚠️ The 6.3° residual means the population's average attitude is 6° off
+vertical under this mapping. Whether that is how people hold a OneR or a small
+mounting tilt is **not established**; on the X5 the exact permutation beat a
+least-squares fit when scored against the stitch, which is weak evidence that
+the idealised permutation is right and the residual is behaviour.
+
+### Why the X3 is refused
+
+The same estimator produces an answer for the X3. It is wrong, and the way it
+fails is worth recording.
+
+No signed permutation fits at all: the best is **36.9°** off vertical, against
+0.24° for the X5. Fitting a general rotation instead does reach vertical by
+construction — and **visibly tips shots that render level without any tilt
+correction at all**.
+
+The reason is visible in the per-session medians. The X3 sample is 38 files
+over 5 days, and two of those days supply 25 of them:
+
+| Date | Files | Median reading | From the pooled median |
+|---|---|---|---|
+| 2024-05-13 | 15 | (−0.613, −0.789, +0.043) | 1.2° |
+| 2024-05-16 | 10 | (−0.599, −0.800, −0.015) | 2.3° |
+| 2024-05-14 | 6 | (−0.690, −0.724, +0.023) | 5.7° |
+| 2024-05-23 | 6 | (−0.760, −0.553, −0.340) | **26.3°** |
+| 2025-01-25 | 1 | (−0.941, −0.337, −0.022) | **32.5°** |
+
+Files from 2024-05-13 and 2024-05-23 **both render level with no tilt
+correction**, yet their inertial medians are 26° apart. No fixed mapping can
+level both. So either the X3 population is far too small and too clustered for
+this estimator — five sessions, where the OneR had thirty-one — or something
+about that camera's inertial record is not understood.
+
+Either way the honest answer is to refuse, which is what `imu.gravity_up`
+does. What would settle it: a deliberately captured set on a tripod at known
+attitudes, or a horizon estimate from the image itself.
 
 ⚠️ **Unverified: the azimuth of the gravity vector.** The tilt *magnitude* the
 IMU predicts matches the solved rotation within ±1.5° on 20 of 24 files, but the

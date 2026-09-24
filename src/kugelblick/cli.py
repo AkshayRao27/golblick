@@ -194,7 +194,7 @@ def cmd_render(args: argparse.Namespace) -> int:
 
     width = args.width
     height = width // 2
-    orientation = None if args.no_level else render.body_orientation(model)
+    orientation, levelling = _levelling(render, vendor, args.file, model, args.level)
 
     pixels, hemispheres = render.equirectangular(
         image, lenses, (width, height), args.field_of_view, orientation=orientation
@@ -208,14 +208,46 @@ def cmd_render(args: argparse.Namespace) -> int:
     print(f"{output}  ({_human(output.stat().st_size)})")
     print(f"  {width}x{height}  equirectangular  from {source.width}x{source.height}")
     print(f"  field of view  {args.field_of_view:g} degrees (fit it with --field-of-view)")
-    if orientation is None:
-        print("  levelling      none (--no-level)")
-    else:
-        print(f"  levelling      roll {model.body_roll:+.2f} degrees, from the calibration")
-        print("                 this corrects the sensor mounting, not how the camera was held")
+    print(f"  levelling      {levelling}")
     if score is not None:
         print(f"  lens agreement {score:+.3f}  (a wrong convention scores about +0.02)")
     return 0
+
+
+def _levelling(render, vendor, path: str, calibration, mode: str):
+    """Pick a levelling route and say which one was used.
+
+    Two routes, and they are not equivalent.  The inertial one knows how the
+    camera was actually held, so it fixes pitch as well as roll -- but most
+    files carry no inertial record, and the axis mapping is only measured for
+    some cameras.  The calibration one corrects the sensor's mounting angle
+    only, and works on every file.  Preferring the better route and falling
+    back is the whole point of ``auto``.
+    """
+    if mode == "none":
+        return None, "none (--level none)"
+
+    if mode in ("auto", "imu") and hasattr(vendor, "gravity_up"):
+        try:
+            up = vendor.gravity_up(path)
+        except KugelblickError:
+            if mode == "imu":
+                raise
+            note = "no usable inertial record"
+        else:
+            return render.level(up), "from gravity (inertial record): pitch and roll"
+    elif mode == "imu":
+        raise UnsupportedFile(f"{vendor.NAME} exposes no inertial record")
+    else:
+        note = "no inertial record"
+
+    if mode == "calibration":
+        note = "asked for"
+    return (
+        render.body_orientation(calibration),
+        f"roll {calibration.body_roll:+.2f} degrees from the calibration "
+        f"-- the sensor mounting, not how the camera was held ({note})",
+    )
 
 
 def _require_render_extra() -> None:
@@ -327,8 +359,11 @@ def build_parser() -> argparse.ArgumentParser:
     pano.add_argument("-f", "--field-of-view", type=float, default=194.0,
                       help="full angle each lens sees, in degrees. Not carried in the file: "
                            "measured at 194 on a OneR and X5, 192 on an X3 (default: %(default)s)")
-    pano.add_argument("--no-level", action="store_true",
-                      help="skip the calibration-derived roll correction")
+    pano.add_argument("--level", choices=("auto", "imu", "calibration", "none"),
+                      default="auto",
+                      help="auto prefers the inertial record and falls back to the "
+                           "calibration; imu and calibration force one and fail rather "
+                           "than fall back (default: %(default)s)")
     pano.set_defaults(func=cmd_render)
 
     listing = sub.add_parser("vendors", help="list supported formats")

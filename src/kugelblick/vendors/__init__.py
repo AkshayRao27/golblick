@@ -23,6 +23,11 @@ organised per vendor behind a small contract.  A vendor module provides:
     bigger or better than the thumbnail.  It reports its own encoding and
     layout, because a preview that is a fisheye pair cannot be displayed as
     a panorama and a caller has to be able to tell.
+``gravity_up(path) -> (x, y, z)``
+    Optional.  Which way is up in the render's own frame, from an inertial
+    record if the format carries one.  Must raise rather than guess for a
+    camera whose axis mapping has not been measured: a borrowed mapping
+    produces a confident, wrong horizon.
 ``extract_source(path) -> Source``
     Optional.  The full-resolution imagery the container wraps, for a renderer
     to project from.  Reports its own encoding, size and layout.  Distinct from

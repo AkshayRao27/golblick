@@ -215,3 +215,4 @@ def test_the_cli_render_command_asks_for_the_extra_rather_than_traceback(monkeyp
 
     with pytest.raises(MissingDependency, match="render"):
         cli._require_render_extra()
+

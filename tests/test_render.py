@@ -311,3 +311,68 @@ def test_body_orientation_is_a_near_identity_for_an_x5():
     )
 
     assert render.body_orientation(x5) == pytest.approx(numpy.eye(3), abs=1e-3)
+
+
+# ---------------------------------------------- levelling selection in the CLI
+
+
+class _Vendor:
+    """A stand-in vendor, so the choice is tested without needing real media."""
+
+    NAME = "stub"
+
+    def __init__(self, up=None, error=None):
+        self._up, self._error = up, error
+
+    def gravity_up(self, path):
+        if self._error is not None:
+            raise self._error
+        return self._up
+
+
+class _Calibration:
+    body_roll = -91.11
+
+
+def test_levelling_prefers_the_inertial_record():
+    import numpy
+
+    from kugelblick import cli, render
+
+    matrix, note = cli._levelling(render, _Vendor(up=(0.0, 0.0, 1.0)), "x", _Calibration(), "auto")
+
+    assert "gravity" in note
+    assert (matrix @ numpy.array([0.0, 0.0, 1.0])) == pytest.approx([0, 1, 0], abs=1e-9)
+
+
+def test_levelling_falls_back_to_the_calibration():
+    """Most files carry no usable inertial record, so the fallback is the
+    common path rather than an edge case."""
+    from kugelblick import cli, render
+    from kugelblick.errors import FormatError
+
+    vendor = _Vendor(error=FormatError("not measured for this camera"))
+    matrix, note = cli._levelling(render, vendor, "x", _Calibration(), "auto")
+
+    assert "calibration" in note and "no usable inertial record" in note
+    assert matrix == pytest.approx(render.body_orientation(_Calibration()))
+
+
+def test_forcing_the_inertial_route_refuses_rather_than_falling_back():
+    """--level imu means 'fail if you cannot', so a silent downgrade to a
+    worse horizon is not possible."""
+    from kugelblick import cli, render
+    from kugelblick.errors import FormatError
+
+    vendor = _Vendor(error=FormatError("not measured for this camera"))
+
+    with pytest.raises(FormatError):
+        cli._levelling(render, vendor, "x", _Calibration(), "imu")
+
+
+def test_levelling_can_be_turned_off():
+    from kugelblick import cli, render
+
+    matrix, note = cli._levelling(render, _Vendor(up=(0.0, 0.0, 1.0)), "x", _Calibration(), "none")
+
+    assert matrix is None and "none" in note

@@ -31,9 +31,10 @@ OneR: fine for a thumbnail, wrong for an export.
 segments -- 10 or 11 on a OneR and X3, 76 on the X5 measured -- before the
 SOF marker, so it sits 0.6 MB into a OneR file and 4.9 MB into an X5 one.  A
 reader that caps how much it scans looking for the dimensions will find
-nothing and must not conclude the file is malformed.  On a OneR and X3 those
-APP2 payloads begin with their own JPEG start-of-image marker, so the
-container carries at least one further image that is not yet identified.
+nothing and must not conclude the file is malformed.  Those APP2 payloads
+concatenate to a byte-identical copy of trailer record 0x0200's payload -- the
+camera writes its preview twice -- measured on all 1,384 files that carry that
+record.  ``docs/formats/insta360.md`` owns the detail.
 
 ⚠️ **The layout is the lens pair, not a panorama** -- on every camera, unlike
 record ``0x0200``, where an X5 stores a stitch.  Nothing here is viewable as a
