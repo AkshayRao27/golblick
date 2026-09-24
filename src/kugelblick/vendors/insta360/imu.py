@@ -127,7 +127,17 @@ def gravity(path) -> tuple[float, float, float]:
 
 
 #: How each camera's inertial axes sit relative to the render's, as rows of a
-#: rotation applied to the acceleration vector.
+#: linear map applied to the acceleration vector.
+#:
+#: 🔴 **The X5's map is a reflection, not a rotation** -- its determinant is
+#: -1.  That is not a mistake and must not be "fixed" by flipping a sign back:
+#: it says the stored triple, *as this module labels it*, is not a right-handed
+#: (x, y, z) on that camera.  Two components transposed or one inverted in the
+#: camera's own convention would both produce it, and nothing measured
+#: distinguishes those, so the composite is recorded rather than a story about
+#: which axis is which.  The OneR's map is a proper rotation, and the
+#: difference is per camera rather than per encoding -- both of the OneR's two
+#: entry encodings were checked.
 #:
 #: 🔴 **Measured per camera, never borrowed.**  Upright, an X5 reads gravity
 #: along -x and a OneR along +x, so applying one camera's mapping to another
@@ -142,10 +152,14 @@ def gravity(path) -> tuple[float, float, float]:
 #: directly-measured answer.  ``docs/formats/insta360.md`` has the evidence and
 #: the failure case.
 _AXES = {
-    # up_render = (az, -ax, -ay).  Fitted against 24 solved rotations, then
-    # replaced by the exact signed permutation, which scored better: 2.3
-    # degrees median against the camera's own levelling, versus 4.0.
-    "Insta360 X5": ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
+    # up_render = (-az, -ax, -ay).  Determinant -1; see above.  The sign on
+    # the first component was wrong until 2026-09-24, which left the tilt
+    # *magnitude* right and its *azimuth* mirrored -- the reason no constant
+    # offset ever reconciled the two.  Against the camera's own stitch the
+    # correction moves tilted frames from 0.674 to 0.832 and leaves upright
+    # ones alone, and it cuts the disagreement with the solved rotation from
+    # 13.97 degrees median to 1.69.
+    "Insta360 X5": ((0.0, 0.0, -1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
     # up_render = (-ax, ay, -az).  From 379 stills over 31 separate days; the
     # runner-up class of permutations sits 82 degrees away, so the choice is
     # not marginal.  Two independent sources agree on it: this puts the median

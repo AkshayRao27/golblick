@@ -590,18 +590,28 @@ an exact signed permutation, and **the exact permutation scored better than the
 fit** — 2.3° median error against the camera's own levelling, versus 4.0°:
 
 ```
-up_render = (a_z, −a_x, −a_y)          # Insta360 X5 only
+up_render = (−a_z, −a_x, −a_y)         # Insta360 X5
 ```
+
+🔴 **That map is a reflection — its determinant is −1**, and that is a
+measurement, not a slip. It says the stored triple, *as decoded here*, is not
+a right-handed (x, y, z) on this camera. Two components transposed, or one
+inverted in the camera's own convention, would both produce it and nothing
+measured distinguishes them, so the composite is recorded rather than a story
+about which axis is which. ⚠️ The OneR's map **is** a proper rotation, and the
+difference is per camera and not per encoding — both of the OneR's entry
+encodings were checked against tilted frames.
 
 Scored end to end, against the camera's own stitch, on the same 24 files:
 
-| | Correlation | n |
-|---|---|---|
-| No levelling | 0.18 | 24 |
-| **From the IMU alone** | **0.80** | 24 |
-| Solved against the stitch (ceiling) | 0.88 | 24 |
-| From the IMU, camera within 5° of upright | 0.82 | 14 |
-| From the IMU, camera tilted more than 5° | 0.66 | 10 |
+| | All | Upright (≤5°) | Tilted (>5°) |
+|---|---|---|---|
+| No levelling | 0.33 | 0.54 | 0.30 |
+| From the IMU, before the sign fix | 0.83 | 0.88 | 0.67 |
+| **From the IMU** | **0.86** | 0.87 | **0.83** |
+| Solved against the stitch (ceiling) | 0.88 | | |
+
+n = 25, of which 14 upright and 11 tilted.
 
 🔴 **The mapping is per camera and is never borrowed.** Upright, an X5 reads
 gravity along −x and a OneR along +x — opposite signs on the same axis, so
@@ -676,13 +686,29 @@ Either way the honest answer is to refuse, which is what `imu.gravity_up`
 does. What would settle it: a deliberately captured set on a tripod at known
 attitudes, or a horizon estimate from the image itself.
 
-⚠️ **Unverified: the azimuth of the gravity vector.** The tilt *magnitude* the
-IMU predicts matches the solved rotation within ±1.5° on 20 of 24 files, but the
-azimuth of that tilt does not, and the disagreement grows with tilt — which is
-why the tilted files score 0.66 rather than 0.82. A rotation about the vertical
-of the IMU's own frame would produce exactly this signature, but no single
-offset fits all the files, so the cause is **not established**. The near-upright
-case, which is most photographs, is unaffected.
+### ✅ The azimuth disagreement, explained
+
+This document previously recorded an unexplained anomaly: the tilt *magnitude*
+the IMU predicted matched the solved rotation within ±1.5°, the *azimuth* did
+not, the error grew with tilt, and **no single offset fitted**.
+
+The reason no offset fitted is that it was never an offset. Comparing the two
+per file, the azimuths are **negatives of each other** — a reflection, which no
+rotation about the vertical can express:
+
+| | Disagreement with the solved rotation, tilted frames |
+|---|---|
+| As it was | 13.97° median, 71.14° worst |
+| Mirroring the x component | **1.69° median, 10.39° worst** |
+
+So one sign in the X5's axis map was wrong, in the one component that leaves
+the tilt magnitude untouched while flipping its direction. That is why the
+magnitude always looked right. Corrected above; the end-to-end scores in the
+table are after the fix.
+
+⚠️ What remains: the two worst frames are still ~10° out, and they are the two
+most tilted in the library (50° and 47°). Whether that is accelerometer error
+under motion, or something else, is not established.
 
 ## A measured baseline for naive stitching
 

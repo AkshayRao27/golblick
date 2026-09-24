@@ -241,8 +241,15 @@ the meaning of the stored lens angles.
 🔴 It compares the lenses to each other, not to the world, so it is blind to the
 absolute orientation of the result — a render that scores well can still be
 upside down. Orientation has to come from somewhere else: the sensor mounting
-angle in the calibration (every file), the camera's own stitch (X5 only), or
-the gravity vector in the IMU record (about a third of files).
+angle in the calibration (every file), the camera's own stitch (one camera
+only), or the gravity vector in the inertial record (about a third of files).
+
+Where a camera embeds its own levelled stitch, levelling can be scored against
+it properly. Correlation with that reference: **0.33** unlevelled, **0.86**
+from the inertial record, **0.88** for the best rotation solvable against the
+reference itself. So the inertial route gets most of the way to the ceiling
+without using the reference at all — which matters, because most cameras do
+not provide one.
 
 ⚠️ Treating that blind spot as a property of the *format* rather than of the
 *metric* is what left every OneR render lying on its side for a while. The

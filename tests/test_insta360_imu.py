@@ -176,3 +176,33 @@ def test_gravity_up_refuses_a_camera_whose_axes_are_unmeasured(tmp_path):
 
     with pytest.raises(FormatError, match="has not been measured"):
         imu.gravity_up(path)
+
+
+def test_the_x5_map_is_a_reflection_and_the_oner_a_rotation():
+    """Guards a finding that looks exactly like a bug.
+
+    The X5's map has determinant -1: the stored triple, as this module labels
+    it, is not right-handed on that camera.  Flipping the sign back to make it
+    a proper rotation would restore the mirrored tilt azimuth that cost tilted
+    frames 0.16 of correlation against the camera's own stitch.
+    """
+    def determinant(rows):
+        (a, b, c), (d, e, f), (g, h, i) = rows
+        return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+
+    assert determinant(imu._AXES["Insta360 X5"]) == pytest.approx(-1.0)
+    assert determinant(imu._AXES["Insta360 OneR"]) == pytest.approx(1.0)
+
+
+def test_gravity_up_is_still_vertical_for_a_level_x5(tmp_path):
+    """The sign correction must not disturb the upright case -- it did not,
+    measured: 0.877 to 0.874 against the stitch, where tilted frames moved
+    0.674 to 0.832."""
+    path = write_file(tmp_path / "m.insp", [
+        (METADATA, model_record("Insta360 X5")),
+        (IMU, biased(1000, LEVEL_X5)),
+    ])
+
+    up = imu.gravity_up(path)
+
+    assert up[1] > 0.999, f"a level X5 should still point straight up, got {up}"
