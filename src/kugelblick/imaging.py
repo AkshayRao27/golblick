@@ -16,6 +16,8 @@ from __future__ import annotations
 import struct
 import zlib
 
+from . import gpano
+
 # Index by ``value + _BIAS`` to clamp into 0..255 without a branch per channel.
 _BIAS = 512
 _CLAMP = bytes(min(255, max(0, index - _BIAS)) for index in range(2 * _BIAS + 256))
@@ -62,8 +64,13 @@ def _chunk(tag: bytes, payload: bytes) -> bytes:
     )
 
 
-def write_png(rgb: bytes, width: int, height: int) -> bytes:
-    """Encode packed RGB as a PNG."""
+def write_png(rgb: bytes, width: int, height: int, xmp: bytes | None = None) -> bytes:
+    """Encode packed RGB as a PNG, optionally carrying an XMP packet.
+
+    ``xmp`` goes in an ``iTXt`` chunk between IHDR and IDAT -- metadata before
+    pixels, so a reader that stops at the first IDAT still sees it.  Build one
+    with :func:`kugelblick.gpano.packet`.
+    """
     if len(rgb) != width * height * 3:
         raise ValueError(f"RGB {width}x{height} needs {width * height * 3} bytes, got {len(rgb)}")
 
@@ -72,9 +79,11 @@ def write_png(rgb: bytes, width: int, height: int) -> bytes:
     raw = b"".join(
         b"\x00" + rgb[y * width * 3 : (y + 1) * width * 3] for y in range(height)
     )
+    text = b"" if xmp is None else gpano.png_chunk(xmp)
     return (
         b"\x89PNG\r\n\x1a\n"
         + _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + text
         + _chunk(b"IDAT", zlib.compress(raw, 6))
         + _chunk(b"IEND", b"")
     )

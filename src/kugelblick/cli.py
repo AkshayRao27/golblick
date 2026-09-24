@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import imaging, triage
-from .errors import KugelblickError, UnsupportedFile
+from .errors import KugelblickError, MissingDependency, UnsupportedFile
 from .vendors import VENDORS, detect
 
 
@@ -169,6 +169,115 @@ def cmd_preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_render(args: argparse.Namespace) -> int:
+    """Project a file's lens pair into a viewable equirectangular panorama."""
+    # Imported here, not at module scope: rendering needs the `render` extra
+    # and the rest of the CLI must keep working without it.
+    from . import gpano, render
+
+    _require_render_extra()
+    vendor = _require_vendor(args.file)
+    if not hasattr(vendor, "extract_source"):
+        raise UnsupportedFile(f"{vendor.NAME} exposes no full-resolution frame to project")
+
+    info = vendor.describe(args.file)
+    calibrations = info["calibrations"]
+    model = calibrations.get(5)
+    if model is None:
+        raise UnsupportedFile(
+            f"{args.file}: no equidistant calibration, so the lens geometry is unknown"
+        )
+
+    source = vendor.extract_source(args.file)
+    image = _decode_jpeg(source.data)
+    lenses = render.lenses_from_calibration(model, source.width)
+
+    width = args.width
+    height = width // 2
+    orientation = None if args.no_level else render.body_orientation(model)
+
+    pixels, hemispheres = render.equirectangular(
+        image, lenses, (width, height), args.field_of_view, orientation=orientation
+    )
+    score = render.overlap_agreement(hemispheres)
+
+    xmp = gpano.packet(width, height, software=f"kugelblick {_version()}")
+    output = Path(args.output) if args.output else Path(args.file).with_suffix(".pano.jpg")
+    _write_image(output, pixels, xmp, args.quality)
+
+    print(f"{output}  ({_human(output.stat().st_size)})")
+    print(f"  {width}x{height}  equirectangular  from {source.width}x{source.height}")
+    print(f"  field of view  {args.field_of_view:g} degrees (fit it with --field-of-view)")
+    if orientation is None:
+        print("  levelling      none (--no-level)")
+    else:
+        print(f"  levelling      roll {model.body_roll:+.2f} degrees, from the calibration")
+        print("                 this corrects the sensor mounting, not how the camera was held")
+    if score is not None:
+        print(f"  lens agreement {score:+.3f}  (a wrong convention scores about +0.02)")
+    return 0
+
+
+def _require_render_extra() -> None:
+    """Fail with an instruction, not an ImportError from three frames down."""
+    missing = []
+    for module, name in (("numpy", "numpy"), ("PIL", "pillow")):
+        try:
+            __import__(module)
+        except ImportError:
+            missing.append(name)
+    if missing:
+        raise MissingDependency(
+            f"rendering needs {' and '.join(missing)}, which the 'render' extra "
+            f"installs: pip install 'kugelblick[render]'"
+        )
+
+
+def _version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("kugelblick")
+    except PackageNotFoundError:  # pragma: no cover - running from a source tree
+        return "dev"
+
+
+def _decode_jpeg(data: bytes):
+    from io import BytesIO
+
+    import numpy
+    from PIL import Image
+
+    # The frame is tens of megapixels, which trips Pillow's decompression-bomb
+    # guard.  It is our own camera's file and we have already proved the
+    # container parses, so raise the ceiling rather than refuse it.
+    Image.MAX_IMAGE_PIXELS = None
+    return numpy.asarray(Image.open(BytesIO(data)).convert("RGB"))
+
+
+def _write_image(output: Path, pixels, xmp: bytes, quality: int) -> None:
+    from io import BytesIO
+
+    import numpy
+    from PIL import Image
+
+    from . import gpano, imaging
+
+    frame = numpy.clip(pixels, 0, 255).astype(numpy.uint8)
+    height, width = frame.shape[:2]
+
+    if output.suffix.lower() == ".png":
+        # Our own writer, so the XMP goes in exactly the chunk we intend.
+        output.write_bytes(imaging.write_png(frame.tobytes(), width, height, xmp=xmp))
+        return
+
+    buffer = BytesIO()
+    Image.fromarray(frame).save(buffer, format="JPEG", quality=quality, subsampling=0)
+    # Pillow encodes the pixels; we write the metadata, so the packet is the
+    # one gpano built and not whatever Pillow's XMP support does this release.
+    output.write_bytes(gpano.embed_jpeg(buffer.getvalue(), xmp))
+
+
 def cmd_vendors(args: argparse.Namespace) -> int:
     for vendor in VENDORS:
         extensions = " ".join(sorted(f".{e}" for e in vendor.EXTENSIONS))
@@ -203,6 +312,24 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("file")
     full.add_argument("-o", "--output")
     full.set_defaults(func=cmd_preview)
+
+    pano = sub.add_parser(
+        "render",
+        help="project the lens pair into a viewable equirectangular panorama",
+        description="Needs the 'render' extra: pip install kugelblick[render]",
+    )
+    pano.add_argument("file")
+    pano.add_argument("-o", "--output", help="output path; .png writes PNG, anything else JPEG")
+    pano.add_argument("-w", "--width", type=int, default=4096,
+                      help="output width in pixels; height is half (default: %(default)s)")
+    pano.add_argument("-q", "--quality", type=int, default=92,
+                      help="JPEG quality (default: %(default)s)")
+    pano.add_argument("-f", "--field-of-view", type=float, default=194.0,
+                      help="full angle each lens sees, in degrees. Not carried in the file: "
+                           "measured at 194 on a OneR and X5, 192 on an X3 (default: %(default)s)")
+    pano.add_argument("--no-level", action="store_true",
+                      help="skip the calibration-derived roll correction")
+    pano.set_defaults(func=cmd_render)
 
     listing = sub.add_parser("vendors", help="list supported formats")
     listing.set_defaults(func=cmd_vendors)

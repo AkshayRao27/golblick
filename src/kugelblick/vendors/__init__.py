@@ -23,6 +23,11 @@ organised per vendor behind a small contract.  A vendor module provides:
     bigger or better than the thumbnail.  It reports its own encoding and
     layout, because a preview that is a fisheye pair cannot be displayed as
     a panorama and a caller has to be able to tell.
+``extract_source(path) -> Source``
+    Optional.  The full-resolution imagery the container wraps, for a renderer
+    to project from.  Reports its own encoding, size and layout.  Distinct from
+    ``extract_preview`` on purpose: a preview is what the camera chose to show,
+    and is typically a small fraction of the pixels.
 
 Adding a vendor means writing a module with those names and listing it in
 ``VENDORS`` -- nothing else in the package needs to change.

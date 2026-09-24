@@ -52,6 +52,32 @@ HEVC streams at 59.94 fps, around 154 Mbps combined.
 An `.lrv` is a *proxy*, not a preview: it is dual fisheye too, so it is no more
 viewable than the master. It exists for scrubbing in the phone app.
 
+### Getting the full-resolution frame out
+
+For a `.insp` this costs nothing: the JPEG is everything in front of the
+trailer, so the frame comes out by slicing the file at the trailer offset. No
+decoding, no re-encoding, no vendor software. `kugelblick render` projects from
+this rather than from record `0x0200`, which is a twentieth of the pixels on a
+OneR.
+
+Worth checking that the slice ends on `FFD9`. The trailer is appended after the
+JPEG's own end marker, so the two boundaries must coincide; if they do not, the
+trailer was misparsed and everything downstream is built on it.
+
+⚠️ **The frame header is a long way in.** These files carry a run of `APP2`
+segments in front of the `SOF` marker — 10 or 11 on a OneR and X3, 76 on the X5
+measured — so the dimensions sit about **0.6 MB** into a OneR file and **4.9 MB**
+into an X5 one. A reader that scans only the first megabyte finds no frame
+header, and must not conclude the file is malformed. This cost one wrong
+census.
+
+⚠️ On a OneR and X3 those `APP2` payloads **begin with their own `FFD8` start-of-image
+marker**, so the container carries at least one further JPEG that is not
+accounted for here. The X5's are filled with `0xCF` padding instead. What they
+hold is **not identified** — a second image, a gain map and a multi-picture
+index are all consistent with what has been looked at, which is only the first
+few bytes of each segment.
+
 ## The trailer
 
 Appended after the container's own data, so standard decoders never see it.

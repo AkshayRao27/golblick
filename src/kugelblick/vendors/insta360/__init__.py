@@ -12,6 +12,8 @@ from . import metadata as _metadata
 from .naming import EXTENSIONS, classify
 from .preview import Preview
 from .preview import extract as extract_preview
+from .source import Source
+from .source import extract as extract_source
 from .thumbnail import extract as extract_thumbnail
 from .trailer import MAGIC, METADATA, Record, Trailer, read_trailer
 
@@ -26,10 +28,12 @@ __all__ = [
     "NAME",
     "Preview",
     "Record",
+    "Source",
     "Trailer",
     "classify",
     "describe",
     "extract_preview",
+    "extract_source",
     "extract_thumbnail",
     "matches",
     "read_trailer",

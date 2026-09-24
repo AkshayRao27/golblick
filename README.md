@@ -20,11 +20,11 @@ things with their own footage — including working out which clips they still
 have. It turns out the necessary information is already in the files, in plain
 ASCII, readable without any proprietary code.
 
-Status: **early.** Reading, inspection and triage work. Rendering is partly
-there: the projection is built and validated on three camera models, but the
-result is not yet levelled, so it comes out correctly stitched and arbitrarily
-oriented. There is no `stitch` command until that is fixed — see
-[Roadmap](#roadmap).
+Status: **early, but it renders now.** Reading, inspection and triage work, and
+`kugelblick render` turns a still into an equirectangular panorama with the
+GPano metadata that makes standard 360 viewers open it as a sphere. The horizon
+is levelled for roll; pitch is not yet, so a shot taken with the camera tilted
+comes out tilted. See [Roadmap](#roadmap).
 
 ## Supported formats
 
@@ -139,11 +139,58 @@ constraint on the rendering work rather than a gap in the reader.
 `kugelblick thumb` still extracts the small EXIF thumbnail, with the same
 caveat: it is a stitch on an X5 and the fisheye pair everywhere else.
 
+### Render a panorama
+
+`render` projects the lens pair into an equirectangular image and writes the
+GPano XMP that tells a viewer it is a sphere rather than a wide photograph.
+It needs the `render` extra.
+
+```sh
+$ kugelblick render IMG_20260314_090809_00_007.insp -o pano.jpg -w 4096
+  pano.jpg  (1.9 MiB)
+    4096x2048  equirectangular  from 6080x3040
+    field of view  194 degrees (fit it with --field-of-view)
+    levelling      roll -91.11 degrees, from the calibration
+                   this corrects the sensor mounting, not how the camera was held
+    lens agreement +0.858  (a wrong convention scores about +0.02)
+```
+
+It projects from the **full-resolution frame**, not the embedded preview — on a
+OneR that is 6080×3040 rather than 1920×960. Output is JPEG unless the filename
+ends in `.png`.
+
+Two numbers in that output are worth reading rather than ignoring:
+
+- **Lens agreement** scores the render against itself, by correlating the two
+  lenses where they overlap. Around +0.7 to +0.9 is a correct projection; +0.02
+  means something is wrong. See [How accuracy is measured](#how-accuracy-is-measured).
+- **Levelling** is derived from the calibration, so it costs nothing and works
+  on every file. ⚠️ It corrects the *sensor mounting angle* — which is 91° on a
+  OneR, so without it those renders come out on their side — and **not** the
+  camera's attitude. A handheld shot that was tilted stays tilted.
+
+`--field-of-view` is worth knowing about: the angle the rim of each fisheye
+circle corresponds to is **not stored in the file**. The default of 194° is
+right for a OneR and an X5; an X3 wants 192.
+
+#### What the metadata does and does not claim
+
+The geometry fields are written, including the cropped-area fields — a partial
+panorama without them gets stretched around the whole sphere, which looks
+plausible rather than broken.
+
+The **pose** fields are deliberately omitted. `PoseHeadingDegrees` would state
+which compass direction the centre faces, and nothing in the file fixes that;
+`PosePitchDegrees` and `PoseRollDegrees` would assert the panorama is level,
+which is only as true as the levelling. A viewer that finds no pose fields
+assumes an unknown heading and a level horizon, which is the honest claim.
+Writing a fabricated `0.0` would be indistinguishable from a measured one.
+
 ## Adding a vendor
 
 A vendor is a module exposing `NAME`, `DESCRIPTION`, `EXTENSIONS`, and the
-functions `matches`, `classify`, `describe` and `extract_thumbnail`, plus an
-optional `extract_preview`. Listing it in `VENDORS` is the only change needed
+functions `matches`, `classify`, `describe` and `extract_thumbnail`, plus the
+optional `extract_preview` and `extract_source`. Listing it in `VENDORS` is the only change needed
 elsewhere. Three conventions matter:
 
 - **Detect by content, not extension.** `matches()` should sniff the file, so a
@@ -160,9 +207,9 @@ elsewhere. Three conventions matter:
 ## Roadmap
 
 - [x] Container parsing, metadata, calibration, embedded previews, triage
-- [~] Equirectangular rendering — projection and accuracy harness done; the
-      output still needs levelling before it is worth a command
-- [ ] GPano XMP output, so standard 360 viewers work
+- [x] Equirectangular rendering, with GPano XMP so standard 360 viewers open it
+- [~] Levelling — roll is corrected on every file from the calibration; pitch
+      needs the IMU, which only some files carry
 - [ ] Nextcloud app: preview provider
 - [ ] 360 viewing in Nextcloud Memories (upstream)
 - [ ] Video
@@ -186,7 +233,13 @@ the meaning of the stored lens angles.
 
 🔴 It compares the lenses to each other, not to the world, so it is blind to the
 absolute orientation of the result — a render that scores well can still be
-upside down. That is exactly the gap that remains.
+upside down. Orientation has to come from somewhere else: the sensor mounting
+angle in the calibration (every file), the camera's own stitch (X5 only), or
+the gravity vector in the IMU record (about a third of files).
+
+⚠️ Treating that blind spot as a property of the *format* rather than of the
+*metric* is what left every OneR render lying on its side for a while. The
+absolute lens angle was in the calibration string the whole time.
 
 ## Prior art
 

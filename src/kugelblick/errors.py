@@ -20,3 +20,12 @@ class FormatError(KugelblickError):
 
 class ThumbnailError(KugelblickError):
     """No embedded preview image could be extracted."""
+
+
+class MissingDependency(KugelblickError):
+    """An optional extra is needed for this operation and is not installed.
+
+    The library and CLI are dependency-free on purpose, so the one thing that
+    is not -- rendering -- has to fail with an instruction rather than a
+    traceback from somewhere deep in an import.
+    """

@@ -75,7 +75,7 @@ class Preview:
         return self.layout == EQUIRECTANGULAR
 
 
-def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
+def jpeg_dimensions(data: bytes) -> tuple[int, int]:
     """Read width and height from a JPEG's frame header."""
     pos = 2
     while pos + 4 <= len(data):
@@ -101,7 +101,7 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
 def parse(data: bytes) -> Preview:
     """Interpret the payload of record ``0x0200``."""
     if data[:2] == _SOI:
-        width, height = _jpeg_dimensions(data)
+        width, height = jpeg_dimensions(data)
         return Preview("jpeg", width, height, DUAL_FISHEYE, data)
 
     if len(data) < _NV12_HEADER:
