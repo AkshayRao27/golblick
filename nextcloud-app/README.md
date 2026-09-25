@@ -31,6 +31,27 @@ conversion and nothing else.
 A 1024 px preview through the full Nextcloud stack, including PNG encoding and
 storage, costs roughly half a second. It is generated once and cached.
 
+Re-verified on Nextcloud 35 with the app installed, running against the
+container's own PHP at `memory_limit=128M`: 305 of 311 rendered, 6 declined for
+carrying no trailer, **zero errors**, 40 ms median.
+
+### Memory
+
+⚠️ The **full-resolution fallback** is the only path here that can be large. GD
+decodes to four bytes a pixel whatever size the output is, and offers no way to
+decode a JPEG at reduced scale, so an 18 MP frame needs about 70 MB and a 72 MP
+one about 290 MB. The renderer checks the frame's dimensions before decoding and
+**refuses rather than exhausting the limit**, because running out of memory
+inside `imagecreatefromstring` is a fatal error that takes the whole request
+with it instead of raising something catchable.
+
+⚠️ The six trailer-less files fall through to Nextcloud's own JPEG provider,
+which then has to decode a full-resolution dual-fisheye frame itself. Depending
+on `preview_max_memory` (core's default is 256 MB, compared against
+`width * height * 4`) core may refuse them too, or run out of memory. That is a
+consequence of mapping `.insp` to `image/jpeg` — it makes these files visible to
+a provider that would otherwise never have been offered them.
+
 ## Install
 
 ```sh

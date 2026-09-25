@@ -99,7 +99,6 @@ final class Insta360 implements IProviderV2 {
 			ob_start();
 			imagepng($rendered, null, 6);
 			$png = (string)ob_get_clean();
-			imagedestroy($rendered);
 
 			$image = new Image();
 			$image->loadFromData($png);
@@ -164,16 +163,16 @@ final class Insta360 implements IProviderV2 {
 		// instead. It is the same geometry, just twenty times the pixels, so
 		// it is a fallback and not the default.
 		$encoded = $preview !== null ? $preview->data : $trailer->sourceFrame($handle);
+		if ($preview === null) {
+			Equirectangular::refuseIfTooBigToDecode($encoded);
+		}
 
 		$source = imagecreatefromstring($encoded);
 		if ($source === false) {
 			throw new FormatError('the frame is not a decodable image');
 		}
 
-		try {
-			return Equirectangular::fromLensPair($source, $calibration, $width);
-		} finally {
-			imagedestroy($source);
-		}
+		return Equirectangular::fromLensPair($source, $calibration, $width);
 	}
+
 }

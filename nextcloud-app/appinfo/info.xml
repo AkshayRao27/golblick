@@ -26,6 +26,6 @@ stays tilted.
     <dependencies>
         <php min-version="8.1"/>
         <lib>gd</lib>
-        <nextcloud min-version="30" max-version="33"/>
+        <nextcloud min-version="30" max-version="35"/>
     </dependencies>
 </info>

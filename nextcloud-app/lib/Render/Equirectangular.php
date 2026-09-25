@@ -57,6 +57,68 @@ final class Equirectangular {
 	private const FEATHER_DEGREES = 5.0;
 
 	/**
+	 * Refuse a full-resolution frame that will not fit in memory.
+	 *
+	 * ⚠️ This guards the *fallback* path only. The embedded preview is a couple
+	 * of megapixels and always fits; the full frame is 18 to 72, and GD decodes
+	 * to four bytes a pixel whatever size the output is, with no way to decode
+	 * at reduced scale.
+	 *
+	 * 🔴 It has to be a check and not a try/catch, because exhausting the PHP
+	 * memory limit is a fatal error: it takes the whole request down rather
+	 * than raising something this class could catch and decline on. Measured on
+	 * a real server, an 18.5 MP frame peaked at 89 MB, which is already over
+	 * what a 128 MB limit leaves once the framework is loaded.
+	 *
+	 * Nextcloud's own guard is the same shape -- see checkImageMemory() in
+	 * lib/private/Image.php, which compares width * height * 4 against
+	 * preview_max_memory.
+	 */
+	public static function refuseIfTooBigToDecode(string $encoded): void {
+		$size = @getimagesizefromstring($encoded);
+		if ($size === false) {
+			return;   // let imagecreatefromstring be the one to complain
+		}
+
+		$limit = self::memoryLimitBytes();
+		if ($limit <= 0) {
+			return;   // unlimited
+		}
+
+		// Four bytes a pixel for the truecolour buffer, plus the encoded
+		// string we are already holding, plus a little headroom.
+		$needed = $size[0] * $size[1] * 4 + \strlen($encoded);
+		$spare = $limit - memory_get_usage(true);
+		if ($needed > $spare * 0.9) {
+			throw new FormatError(sprintf(
+				'the full-resolution frame is %.1f MP and needs about %d MB to decode, '
+					. 'but only %d MB is left of the %d MB memory limit; '
+					. 'raise memory_limit to render this file',
+				$size[0] * $size[1] / 1e6,
+				(int)($needed / 1048576),
+				(int)($spare / 1048576),
+				(int)($limit / 1048576),
+			));
+		}
+	}
+
+	/** The PHP memory limit in bytes, or -1 when it is unlimited. */
+	private static function memoryLimitBytes(): int {
+		$raw = trim((string)ini_get('memory_limit'));
+		if ($raw === '' || $raw === '-1') {
+			return -1;
+		}
+
+		$value = (int)$raw;
+		return match (strtolower(substr($raw, -1))) {
+			'g' => $value * 1024 * 1024 * 1024,
+			'm' => $value * 1024 * 1024,
+			'k' => $value * 1024,
+			default => $value,
+		};
+	}
+
+	/**
 	 * @param \GdImage $source the dual-fisheye frame
 	 * @return \GdImage an equirectangular frame, $width x $width/2
 	 */
@@ -180,10 +242,6 @@ final class Equirectangular {
 				}
 				imagesetpixel($out, $px, $py, $colour);
 			}
-		}
-
-		if ($scaled !== $source) {
-			imagedestroy($scaled);
 		}
 
 		return $out;
