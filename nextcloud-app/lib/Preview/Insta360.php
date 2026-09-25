@@ -50,6 +50,23 @@ use Psr\Log\LoggerInterface;
  */
 final class Insta360 implements IProviderV2 {
 	/**
+	 * How far gravity may disagree with the calibration before it is refused.
+	 *
+	 * 🔴 The inertial record is not trustworthy everywhere, and the failures
+	 * are not random -- they correlate with how large a tilt the reading
+	 * claims. Rendering fifteen OneR stills grouped by that figure: every one
+	 * below 40 degrees came out level, and every one above came out visibly
+	 * wrong. The likely reason is that a camera being swung on a stick has
+	 * linear acceleration in the median as well as gravity, which both spoils
+	 * the direction and inflates the apparent tilt, so the two arrive together.
+	 *
+	 * ⚠️ The cost is that a genuinely steep shot is refused along with the
+	 * bad readings; it keeps the calibration's roll correction, which is what
+	 * it had before. Better than confidently standing it on its side.
+	 */
+	private const MAX_TRUSTED_TILT = 35.0;
+
+	/**
 	 * Longer than core's '/image\/jpeg/', which is how this gets first refusal.
 	 * See the class docstring.
 	 */
@@ -201,11 +218,15 @@ final class Insta360 implements IProviderV2 {
 	 * exception.
 	 */
 	private static function orientationFor(Trailer $trailer, array $fields, Calibration $calibration): array {
+		$fallback = Orientation::fromRoll($calibration->bodyRoll());
 		$record = $trailer->get(Trailer::IMU);
 		$model = Protobuf::firstText($fields, Protobuf::MODEL);
 		if ($record !== null && $model !== null) {
 			try {
-				return Orientation::level(Imu::gravityUp($record, $model));
+				$up = Imu::gravityUp($record, $model);
+				if (self::tiltDegrees($fallback, $up) <= self::MAX_TRUSTED_TILT) {
+					return Orientation::level($up);
+				}
 			} catch (FormatError $e) {
 				// An unmeasured camera, an unreadable record or a reading too
 				// small to be gravity. None of those is a reason to refuse the
@@ -214,7 +235,20 @@ final class Insta360 implements IProviderV2 {
 			}
 		}
 
-		return Orientation::fromRoll($calibration->bodyRoll());
+		return $fallback;
+	}
+
+	/**
+	 * How far the gravity vector is from where the calibration puts the zenith.
+	 *
+	 * ⚠️ The renderer applies the transpose, so the output's zenith is
+	 * (R^T . e_y)_i = sum_j R[j][i] (e_y)_j, i.e. ROW 1 of R -- not column 1.
+	 */
+	private static function tiltDegrees(array $rotation, array $up): float {
+		$zenith = [$rotation[1][0], $rotation[1][1], $rotation[1][2]];
+		$dot = $zenith[0] * $up[0] + $zenith[1] * $up[1] + $zenith[2] * $up[2];
+
+		return rad2deg(acos(max(-1.0, min(1.0, $dot))));
 	}
 
 }
