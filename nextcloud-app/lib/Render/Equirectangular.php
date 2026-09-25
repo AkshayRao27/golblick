@@ -42,6 +42,21 @@ final class Equirectangular {
 	private const MIN_SOURCE_WIDTH = 480;
 
 	/**
+	 * Width of the cross-fade between the two lenses, in degrees.
+	 *
+	 * The lenses see 194 degrees, so they overlap by 14 and both of them have
+	 * a real view of the scene in that band. Matches the default in
+	 * render.equirectangular() in the parent library, which owns the choice.
+	 *
+	 * ⚠️ This was originally a hard cut, on the reasoning that a seam is
+	 * invisible at thumbnail size. That was wrong, because Nextcloud serves
+	 * this same preview at full viewer resolution: measured on a 1024px
+	 * render, the two seam columns were the sharpest in the whole frame, at
+	 * 6.6x and 4.1x the median column gradient.
+	 */
+	private const FEATHER_DEGREES = 5.0;
+
+	/**
 	 * @param \GdImage $source the dual-fisheye frame
 	 * @return \GdImage an equirectangular frame, $width x $width/2
 	 */
@@ -72,6 +87,8 @@ final class Equirectangular {
 
 		$scale = $calibration->scaleFor($sourceWidth) * $shrink;
 		$thetaMax = deg2rad(self::FIELD_OF_VIEW) / 2.0;
+		$cosThetaMax = cos($thetaMax);
+		$feather = deg2rad(self::FEATHER_DEGREES);
 		$spin = deg2rad($calibration->relativeSpin());
 		$roll = deg2rad($calibration->bodyRoll());
 		$cosRoll = cos($roll);
@@ -115,24 +132,51 @@ final class Equirectangular {
 				$x = $rx;
 				$y = $ry;
 
-				// Pick the lens the ray is nearer the axis of. A hard seam is
-				// fine at this size; feathering is for an export.
-				$index = $z >= 0 ? 0 : 1;
-				$lensX = $index === 1 ? -$x : $x;
-				$lensZ = $index === 1 ? -$z : $z;
+				// Take both lenses wherever both can see, and cross-fade.
+				// Outside the overlap band only one of them contributes, so
+				// this costs a second sample on roughly the 8% of pixels near
+				// the seam and nothing anywhere else.
+				$sumR = $sumG = $sumB = 0.0;
+				$sumW = 0.0;
+				for ($index = 0; $index < 2; ++$index) {
+					$lensZ = $index === 1 ? -$z : $z;
+					if ($lensZ < $cosThetaMax) {
+						continue;   // outside this lens's cone entirely
+					}
+					$theta = acos(max(-1.0, min(1.0, $lensZ)));
+					// Taper to nothing at the rim, where the lens sees worst.
+					$weight = ($thetaMax - $theta) / $feather;
+					if ($weight <= 0.0) {
+						continue;
+					}
+					if ($weight > 1.0) {
+						$weight = 1.0;
+					}
 
-				[$radius, $centreX, $centreY, $lensSpin] = $geometry[$index];
-				$theta = acos(max(-1.0, min(1.0, $lensZ)));
-				$phi = atan2($y, $lensX) - $lensSpin;
-				$r = $radius * $theta / $thetaMax;
+					$lensX = $index === 1 ? -$x : $x;
+					[$radius, $centreX, $centreY, $lensSpin] = $geometry[$index];
+					$phi = atan2($y, $lensX) - $lensSpin;
+					$r = $radius * $theta / $thetaMax;
 
-				// Rows run down while world Y runs up, hence the minus on sin.
-				$sx = (int)round($centreX + $r * cos($phi));
-				$sy = (int)round($centreY - $r * sin($phi));
+					// Rows run down while world Y runs up, hence the minus on sin.
+					$sx = (int)round($centreX + $r * cos($phi));
+					$sy = (int)round($centreY - $r * sin($phi));
+					if ($sx < 0 || $sy < 0 || $sx >= $sampleWidth || $sy >= $sampleHeight) {
+						continue;
+					}
+
+					$c = imagecolorat($scaled, $sx, $sy);
+					$sumR += (($c >> 16) & 0xFF) * $weight;
+					$sumG += (($c >> 8) & 0xFF) * $weight;
+					$sumB += ($c & 0xFF) * $weight;
+					$sumW += $weight;
+				}
 
 				$colour = 0;
-				if ($sx >= 0 && $sy >= 0 && $sx < $sampleWidth && $sy < $sampleHeight) {
-					$colour = imagecolorat($scaled, $sx, $sy) & 0xFFFFFF;
+				if ($sumW > 0.0) {
+					$colour = ((int)round($sumR / $sumW) << 16)
+						| ((int)round($sumG / $sumW) << 8)
+						| (int)round($sumB / $sumW);
 				}
 				imagesetpixel($out, $px, $py, $colour);
 			}

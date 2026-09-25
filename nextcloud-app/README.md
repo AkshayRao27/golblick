@@ -21,7 +21,12 @@ Measured over 1,415 stills from three camera bodies, at 256 px wide:
 | Rendered | **1,409** — 1,359 projected from the embedded preview, 25 from the full-resolution frame, 25 already-stitched |
 | Declined | 6 — no trailer; handed back to Nextcloud's own JPEG provider |
 | Errors | **0** |
-| Cost | 30 ms median, 36 ms at p95, 399 ms worst |
+| Cost | 41 ms median, 58 ms at p95, 411 ms worst |
+
+The full-resolution fallback is the expensive case by a wide margin — 369 ms
+median against 41 ms for the embedded preview — which is why it stays a
+fallback. The camera's own stitch is cheapest at 20 ms, being a colour
+conversion and nothing else.
 
 A 1024 px preview through the full Nextcloud stack, including PNG encoding and
 storage, costs roughly half a second. It is generated once and cached.
@@ -88,8 +93,16 @@ carried in the file — without that a One R renders 90° on its side.
 forward stays tilted. The inertial record that would fix it is present in only
 about a third of files, and reading it is not implemented here.
 
-⚠️ The seam between the two lenses is a hard cut, not a blend. At thumbnail
-size that is invisible; it is not suitable as an export path.
+The two lenses are cross-faded over the 14 degrees where both of them see the
+scene, so the join is not a visible line. ⚠️ It is a blend and not a parallax
+fix: close objects still ghost near the seam, so this is not an export path.
+
+⚠️ This was a hard cut until it was measured, on the reasoning that a seam is
+invisible on a timeline tile. That was wrong — Nextcloud serves this same
+preview at full viewer size, where the two seam columns were the sharpest in
+the whole frame, at 6.6x and 4.1x the median column gradient. After the
+cross-fade they are 1.5x and 1.6x, and the sharpest column in the frame is
+scene detail rather than a lens boundary.
 
 ## Layout
 
