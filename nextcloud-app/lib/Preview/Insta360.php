@@ -144,13 +144,27 @@ final class Insta360 implements IProviderV2 {
 
 	/**
 	 * An equirectangular frame is 2:1, so the requested box constrains both.
-	 * Capped because the cost is per output pixel and a timeline tile is small;
-	 * Nextcloud scales the result to whatever it actually wanted.
+	 *
+	 * 🔴 This used to cap at 1024 on the grounds that a timeline tile is small
+	 * and the cost is per output pixel. That was right about tiles and wrong
+	 * about everything else: Nextcloud serves the same preview to the full-size
+	 * viewer, and the panorama viewer wraps it around a whole sphere. At 1024
+	 * for 360 degrees that is 2.8 pixels per degree -- a five-fold upscale at
+	 * the default field of view and eleven-fold zoomed in. It is the same
+	 * mistake as cutting the lens seam because it was invisible at thumbnail
+	 * size.
+	 *
+	 * The ceiling now matches Nextcloud's own preview_max_x default, and the
+	 * cost stays proportional because Nextcloud asks for the size it wants: a
+	 * tile still requests a tile. {@see sourceFor} decides what can actually
+	 * supply it.
 	 */
+	private const MAX_WIDTH = 4096;
+
 	private function widthFor(int $maxX, int $maxY): int {
 		$width = min(max($maxX, 1), max($maxY, 1) * 2);
 
-		return max(64, min($width, 1024));
+		return max(64, min($width, self::MAX_WIDTH));
 	}
 
 	/**
@@ -162,8 +176,13 @@ final class Insta360 implements IProviderV2 {
 
 		// An X5 already stitched and levelled this on the device; there is
 		// nothing to project, only a colour conversion.
+		//
+		// ⚠️ Deliberately NOT upgraded to the full frame when more width is
+		// asked for. The camera's own stitch blends the seam and knows how the
+		// body was held; projecting the 11904-wide lens pair ourselves would
+		// buy pixels and lose both. Its 2560 is the honest ceiling for an X5.
 		if ($preview !== null && $preview->isStitched) {
-			return Equirectangular::fromNv12($preview, $width);
+			return Equirectangular::fromNv12($preview, min($width, $preview->width));
 		}
 
 		$metadata = $trailer->get(Trailer::METADATA);
@@ -177,15 +196,7 @@ final class Insta360 implements IProviderV2 {
 		}
 		$calibration = Calibration::parse($text);
 
-		// 25 of the 1,415 stills in one library carry no preview record at
-		// all. Rather than hand those to the core provider -- which would
-		// show the lens pair uncorrected -- project the full-resolution frame
-		// instead. It is the same geometry, just twenty times the pixels, so
-		// it is a fallback and not the default.
-		$encoded = $preview !== null ? $preview->data : $trailer->sourceFrame($handle);
-		if ($preview === null) {
-			Equirectangular::refuseIfTooBigToDecode($encoded);
-		}
+		[$encoded, $available] = $this->sourceFor($trailer, $handle, $preview, $width);
 
 		$source = imagecreatefromstring($encoded);
 		if ($source === false) {
@@ -193,8 +204,77 @@ final class Insta360 implements IProviderV2 {
 		}
 
 		return Equirectangular::fromLensPair(
-			$source, $calibration, $width, self::orientationFor($trailer, $fields, $calibration)
+			$source,
+			$calibration,
+			min($width, $available),
+			self::orientationFor($trailer, $fields, $calibration)
 		);
+	}
+
+	/**
+	 * The cheapest source that can supply the width asked for.
+	 *
+	 * A fisheye circle of diameter d spans 180 degrees, so a pair -- two
+	 * circles side by side, 2d across -- samples the scene as finely as an
+	 * equirectangular frame 2d wide. The useful output width of a source is
+	 * therefore just its own width, which is what makes this one comparison
+	 * rather than a lens calculation. Measured: the embedded preview is
+	 * 1920x960 on a OneR and an X3, and the frame behind it is 6080 and 11968.
+	 *
+	 * ⚠️ The full frame is 18 to 72 megapixels and GD decodes to four bytes a
+	 * pixel regardless of the output size, so this is the expensive path. It is
+	 * taken only when the extra width was actually asked for, and it steps back
+	 * to the preview rather than failing when it will not fit -- a panorama
+	 * narrower than requested beats no panorama at all.
+	 *
+	 * @param resource $handle
+	 * @return array{string, int} the encoded frame, and the width it can supply
+	 */
+	private function sourceFor(Trailer $trailer, $handle, ?EmbeddedPreview $preview, int $want): array {
+		$embedded = $preview === null ? 0 : self::widthOf($preview);
+		if ($embedded > 0 && $want <= $embedded) {
+			return [$preview->data, $embedded];
+		}
+
+		try {
+			// 25 of the 1,415 stills in one library carry no preview record at
+			// all, so this is also the only route for those -- which is why a
+			// failure here is fatal when there is nothing to fall back to.
+			$frame = $trailer->sourceFrame($handle);
+			Equirectangular::refuseIfTooBigToDecode($frame);
+			$size = @getimagesizefromstring($frame);
+
+			return [$frame, $size === false ? $want : $size[0]];
+		} catch (FormatError $e) {
+			if ($embedded <= 0) {
+				throw $e;
+			}
+
+			return [$preview->data, $embedded];
+		}
+	}
+
+	/**
+	 * How wide a source frame is, in pixels.
+	 *
+	 * 🔴 {@see EmbeddedPreview::parse} leaves width and height at ZERO for a
+	 * JPEG lens pair -- deliberately, because the record does not carry them
+	 * and it will not invent what it has not read. Only the NV12 form declares
+	 * its geometry in a header. Comparing against the raw property therefore
+	 * silently answers "0" for every OneR and X3, which is every file that has
+	 * a choice of source to make.
+	 *
+	 * getimagesizefromstring reads the JPEG header only, so this costs nothing
+	 * next to a decode.
+	 */
+	private static function widthOf(EmbeddedPreview $preview): int {
+		if ($preview->width > 0) {
+			return $preview->width;
+		}
+
+		$size = @getimagesizefromstring($preview->data);
+
+		return $size === false ? 0 : $size[0];
 	}
 
 	/**
