@@ -217,7 +217,7 @@ elsewhere. Three conventions matter:
 - [x] Equirectangular rendering, with GPano XMP so standard 360 viewers open it
 - [~] Levelling — pitch and roll from the inertial record where there is one;
       roll everywhere else. One camera's inertial axes are still unmeasured
-- [ ] Nextcloud app: preview provider
+- [x] Nextcloud app: preview provider — `nextcloud-app/`, pure PHP, GD only
 - [ ] 360 viewing in Nextcloud Memories (upstream)
 - [ ] Video
 

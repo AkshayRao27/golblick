@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>kugelblick</id>
+    <name>360 photo previews</name>
+    <summary>Timeline thumbnails for 360 camera files that Nextcloud cannot otherwise see</summary>
+    <description><![CDATA[
+Generates previews for 360 camera container formats, so the files appear in
+Files and in a photo timeline instead of as a generic icon.
+
+Insta360 `.insp` stills are supported. The camera stores a dual-fisheye pair
+rather than a panorama, so a usable thumbnail has to be projected rather than
+extracted; this app does that in pure PHP using GD, which Nextcloud already
+requires. **No new server-side dependency, and nothing is shelled out to.**
+
+⚠️ The thumbnail is levelled for roll, from the lens calibration in the file.
+It is not levelled for pitch: a shot taken with the camera tilted forward
+stays tilted.
+    ]]></description>
+    <version>0.1.0</version>
+    <licence>agpl</licence>
+    <author>Akshay Rao</author>
+    <namespace>Kugelblick</namespace>
+    <category>multimedia</category>
+    <bugs>https://github.com/AkshayRao27/kugelblick/issues</bugs>
+    <dependencies>
+        <php min-version="8.1"/>
+        <lib>gd</lib>
+        <nextcloud min-version="30" max-version="33"/>
+    </dependencies>
+</info>
