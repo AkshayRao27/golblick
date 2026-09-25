@@ -107,12 +107,28 @@ here to a hard dependency on internals.
 
 ## What the thumbnail shows
 
-An equirectangular panorama, levelled for **roll** using the lens calibration
-carried in the file — without that a One R renders 90° on its side.
+An equirectangular panorama, levelled by the best route the file supports.
 
-⚠️ It is **not** levelled for pitch. A shot taken with the camera tilted
-forward stays tilted. The inertial record that would fix it is present in only
-about a third of files, and reading it is not implemented here.
+| route | what it fixes | reaches |
+|---|---|---|
+| The camera's own stitch | everything; it was levelled on the device | 25 — X5 only |
+| **Gravity**, from the inertial record | roll **and pitch** | 379 |
+| The lens calibration | the sensor's **mounting angle** only | 1,005 |
+
+Without any of it a One R renders 90° on its side, so the calibration route is
+the floor rather than a nicety.
+
+⚠️ **Most files get roll only, and that is visible.** Measured against the
+inertial record, what the calibration route leaves uncorrected is a median of
+**10.8°** on a One R, with 77% of files over 5°. Flat on a timeline tile; a
+wobbling horizon as soon as the panorama is turned in a sphere viewer.
+
+⛔ Gravity reaches about a quarter of the library and no further. 965 of 1,415
+stills carry no inertial record at all, and the X3's inertial axes are
+**refused rather than guessed** — its readings cannot be reconciled with the
+camera's attitude, and a wrong mapping produces a confident, wrong horizon.
+Levelling the rest needs the horizon estimated from the image, which nothing
+here does yet.
 
 The two lenses are cross-faded over the 14 degrees where both of them see the
 scene, so the join is not a visible line. ⚠️ It is a blend and not a parallax

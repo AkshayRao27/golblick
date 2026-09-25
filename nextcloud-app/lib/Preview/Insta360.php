@@ -11,9 +11,11 @@ namespace OCA\Kugelblick\Preview;
 use OCA\Kugelblick\Insta360\Calibration;
 use OCA\Kugelblick\Insta360\EmbeddedPreview;
 use OCA\Kugelblick\Insta360\FormatError;
+use OCA\Kugelblick\Insta360\Imu;
 use OCA\Kugelblick\Insta360\Protobuf;
 use OCA\Kugelblick\Insta360\Trailer;
 use OCA\Kugelblick\Render\Equirectangular;
+use OCA\Kugelblick\Render\Orientation;
 use OCP\Files\File;
 use OCP\Files\FileInfo;
 use OCP\IImage;
@@ -151,7 +153,8 @@ final class Insta360 implements IProviderV2 {
 		if ($metadata === null) {
 			throw new FormatError('no metadata record (0x0101), so the lens geometry is unknown');
 		}
-		$text = Protobuf::firstText(Protobuf::fields($metadata), Protobuf::CALIBRATION_EQUIDISTANT);
+		$fields = Protobuf::fields($metadata);
+		$text = Protobuf::firstText($fields, Protobuf::CALIBRATION_EQUIDISTANT);
 		if ($text === null) {
 			throw new FormatError('no equidistant calibration');
 		}
@@ -172,7 +175,46 @@ final class Insta360 implements IProviderV2 {
 			throw new FormatError('the frame is not a decodable image');
 		}
 
-		return Equirectangular::fromLensPair($source, $calibration, $width);
+		return Equirectangular::fromLensPair(
+			$source, $calibration, $width, self::orientationFor($trailer, $fields, $calibration)
+		);
+	}
+
+	/**
+	 * Which way is up, by the best route this file supports.
+	 *
+	 * ⚠️ The two routes are not equivalent and the better one is not always
+	 * available. Gravity knows how the camera was actually held, so it fixes
+	 * PITCH as well as roll; the calibration knows only the sensor's mounting
+	 * angle, which is a constant of the camera body, so a shot taken tilted
+	 * forward stays tilted.
+	 *
+	 * Measured over the files that carry an inertial record: what the
+	 * calibration route leaves behind is a median of 10.8 degrees on a OneR,
+	 * with three quarters of files over 5 degrees. That is a visible wobble
+	 * when the panorama is turned, which is what makes this worth doing.
+	 *
+	 * 🔴 It reaches a minority of files. 965 of 1,415 stills in one library
+	 * carry no inertial record at all, and the X3's axis mapping is refused
+	 * rather than guessed, so roughly a quarter of the OneR files and none of
+	 * the X3 are levelled this way. Falling back is the normal case, not the
+	 * exception.
+	 */
+	private static function orientationFor(Trailer $trailer, array $fields, Calibration $calibration): array {
+		$record = $trailer->get(Trailer::IMU);
+		$model = Protobuf::firstText($fields, Protobuf::MODEL);
+		if ($record !== null && $model !== null) {
+			try {
+				return Orientation::level(Imu::gravityUp($record, $model));
+			} catch (FormatError $e) {
+				// An unmeasured camera, an unreadable record or a reading too
+				// small to be gravity. None of those is a reason to refuse the
+				// file: the calibration route still corrects the mounting
+				// angle, which is most of the correction on most cameras.
+			}
+		}
+
+		return Orientation::fromRoll($calibration->bodyRoll());
 	}
 
 }

@@ -25,6 +25,7 @@ final class Trailer {
 
 	public const METADATA = 0x0101;
 	public const PREVIEW = 0x0200;
+	public const IMU = 0x0300;
 
 	/**
 	 * Padding widths to try between the last record and the trailer footer.

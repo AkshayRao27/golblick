@@ -126,6 +126,7 @@ final class Equirectangular {
 		\GdImage $source,
 		Calibration $calibration,
 		int $width,
+		?array $orientation = null,
 	): \GdImage {
 		$height = intdiv($width, 2);
 		$sourceWidth = imagesx($source);
@@ -152,9 +153,18 @@ final class Equirectangular {
 		$cosThetaMax = cos($thetaMax);
 		$feather = deg2rad(self::FEATHER_DEGREES);
 		$spin = deg2rad($calibration->relativeSpin());
-		$roll = deg2rad($calibration->bodyRoll());
-		$cosRoll = cos($roll);
-		$sinRoll = sin($roll);
+
+		// Which way is up. Falling back to the calibration's mounting angle
+		// corrects roll only; an orientation passed in has usually come from
+		// the inertial record and corrects pitch as well.
+		$m = $orientation ?? Orientation::fromRoll($calibration->bodyRoll());
+		// Hoisted, and TRANSPOSED: for each output direction we want the
+		// camera-frame direction that belongs there, not the other way round.
+		// Applying it the other way turns a -91 degree roll into +91, i.e. 182
+		// degrees out, which renders upside down rather than merely askew.
+		[$m00, $m01, $m02] = [$m[0][0], $m[0][1], $m[0][2]];
+		[$m10, $m11, $m12] = [$m[1][0], $m[1][1], $m[1][2]];
+		[$m20, $m21, $m22] = [$m[2][0], $m[2][1], $m[2][2]];
 
 		$geometry = [];
 		foreach ($calibration->lenses as $index => $lens) {
@@ -182,17 +192,14 @@ final class Equirectangular {
 				$y = $sinLat;
 				$z = $cosLat * cos($longitude);
 
-				// Undo the sensor's mounting angle: a roll about the lens
-				// axis, which is what puts a OneR render the right way up.
-				// This is the *transpose* of the rotation -- for each output
-				// direction we want the camera-frame direction that belongs
-				// there, not the other way round. Applying it the other way
-				// round turns a -91 degree roll into +91, i.e. 182 degrees
-				// out, which renders upside down rather than merely askew.
-				$rx = $x * $cosRoll + $y * $sinRoll;
-				$ry = -$x * $sinRoll + $y * $cosRoll;
+				// Turn the scene into the camera's frame, using the
+				// transposed orientation hoisted above.
+				$rx = $m00 * $x + $m10 * $y + $m20 * $z;
+				$ry = $m01 * $x + $m11 * $y + $m21 * $z;
+				$rz = $m02 * $x + $m12 * $y + $m22 * $z;
 				$x = $rx;
 				$y = $ry;
+				$z = $rz;
 
 				// Take both lenses wherever both can see, and cross-fade.
 				// Outside the overlap band only one of them contributes, so
