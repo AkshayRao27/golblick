@@ -28,6 +28,14 @@ organised per vendor behind a small contract.  A vendor module provides:
     record if the format carries one.  Must raise rather than guess for a
     camera whose axis mapping has not been measured: a borrowed mapping
     produces a confident, wrong horizon.
+``gravity_up_nearby(path) -> (x, y, z)``
+    Optional, and the one a renderer should prefer.  Same answer, but allowed
+    to read the *directory*: where a still carries no inertial record, another
+    frame of the same burst usually does, and on Insta360 hardware that record
+    is byte-identical across the burst rather than merely similar.
+    ⚠️ It is a separate entry point on purpose.  Everything else here is handed
+    a path and reports what is inside it; this is the one that looks outside,
+    so a caller that must not touch the filesystem can still use ``gravity_up``.
 ``extract_source(path) -> Source``
     Optional.  The full-resolution imagery the container wraps, for a renderer
     to project from.  Reports its own encoding, size and layout.  Distinct from

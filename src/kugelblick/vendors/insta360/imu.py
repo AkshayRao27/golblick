@@ -200,6 +200,67 @@ _AXES = {
 }
 
 
+def gravity_up_nearby(path) -> tuple[float, float, float]:
+    """Which way is up, from this file or from the frame beside it.
+
+    🔴 Most stills carry no inertial record: 965 of 1,438 in one library, all
+    OneR.  Every one of them sits in a burst or HDR bracket where another frame
+    does — 100%, no exceptions — and the record is not merely *similar* between
+    those frames, it is **identical**.  Measured on the 13 capture instants that
+    carry three records apiece: the gravity vectors agree to 0.00 degrees, max
+    0.00, over 36 frames.  The camera takes one reading per shutter press and
+    writes it to some frames and not others.
+
+    So this borrows bytes rather than interpolating an attitude, and it is why
+    Insta360's own Studio levels these files while reading the record alone does
+    not.  Scored against Studio's exports on 291 frames that carry no record:
+    1.09 degrees median, p90 1.94, 98% within 5 — against 10.43 and 52.99 for
+    the mounting-angle fallback.  ``history/08_IMU_AXES.md``.
+
+    ⚠️ Unlike :func:`gravity_up` this reads the **directory**, not just the
+    file.  Keep the two apart: the vendor contract is that a reader is handed a
+    path and reports what is in it, and this deliberately does more.
+
+    Raises :class:`FormatError` if neither this file nor any sibling yields a
+    reading.
+    """
+    from pathlib import Path
+
+    from . import describe, naming
+
+    # A sibling is the same camera by construction, so an unmeasured axis
+    # mapping cannot be rescued by looking at one -- fail with the real reason
+    # rather than the misleading "no record anywhere" further down.
+    model = describe(path)["model"]
+    if model not in _AXES:
+        raise FormatError(
+            f"{path}: the inertial axis mapping for {model!r} has not been measured, "
+            f"only {sorted(_AXES)}; levelling it would be a guess"
+        )
+
+    try:
+        return gravity_up(path)
+    except FormatError:
+        pass
+
+    path = Path(path)
+    stamp = naming.burst(path)
+    if stamp is None:
+        raise FormatError(f"{path}: no inertial record, and the name is not one we can group")
+
+    # Sorted so the choice is deterministic: two runs over the same bracket must
+    # pick the same donor, or a cached preview and a fresh one disagree.
+    for sibling in sorted(path.parent.glob("*")):
+        if sibling == path or naming.burst(sibling) != stamp:
+            continue
+        try:
+            return gravity_up(sibling)
+        except (FormatError, OSError):
+            continue
+
+    raise FormatError(f"{path}: no inertial record here or in the rest of the burst")
+
+
 def gravity_up(path) -> tuple[float, float, float]:
     """Which way is up, as a unit vector in the render's own frame.
 

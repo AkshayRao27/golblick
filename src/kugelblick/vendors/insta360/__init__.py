@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import calibration as _calibration
 from . import metadata as _metadata
-from .imu import gravity_up
+from .imu import gravity_up, gravity_up_nearby
 from .naming import EXTENSIONS, classify
 from .preview import Preview
 from .preview import extract as extract_preview
@@ -37,6 +37,7 @@ __all__ = [
     "extract_source",
     "extract_thumbnail",
     "gravity_up",
+    "gravity_up_nearby",
     "matches",
     "read_trailer",
 ]

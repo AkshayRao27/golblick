@@ -34,6 +34,21 @@ _ROLES = {"insv": MASTER, "lrv": PROXY, "insp": PHOTO}
 EXTENSIONS = frozenset(_ROLES)
 
 
+def burst(path: Path) -> str | None:
+    """The capture instant ``path`` belongs to, or None if the name is foreign.
+
+    A burst or HDR bracket writes several stills with the **same timestamp** and
+    consecutive sequence numbers.  They are one press of the shutter: the frames
+    differ in exposure and are taken within about a second of each other.
+
+    ⚠️ Only meaningful **within a directory**, for the same reason the module
+    docstring gives about sequence numbers.  Two shoots on different days cannot
+    collide, but the guarantee is per directory and callers should not widen it.
+    """
+    match = _NAME.match(path.name)
+    return match["stamp"] if match else None
+
+
 def classify(path: Path) -> AssetInfo | None:
     """Describe ``path`` if it follows the convention, else None."""
     match = _NAME.match(path.name)

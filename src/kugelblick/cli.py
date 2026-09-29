@@ -227,9 +227,15 @@ def _levelling(render, vendor, path: str, calibration, mode: str):
     if mode == "none":
         return None, "none (--level none)"
 
-    if mode in ("auto", "imu") and hasattr(vendor, "gravity_up"):
+    # Prefer the sibling-aware route -- most stills carry no record of their
+    # own and take one from another frame of the same shutter press -- but both
+    # are optional in the vendor contract, so fall back to the file-only one
+    # rather than skipping levelling for a vendor that implements just that.
+    reader = getattr(vendor, "gravity_up_nearby", None) or getattr(vendor, "gravity_up", None)
+
+    if mode in ("auto", "imu") and reader is not None:
         try:
-            up = vendor.gravity_up(path)
+            up = reader(path)
         except KugelblickError:
             if mode == "imu":
                 raise

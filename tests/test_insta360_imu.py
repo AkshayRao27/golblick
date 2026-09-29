@@ -212,3 +212,64 @@ def test_gravity_up_is_still_vertical_for_a_level_x5(tmp_path):
     up = imu.gravity_up(path)
 
     assert up[1] > 0.999, f"a level X5 should still point straight up, got {up}"
+
+
+LEVEL_ONER = (-0.02, -1.01, 0.03, 0.0, 0.0, 0.0)
+
+
+def burst(tmp_path, stamp, sequence, *, record=True):
+    """One frame of a burst: same timestamp, different sequence number."""
+    records = [(METADATA, model_record("Insta360 OneR"))]
+    if record:
+        records.append((IMU, doubles(1000, LEVEL_ONER) + doubles(2000, LEVEL_ONER)))
+    return write_file(tmp_path / f"IMG_{stamp}_00_{sequence:03d}.insp", records)
+
+
+def test_a_frame_with_no_record_takes_one_from_its_burst(tmp_path):
+    """The camera writes one inertial reading per shutter press and puts it on
+    some frames and not others, so the frame beside it has the answer."""
+    donor = burst(tmp_path, "20230913_142237", 1, record=True)
+    bare = burst(tmp_path, "20230913_142237", 2, record=False)
+
+    with pytest.raises(FormatError, match="no inertial record"):
+        imu.gravity_up(bare)
+
+    assert imu.gravity_up_nearby(bare) == pytest.approx(imu.gravity_up(donor))
+
+
+def test_it_does_not_reach_into_a_different_shutter_press(tmp_path):
+    """A different timestamp is a different moment and a different attitude.
+    Borrowing across one would be a confident, wrong horizon."""
+    burst(tmp_path, "20230913_142237", 1, record=True)
+    bare = burst(tmp_path, "20230913_150000", 2, record=False)
+
+    with pytest.raises(FormatError, match="no inertial record here or in the rest"):
+        imu.gravity_up_nearby(bare)
+
+
+def test_an_unmeasured_camera_is_refused_without_consulting_siblings(tmp_path):
+    """Siblings are the same camera by construction, so one cannot supply a
+    mapping the camera does not have -- and the error has to say so, rather
+    than blaming a missing record."""
+    write_file(
+        tmp_path / "IMG_20240513_191435_00_001.insp",
+        [(METADATA, model_record("Insta360 X3")),
+         (IMU, doubles(1000, LEVEL_ONER) + doubles(2000, LEVEL_ONER))],
+    )
+    bare = write_file(
+        tmp_path / "IMG_20240513_191435_00_002.insp",
+        [(METADATA, model_record("Insta360 X3"))],
+    )
+
+    with pytest.raises(FormatError, match="has not been measured"):
+        imu.gravity_up_nearby(bare)
+
+
+def test_the_donor_is_deterministic(tmp_path):
+    """Two runs must pick the same frame, or a cached preview and a fresh one
+    disagree about the horizon."""
+    burst(tmp_path, "20230913_142237", 3, record=True)
+    burst(tmp_path, "20230913_142237", 1, record=True)
+    bare = burst(tmp_path, "20230913_142237", 2, record=False)
+
+    assert imu.gravity_up_nearby(bare) == imu.gravity_up_nearby(bare)
