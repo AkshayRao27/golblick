@@ -541,6 +541,12 @@ back to the mounting angle where it does not.
 ⚠️ The 404 is 379 OneR plus 25 X5. The X3 is excluded deliberately — see
 [Why the X3 is refused](#why-the-x3-is-refused).
 
+🔴 **The 965 files with no inertial record cannot be levelled, and that is a
+property of the files rather than a gap in this reader.** Insta360's own Studio,
+given the same files, produces an export that agrees with route 0 alone to
+**0.8°** (p90 0.9°, n=7) — so it is not levelling them either. Nothing further
+is recoverable from a still that carries no `0x0300`.
+
 ### Route 0 — the sensor mounting angle, from the calibration alone
 
 The cheapest correction, and the one that was missed longest. The absolute yaw
@@ -598,9 +604,10 @@ measurement, not a slip. It says the stored triple, *as decoded here*, is not
 a right-handed (x, y, z) on this camera. Two components transposed, or one
 inverted in the camera's own convention, would both produce it and nothing
 measured distinguishes them, so the composite is recorded rather than a story
-about which axis is which. ⚠️ The OneR's map **is** a proper rotation, and the
-difference is per camera and not per encoding — both of the OneR's entry
-encodings were checked against tilted frames.
+about which axis is which. ⚠️ The OneR's map is **also** a reflection, so this
+is the vendor's convention rather than a quirk of one body — a candidate map
+with determinant +1 should be treated as suspect. It was recorded here as a
+proper rotation until 2026-09-29, and that map was wrong; see below.
 
 Scored end to end, against the camera's own stitch, on the same 24 files:
 
@@ -632,10 +639,10 @@ known from its own stitch. The estimator picks `(+z, −x, −y)`: exactly the
 mapping measured directly, at 0.24° off vertical, with the next candidate class
 89.7° away.
 
-Applied to the OneR it gives:
+Applied to the OneR it gave:
 
 ```
-up_render = (−a_x, a_y, −a_z)          # Insta360 OneR
+up_render = (−a_x, a_y, −a_z)          # Insta360 OneR -- WRONG, see below
 ```
 
 | Evidence | Result |
@@ -654,6 +661,49 @@ vertical under this mapping. Whether that is how people hold a OneR or a small
 mounting tilt is **not established**; on the X5 the exact permutation beat a
 least-squares fit when scored against the stitch, which is weak evidence that
 the idealised permutation is right and the residual is behaviour.
+
+### 🔴 That mapping was wrong, and so was the method that produced it
+
+Corrected **2026-09-29**, against Insta360 Studio's own horizon-levelled
+exports of the same files — the first reference for this camera not produced by
+this project.
+
+```
+up_render = (−a_x, −a_z, a_y)          # Insta360 OneR
+```
+
+Measured over 358 stills, rendered through this library and compared to the
+export by feature correspondence, reporting the angle between the two zenith
+directions:
+
+| Inertial encoding | Old map | **This map** | p90 | Within 5° |
+|---|---|---|---|---|
+| 56-byte | 9.1° | **1.2°** | 3.8° | 91% |
+| 20-byte | 61.5° | **1.0°** | 2.4° | 100% |
+
+Both encodings pick the same map independently. The **X5 is the control** — its
+map was measured directly against its own stitch, years of evidence earlier —
+and it scores 2.6° on this same test. That is the floor set by two different
+stitchers disagreeing, and the OneR now sits below it.
+
+🔴 **The failure was the reference, not the search.** Every row of the evidence
+table above is scored against where `body_roll` puts the zenith. That is the
+camera body's idea of up, not the world's, and for this camera it is
+systematically off — so the estimator, the "independent cross-check" at 5.9°,
+and the 81.8° separation from the runner-up were all measuring agreement with
+the same wrong thing. A separation that large is not a guarantee of
+correctness; it only says the candidates disagree about the proxy.
+
+⚠️ **Two things recorded here as findings were this defect.** The OneR's 10.8°
+"residual wobble" after levelling was the map, not the camera. So was the claim
+that the 20-byte entry encoding could not be reconciled by any signed
+permutation — the permutation search was correct, and was scored against the
+same bad proxy. There was never a second encoding problem. Under the corrected
+map the two encodings agree to within a tenth of a degree.
+
+⚠️ **The X3 refusal below is NOT resolved by this.** Its failure is
+inconsistency *between sessions*, which no fixed mapping of any kind can repair.
+It remains refused, and still has no export to score against.
 
 ### Why the X3 is refused
 
