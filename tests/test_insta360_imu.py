@@ -166,11 +166,16 @@ def test_the_two_measured_cameras_read_the_same_thing_differently(tmp_path):
 
 
 def test_gravity_up_refuses_a_camera_whose_axes_are_unmeasured(tmp_path):
-    """The X3 is deliberately absent: its readings cannot be reconciled with
-    the camera's attitude, so the only honest answer is to refuse.
+    """Refusing is the point: a borrowed mapping produces a confident, wrong
+    horizon, so an unknown model must raise rather than guess.
+
+    ⚠️ This used the X3, which was refused until 2026-09-29 and is now measured.
+    An invented model name is the better fixture anyway -- it cannot be made
+    stale by measuring a real camera, and the behaviour under test is about
+    models that are absent, not about any particular one.
     """
     path = write_file(tmp_path / "i.insp", [
-        (METADATA, model_record("Insta360 X3")),
+        (METADATA, model_record("Insta360 Nonesuch")),
         (IMU, biased(1000, (-0.614, -0.789, 0.022, 0.0, 0.0, 0.0))),
     ])
 
@@ -253,12 +258,12 @@ def test_an_unmeasured_camera_is_refused_without_consulting_siblings(tmp_path):
     than blaming a missing record."""
     write_file(
         tmp_path / "IMG_20240513_191435_00_001.insp",
-        [(METADATA, model_record("Insta360 X3")),
+        [(METADATA, model_record("Insta360 Nonesuch")),
          (IMU, doubles(1000, LEVEL_ONER) + doubles(2000, LEVEL_ONER))],
     )
     bare = write_file(
         tmp_path / "IMG_20240513_191435_00_002.insp",
-        [(METADATA, model_record("Insta360 X3"))],
+        [(METADATA, model_record("Insta360 Nonesuch"))],
     )
 
     with pytest.raises(FormatError, match="has not been measured"):

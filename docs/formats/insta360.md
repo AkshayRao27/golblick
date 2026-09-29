@@ -538,8 +538,10 @@ reaches 404 files rather than 25, because the OneR's axis mapping has been
 measured. The two compose in practice: prefer gravity where it exists, fall
 back to the mounting angle where it does not.
 
-⚠️ The 404 is 379 OneR plus 25 X5. The X3 is excluded deliberately — see
-[Why the X3 is refused](#why-the-x3-is-refused).
+⚠️ Superseded: that 404 predates both the X3's measured mapping and burst
+borrowing. Measured over 1,438 stills, **1,432** are levelled — 1,384 from
+gravity (417 from their own record, 967 from another frame of the same shutter
+press) and 48 from an on-device stitch. The 6 that are not carry no trailer.
 
 🔴 **The 965 files with no inertial record cannot be levelled, and that is a
 property of the files rather than a gap in this reader.** Insta360's own Studio,
@@ -714,7 +716,7 @@ map the two encodings agree to within a tenth of a degree.
 inconsistency *between sessions*, which no fixed mapping of any kind can repair.
 It remains refused, and still has no export to score against.
 
-### Why the X3 is refused
+### ⛔ Why the X3 *was* refused — and why that was wrong
 
 The same estimator produces an answer for the X3. It is wrong, and the way it
 fails is worth recording.
@@ -736,14 +738,33 @@ over 5 days, and two of those days supply 25 of them:
 | 2025-01-25 | 1 | (−0.941, −0.337, −0.022) | **32.5°** |
 
 Files from 2024-05-13 and 2024-05-23 **both render level with no tilt
-correction**, yet their inertial medians are 26° apart. No fixed mapping can
-level both. So either the X3 population is far too small and too clustered for
-this estimator — five sessions, where the OneR had thirty-one — or something
-about that camera's inertial record is not understood.
+correction**, yet their inertial medians are 26° apart. The conclusion drawn
+was that no fixed mapping can level both, so the camera was refused.
 
-Either way the honest answer is to refuse, which is what `imu.gravity_up`
-does. What would settle it: a deliberately captured set on a tripod at known
-attitudes, or a horizon estimate from the image itself.
+🔴 **That conclusion was wrong, and it was wrong for the same reason the OneR's
+map was wrong: it is measured against the calibration's zenith.** The readings
+really do differ between those sessions — that part was observed correctly —
+but that is how the camera was *held* on those days, not how it reports. Scored
+against a real horizon instead, one fixed mapping levels every session:
+
+```
+up_render = (−a_z, −a_x, −a_y)         # Insta360 X3 — the same map as the X5
+```
+
+| Session | Files | Gravity | Mounting angle alone |
+|---|---|---|---|
+| 2024-05-13 | 15 | **0.96°** | 52.31° |
+| 2024-05-14 | 6 | **0.68°** | 46.01° |
+| 2024-05-16 | 10 | **0.78°** | 52.99° |
+| 2024-05-23 | 6 | **1.00°** | 48.72° |
+
+38 files, 0.83° median, p90 1.67°, every one within 5°. The search that found
+it returns the X5's and the OneR's maps **unchanged**, which is what separates
+measuring from fitting.
+
+⚠️ The lesson is about the yardstick, not the arithmetic. "Two sessions
+disagree, therefore the sensor is unreliable" assumed the sessions shared an
+attitude, and the only evidence for that was the same proxy under test.
 
 ### ✅ The azimuth disagreement, explained
 

@@ -191,12 +191,22 @@ _AXES = {
     # the search was scored against the same misleading proxy that chose the
     # wrong map in the first place.  history/08_IMU_AXES.md.
     "Insta360 OneR": ((-1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
-    # ⛔ Deliberately absent: the Insta360 X3.  Its readings cannot be
-    # reconciled with the camera's attitude.  Two sessions that both render
-    # level without any tilt correction give median readings 26 degrees apart,
-    # and no fixed mapping can level both; the best-fitting rotation visibly
-    # *tips* shots that were already straight.  Something about that camera's
-    # inertial record is not understood, so it is refused rather than guessed.
+    # up_render = (-az, -ax, -ay) -- the same map as the X5, which is what the
+    # two cameras sharing a product line would suggest.
+    #
+    # 🔴 Measured 2026-09-29 against Insta360 Studio's levelled exports, after
+    # this camera had been REFUSED since it was first looked at.  38 stills over
+    # five sessions: 0.83 degrees median, p90 1.67, every file within 5.  The
+    # mounting-angle fallback it replaces leaves 46 to 53 degrees.
+    #
+    # ⚠️ The refusal was reasoned from the same calibration-zenith proxy that
+    # gave the OneR a wrong map.  The recorded objection was that two sessions
+    # which both render level give median readings 26 degrees apart, so "no
+    # fixed mapping can level both".  The readings do differ -- that part was
+    # observed correctly -- but it is how the camera was HELD on those days, not
+    # how it reports.  Per session, against a real horizon, this one fixed map
+    # gives 0.96, 0.68, 0.78 and 1.00 degrees.  history/08_IMU_AXES.md.
+    "Insta360 X3": ((0.0, 0.0, -1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
 }
 
 

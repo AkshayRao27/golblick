@@ -66,6 +66,12 @@ final class Imu {
 		// one gave 9.1, and 1.0 where the old one gave 61.5 on the files using
 		// the other inertial encoding. imu.py owns the evidence.
 		'Insta360 OneR' => [[-1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]],
+		// 🔴 Measured 2026-09-29, after this camera had been refused outright.
+		// The same map as the X5. 38 stills over five sessions against Studio's
+		// levelled exports: 0.83 degrees median, every file within 5, where the
+		// mounting angle alone leaves 46 to 53. imu.py owns the evidence and
+		// why the earlier refusal was wrong.
+		'Insta360 X3' => [[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
 	];
 
 	/**
