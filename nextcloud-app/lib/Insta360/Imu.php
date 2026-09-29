@@ -59,7 +59,13 @@ final class Imu {
 	 */
 	private const AXES = [
 		'Insta360 X5' => [[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
-		'Insta360 OneR' => [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]],
+		// 🔴 Corrected 2026-09-29. The previous map for this camera was chosen
+		// by matching the calibration's body-up, a proxy that misleads here.
+		// Scored against Insta360 Studio's own levelled exports over 358
+		// stills, this map gives a median error of 1.2 degrees where the old
+		// one gave 9.1, and 1.0 where the old one gave 61.5 on the files using
+		// the other inertial encoding. imu.py owns the evidence.
+		'Insta360 OneR' => [[-1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]],
 	];
 
 	/**

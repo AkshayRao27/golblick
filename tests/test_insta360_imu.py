@@ -178,20 +178,26 @@ def test_gravity_up_refuses_a_camera_whose_axes_are_unmeasured(tmp_path):
         imu.gravity_up(path)
 
 
-def test_the_x5_map_is_a_reflection_and_the_oner_a_rotation():
+def test_both_measured_maps_are_reflections():
     """Guards a finding that looks exactly like a bug.
 
-    The X5's map has determinant -1: the stored triple, as this module labels
-    it, is not right-handed on that camera.  Flipping the sign back to make it
-    a proper rotation would restore the mirrored tilt azimuth that cost tilted
-    frames 0.16 of correlation against the camera's own stitch.
+    Both maps have determinant -1: the stored triple, as this module labels
+    it, is not right-handed on either camera.  Flipping a sign back to make
+    one a proper rotation would restore the mirrored tilt azimuth that cost
+    tilted X5 frames 0.16 of correlation against the camera's own stitch.
+
+    ⚠️ The OneR's map was a proper rotation until 2026-09-29, and that was the
+    wrong map.  Correcting it against Studio's levelled exports made it a
+    reflection too -- so what read as a one-camera anomaly worth a warning is
+    just the vendor's convention.  A candidate map with determinant +1 should
+    now be treated as suspect rather than reassuring.
     """
     def determinant(rows):
         (a, b, c), (d, e, f), (g, h, i) = rows
         return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
 
     assert determinant(imu._AXES["Insta360 X5"]) == pytest.approx(-1.0)
-    assert determinant(imu._AXES["Insta360 OneR"]) == pytest.approx(1.0)
+    assert determinant(imu._AXES["Insta360 OneR"]) == pytest.approx(-1.0)
 
 
 def test_gravity_up_is_still_vertical_for_a_level_x5(tmp_path):

@@ -160,12 +160,31 @@ _AXES = {
     # ones alone, and it cuts the disagreement with the solved rotation from
     # 13.97 degrees median to 1.69.
     "Insta360 X5": ((0.0, 0.0, -1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
-    # up_render = (-ax, ay, -az).  From 379 stills over 31 separate days; the
-    # runner-up class of permutations sits 82 degrees away, so the choice is
-    # not marginal.  Two independent sources agree on it: this puts the median
-    # reading within 5.9 degrees of the body-up that ``Calibration.body_roll``
-    # derives from the calibration string, which knows nothing of the IMU.
-    "Insta360 OneR": ((-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, -1.0)),
+    # up_render = (-ax, -az, ay).
+    #
+    # 🔴 Corrected 2026-09-29, against Insta360 Studio's own levelled exports.
+    # The previous map, (-ax, ay, -az), was chosen by matching the body-up that
+    # ``Calibration.body_roll`` derives from the calibration string -- a PROXY,
+    # and for this camera a systematically misleading one.  Measured against a
+    # real horizon instead, over 358 stills with a Studio export to score
+    # against, rendered through this module and matched by feature
+    # correspondence:
+    #
+    #     encoding   old map   this map   p90    within 5 deg
+    #     56-byte      9.1       1.2      3.8        91%
+    #     20-byte     61.5       1.0      2.4       100%
+    #
+    # Both encodings pick this map independently and land below the 2.6 degree
+    # agreement the X5 reaches on the same test, which is the floor set by two
+    # different stitchers rather than by either being wrong.
+    #
+    # ⚠️ It resolves what looked like two separate defects.  The "residual
+    # wobble" recorded as a property of the OneR -- 10.8 degrees median -- was
+    # this map, not the camera.  So was the 43-degree disagreement on the
+    # 20-byte encoding, which is why no signed permutation ever reconciled it:
+    # the search was scored against the same misleading proxy that chose the
+    # wrong map in the first place.  history/08_IMU_AXES.md.
+    "Insta360 OneR": ((-1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
     # ⛔ Deliberately absent: the Insta360 X3.  Its readings cannot be
     # reconciled with the camera's attitude.  Two sessions that both render
     # level without any tilt correction give median readings 26 degrees apart,
