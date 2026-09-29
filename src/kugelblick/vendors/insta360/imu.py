@@ -170,13 +170,19 @@ _AXES = {
     # against, rendered through this module and matched by feature
     # correspondence:
     #
-    #     encoding   old map   this map   p90    within 5 deg
-    #     56-byte      9.1       1.2      3.8        91%
-    #     20-byte     61.5       1.0      2.4       100%
+    #     encoding   old map   this map   p90    within 5 deg    n
+    #     56-byte      9.6       1.16     3.4        92%         285
+    #     20-byte     42.9       1.06     2.4       100%          94
     #
-    # Both encodings pick this map independently and land below the 2.6 degree
-    # agreement the X5 reaches on the same test, which is the floor set by two
-    # different stitchers rather than by either being wrong.
+    # That is EVERY OneR still in the library carrying an inertial record, not
+    # a sample, and both encodings pick this map independently.
+    #
+    # 🔴 The X5 is the control twice over: its map was measured directly years
+    # earlier, and the same search run against Studio returns it unchanged with
+    # the runner-up 4.5 degrees away. The search moves a map only where it is
+    # wrong. ⚠️ Studio is not a second opinion -- on X5 files it reproduces the
+    # camera's own on-device stitch to 0.03 degrees -- so the residual degree
+    # here is this renderer's and not a floor.
     #
     # ⚠️ It resolves what looked like two separate defects.  The "residual
     # wobble" recorded as a property of the OneR -- 10.8 degrees median -- was

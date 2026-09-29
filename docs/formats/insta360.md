@@ -681,10 +681,19 @@ directions:
 | 56-byte | 9.1° | **1.2°** | 3.8° | 91% |
 | 20-byte | 61.5° | **1.0°** | 2.4° | 100% |
 
-Both encodings pick the same map independently. The **X5 is the control** — its
-map was measured directly against its own stitch, years of evidence earlier —
-and it scores 2.6° on this same test. That is the floor set by two different
-stitchers disagreeing, and the OneR now sits below it.
+Both encodings pick the same map independently, over **every** OneR still in
+the library that carries an inertial record — 379 files, not a sample.
+
+The **X5 is the control**, twice over. Its map was measured directly against
+its own stitch long before any of this, and running the same search against
+Studio returns that same map, with the runner-up 4.5° away: the search changes
+a map only where the map is wrong.
+
+🔴 **Studio is not a second opinion — it reproduces the device.** On X5 files,
+which carry an on-device levelled stitch, Studio's export and the camera's own
+stitch agree to **0.03°** (p90 0.39°, n=47). So the residual degrees in the
+table above are this renderer's, not a disagreement between stitchers, and
+they are worth chasing rather than accepting as a floor.
 
 🔴 **The failure was the reference, not the search.** Every row of the evidence
 table above is scored against where `body_roll` puts the zenith. That is the
