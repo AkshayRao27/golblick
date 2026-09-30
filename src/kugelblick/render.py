@@ -342,12 +342,22 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     width, height = size
     theta_max = numpy.deg2rad(field_of_view / 2)
     if feather_degrees is None:
-        # A few pixels wide, not a fixed angle.  The cross-fade exists to stop
-        # the hand-over aliasing into a stair-step, which is a question about
-        # pixels; and once the seam is ROUTED through territory the two lenses
-        # agree on, a wide blend only drags back the content the route avoided.
-        # Measured: routing gains 16-26% at 0.75-1.5 degrees and LOSES 4% at 3.
-        feather_degrees = min(3.0, max(0.5, 4.0 * 180.0 / height))
+        # Two requirements, and they pull opposite ways.
+        #
+        # A few PIXELS, so the hand-over does not alias into a stair-step at
+        # small output sizes -- and a wide blend drags back the content a
+        # routed seam was routed around, so wider is not free.
+        #
+        # 🔴 But also a minimum ANGLE, because hiding the photometric step
+        # between two lenses is a question about angle, not pixels.  Treating
+        # it as pixels alone makes the cross-fade NARROWER as resolution rises,
+        # which is backwards: at 4096 wide it came to 0.35 degrees and the seam
+        # showed as a hard line across a boat deck.  Measured as the gradient at
+        # the seam over the gradient just outside it, over nine frames: 1.16 at
+        # 0.35 degrees and 1.11 at 0.70 -- i.e. sharper than its own
+        # surroundings -- against 1.01 at 1.5, which still keeps 17% of the
+        # routing gain.  Above 2 degrees routing stops paying at all.
+        feather_degrees = min(3.0, max(1.5, 4.0 * 180.0 / height))
     feather = numpy.deg2rad(feather_degrees)
     rays = _rays(width, height)
     if orientation is not None:

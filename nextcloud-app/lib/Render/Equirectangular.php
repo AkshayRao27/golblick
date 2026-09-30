@@ -157,12 +157,14 @@ final class Equirectangular {
 		$scale = $calibration->scaleFor($sourceWidth) * $shrink;
 		$thetaMax = deg2rad(self::FIELD_OF_VIEW) / 2.0;
 		$cosThetaMax = cos($thetaMax);
-		// A few pixels wide, not a fixed angle: the cross-fade exists to stop
-		// the hand-over stair-stepping, which is a question about pixels. And
-		// once the seam is ROUTED through territory the lenses agree on, a wide
-		// blend only drags back what the route avoided -- measured, routing
-		// loses 4% at 3 degrees and gains 16-26% at 0.75-1.5.
-		$feather = deg2rad(min(self::FEATHER_DEGREES, max(0.5, 4.0 * 180.0 / $height)));
+		// A few PIXELS, so the hand-over does not stair-step at small sizes,
+		// but never below a minimum ANGLE. 🔴 Hiding the photometric step
+		// between two lenses is a question about angle, and treating it as
+		// pixels alone makes the cross-fade narrower as resolution rises --
+		// backwards. At 4096 wide that gave 0.35 degrees and the seam showed
+		// as a hard line across a boat deck. See render.equirectangular() in
+		// the parent library, which owns the choice and the measurements.
+		$feather = deg2rad(min(self::FEATHER_DEGREES, max(1.5, 4.0 * 180.0 / $height)));
 		$spin = deg2rad($calibration->relativeSpin());
 
 		// Which way is up. Falling back to the calibration's mounting angle
