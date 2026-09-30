@@ -53,8 +53,14 @@ final class Equirectangular {
 	 * this same preview at full viewer resolution: measured on a 1024px
 	 * render, the two seam columns were the sharpest in the whole frame, at
 	 * 6.6x and 4.1x the median column gradient.
+	 *
+	 * 🔴 It is a cross-fade about the BISECTOR of the two lenses, not a taper
+	 * from each lens's own rim. Tapering from the rim leaves both weights
+	 * saturated at one across the middle of the overlap, so the output there
+	 * is a straight 50/50 average of two views separated by parallax and near
+	 * objects come out transparent. That covered 17.9% of every OneR sphere.
 	 */
-	private const FEATHER_DEGREES = 5.0;
+	private const FEATHER_DEGREES = 3.0;
 
 	/**
 	 * Refuse a full-resolution frame that will not fit in memory.
@@ -207,20 +213,32 @@ final class Equirectangular {
 				// the seam and nothing anywhere else.
 				$sumR = $sumG = $sumB = 0.0;
 				$sumW = 0.0;
+				// The lenses are exactly back to back in this model, so the
+				// second sees theta' = pi - theta and the better-placed one is
+				// simply acos(|z|). Hand over across a band that wide about
+				// the bisector; see FEATHER_DEGREES for why not from the rim.
+				$closest = acos(min(1.0, abs($z)));
 				for ($index = 0; $index < 2; ++$index) {
 					$lensZ = $index === 1 ? -$z : $z;
 					if ($lensZ < $cosThetaMax) {
 						continue;   // outside this lens's cone entirely
 					}
 					$theta = acos(max(-1.0, min(1.0, $lensZ)));
-					// Taper to nothing at the rim, where the lens sees worst.
-					$weight = ($thetaMax - $theta) / $feather;
+					$weight = ($closest + $feather - $theta) / $feather;
 					if ($weight <= 0.0) {
 						continue;
 					}
 					if ($weight > 1.0) {
 						$weight = 1.0;
 					}
+					// Still taper at the rim: inside the overlap this is
+					// already 1 wherever the cross-fade is not 0, so it only
+					// matters for a lens with no partner.
+					$rim = ($thetaMax - $theta) / $feather;
+					if ($rim <= 0.0) {
+						continue;
+					}
+					$weight *= $rim > 1.0 ? 1.0 : $rim;
 
 					$lensX = $index === 1 ? -$x : $x;
 					[$radius, $centreX, $centreY, $lensSpin] = $geometry[$index];

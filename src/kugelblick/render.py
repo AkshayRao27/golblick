@@ -131,7 +131,7 @@ def _sample(image, u, v, valid):
     return out
 
 
-def equirectangular(image, lenses, size, field_of_view, feather_degrees=5.0,
+def equirectangular(image, lenses, size, field_of_view, feather_degrees=3.0,
                     orientation=None):
     """Project a dual-fisheye ``image`` into an equirectangular frame.
 
@@ -156,19 +156,53 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=5.0,
         # output direction, the camera-frame direction that should land there.
         rays = rays @ numpy.asarray(orientation, numpy.float64)
 
-    total = numpy.zeros((height, width, 3), numpy.float32)
-    weights = numpy.zeros((height, width, 1), numpy.float32)
+    sampled = []
+    thetas = []
     hemispheres = []
     for index, lens in enumerate(lenses):
         u, v, theta = _project(rays, lens, index, theta_max)
         valid = theta <= theta_max
         pixels = _sample(image, u, v, valid)
-        # Taper to nothing at the rim so the hemispheres cross-fade rather than
-        # meeting at a hard edge.  This is a blend, not a parallax fix.
-        weight = numpy.clip((theta_max - theta) / feather, 0, 1) * valid
+        sampled.append((pixels, valid))
+        # Lenses that cannot see this direction must not drag the minimum down.
+        # Past the rim rather than infinite, so that a direction no lens sees
+        # subtracts finite numbers instead of producing a NaN to mask later.
+        thetas.append(numpy.where(valid, theta, theta_max + feather))
+        hemispheres.append((pixels, valid))
+
+    # 🔴 Cross-fade on how far each lens is from the BEST-PLACED lens, not on
+    # how far it is from its own rim.  Tapering from the rim looks right and is
+    # not: with a 194 degree lens the taper only starts at 92 degrees, so both
+    # lenses carry full weight across the middle of the 14 degree overlap and
+    # the result is a straight 50/50 average of two views separated by
+    # parallax.  Near objects then appear as ghosts -- you can see the scene
+    # through a person standing near the seam -- and the mix stays visible for
+    # about 12 degrees whatever ``feather_degrees`` is set to.  Narrowing the
+    # feather makes it worse, not better, because it widens the plateau where
+    # both weights saturate at one.
+    #
+    # Relative to the closest lens, the hand-over happens in a band of width
+    # ``feather_degrees`` about the bisector, and the weights never both
+    # saturate away from it.  Objects near the seam are cut rather than made
+    # transparent, which is the trade the vendor's own stitcher makes too.
+    #
+    # Three degrees rather than one: narrower is measurably cleaner and carries
+    # no photometric penalty, but the cross-fade has to stay several pixels
+    # wide at the smallest size anything renders at.  One degree is about 1.4
+    # rows of a 256-row preview, which aliases into a hard cut; three is about
+    # four rows.
+    closest = numpy.minimum.reduce(thetas)
+    total = numpy.zeros((height, width, 3), numpy.float32)
+    weights = numpy.zeros((height, width, 1), numpy.float32)
+    for (pixels, valid), theta in zip(sampled, thetas):
+        weight = numpy.clip((closest + feather - theta) / feather, 0, 1)
+        # Keep the rim taper as well.  Inside the overlap it is already 1
+        # wherever the cross-fade is non-zero, so it changes nothing there; it
+        # only matters if a lens has no partner, where dropping straight to
+        # black at the rim would be a hard edge.
+        weight = weight * numpy.clip((theta_max - theta) / feather, 0, 1) * valid
         total += pixels * weight[..., None]
         weights += weight[..., None]
-        hemispheres.append((pixels, valid))
 
     blended = numpy.where(weights > 0, total / numpy.maximum(weights, 1e-6), 0)
     return blended.astype(numpy.float32), hemispheres

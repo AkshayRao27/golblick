@@ -106,6 +106,54 @@ def synthetic_pair(size=256, field_of_view=194.0):
     return image, lenses
 
 
+def flat_coloured_pair(cell=128):
+    """A pair whose two lenses carry flat, different colours.
+
+    Nothing here varies with direction, so any pixel that comes out neither
+    red nor blue is the renderer mixing the two lenses -- which is exactly the
+    thing a correlation over the overlap cannot see.
+    """
+    radius = cell / 2 - 1
+    image = numpy.zeros((cell, cell * 2, 3), numpy.uint8)
+    ys, xs = numpy.mgrid[0:cell, 0:cell]
+    inside = numpy.hypot(xs - (cell - 1) / 2, ys - (cell - 1) / 2) <= radius
+    for index, colour in enumerate(((255, 0, 0), (0, 0, 255))):
+        cellpix = numpy.zeros((cell, cell, 3), numpy.uint8)
+        cellpix[inside] = colour
+        image[:, index * cell : (index + 1) * cell] = cellpix
+    lenses = (
+        render.Lens(radius, (cell - 1) / 2, (cell - 1) / 2),
+        render.Lens(radius, cell + (cell - 1) / 2, (cell - 1) / 2),
+    )
+    return image, lenses
+
+
+def test_the_lenses_hand_over_rather_than_averaging():
+    """🔴 The overlap must not come out as a 50/50 average of both lenses.
+
+    The lenses see 194 degrees and so overlap by 14, and they are separated by
+    a baseline, so a near object sits in different places in the two views.
+    Averaging across that band makes it semi-transparent -- you could see the
+    scene through a person standing near the seam.  The first weighting shipped
+    tapered each lens from its own rim, which leaves both weights saturated at
+    one across the middle of the band; 17.9 per cent of every sphere was a
+    50/50 mix and no metric in the suite could see it, because a correlation
+    between the two lenses is blindest exactly where they are averaged.
+    """
+    image, lenses = flat_coloured_pair()
+    pixels, _ = render.equirectangular(image, lenses, (512, 256), 194.0)
+
+    red, blue = pixels[..., 0], pixels[..., 2]
+    lit = numpy.maximum(red, blue) > 8
+    mixed = (numpy.minimum(red, blue) / numpy.maximum(numpy.maximum(red, blue), 1e-6))
+    share = float((lit & (mixed > 0.4)).sum()) / lit.sum()
+
+    assert share < 0.05, (
+        f"{share:.1%} of the sphere is a blend of both lenses, which is where "
+        "near objects turn transparent; the rim-taper weighting scored 0.179"
+    )
+
+
 def test_round_trip_recovers_the_pattern():
     """Project a synthetic pair back out and the two lenses must agree."""
     image, lenses = synthetic_pair()
