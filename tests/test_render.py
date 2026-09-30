@@ -128,6 +128,67 @@ def flat_coloured_pair(cell=128):
     return image, lenses
 
 
+def _box_down(values, factor):
+    height, width = values.shape[:2]
+    height, width = height // factor * factor, width // factor * factor
+    block = values[:height, :width].reshape(
+        height // factor, factor, width // factor, factor, 3)
+    return block.mean(axis=(1, 3))
+
+
+def textured_pair(cell=128, period=4.0):
+    """A pair carrying detail near the sampling limit.
+
+    ⚠️ The smooth pattern in :func:`synthetic_pair` cannot detect a sampling
+    error: nearest-neighbour reproduces a slow gradient about as well as
+    bilinear does, and a first version of the test below passed under both.
+    Aliasing needs something to alias.
+    """
+    radius = cell / 2 - 1
+    image = numpy.zeros((cell, cell * 2, 3), numpy.uint8)
+    ys, xs = numpy.mgrid[0:cell, 0:cell]
+    inside = numpy.hypot(xs - (cell - 1) / 2, ys - (cell - 1) / 2) <= radius
+    fine = (numpy.sin(2 * numpy.pi * xs / period)
+            * numpy.sin(2 * numpy.pi * ys / period) * 0.5 + 0.5) * 255
+    for index in range(2):
+        cellpix = numpy.repeat(fine[..., None], 3, axis=-1).astype(numpy.uint8)
+        cellpix[~inside] = 0
+        image[:, index * cell : (index + 1) * cell] = cellpix
+    lenses = (
+        render.Lens(radius, (cell - 1) / 2, (cell - 1) / 2),
+        render.Lens(radius, cell + (cell - 1) / 2, (cell - 1) / 2),
+    )
+    return image, lenses
+
+
+def test_the_projection_samples_between_source_pixels():
+    """🔴 Nearest-neighbour sampling costs more resolution than the output size.
+
+    Render the same scene three times larger and box it back down; that is what
+    the pixels ought to be, so a sampler that aliases disagrees with itself
+    across scales.
+
+    ⚠️ Do NOT score this with high-frequency energy. Nearest-neighbour *adds*
+    high frequencies, because its jaggies are aliasing, so that metric rewards
+    the worse sampler. On real media the RMSE at 2048 fell from 5.28 to 3.26 --
+    62% of what quadrupling the pixel count buys, for none of the pixels.
+    """
+    image, lenses = textured_pair()
+    size = (256, 128)
+
+    reference = _box_down(
+        render.equirectangular(image, lenses, (size[0] * 3, size[1] * 3), 194.0)[0], 3)
+    got = render.equirectangular(image, lenses, size, 194.0)[0]
+    got = got[: reference.shape[0], : reference.shape[1]]
+    inside = reference.max(axis=-1) > 8
+    error = numpy.sqrt((((got - reference) ** 2).mean(axis=-1))[inside].mean())
+
+    assert error < 15.0, (
+        f"RMSE {error:.2f} against a 3x reference; nearest-neighbour sampling "
+        "scores 32.6 on this fixture and bilinear 8.5"
+    )
+
+
 def test_the_lenses_hand_over_rather_than_averaging():
     """🔴 The overlap must not come out as a 50/50 average of both lenses.
 
