@@ -195,6 +195,15 @@ def overlap_agreement(hemispheres):
     Note that adding the same spin to *both* lenses is not a rotation at all;
     it turns them in opposite world senses and the score collapses.  That
     asymmetry is what made the stored yaw identifiable.
+
+    🔴 It is also blind to the QUALITY of a stitch that is basically correct,
+    so do not rank files by it.  A correlation over the band is dominated by
+    large-scale luminance: across a 1,432-file corpus the highest score in the
+    library, 0.985, is a visibly misregistered sky-against-trees frame, the
+    lowest, 0.096, is a blank white room that stitches cleanly, and a file
+    verified against the vendor's own export sits below the median.  This
+    separates a correct projection from a wrong convention -- 0.75 to 0.90
+    against 0.02, one file at a time -- and nothing finer.
     """
     numpy = _numpy()
     (pixels_a, valid_a), (pixels_b, valid_b) = hemispheres
