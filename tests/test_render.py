@@ -38,21 +38,29 @@ def test_lenses_are_scaled_into_the_actual_image():
     assert lenses[1].centre_x > lenses[0].centre_x
 
 
-def test_relative_spin_is_taken_modulo_180():
-    """A OneR puts the back-to-back flip in its yaw; an X5 does not.
+def test_relative_spin_reads_each_yaw_in_its_own_lens_frame():
+    """The relative spin is -(yaw0 + yaw1) modulo 180, not the difference.
 
-    Both must reduce to the same thing -- a fraction of a degree of relative
-    sensor rotation -- or one of the two cameras projects with a 180-degree
-    error.
+    Lens 1 faces the other way, so a rotation about the shared axis that it
+    states in its own frame has the opposite sense in lens 0's.  Measured
+    against the vendor's own stitch, a OneR's lens 1 sits at -1.328 degrees,
+    which is what the sum gives; the difference gives -0.892.  The difference
+    broke every horizon that crossed the seam.
     """
     x5 = build(X5, width=5888)
     oner = build(ONER, width=6080)
 
     assert numpy.rad2deg(x5[0].spin) == 0.0
-    assert numpy.rad2deg(x5[1].spin) == pytest.approx(-0.333, abs=0.01)
+    # -(90.047 + 89.714) = -179.761, i.e. +0.239 once the flip is removed.
+    assert numpy.rad2deg(x5[1].spin) == pytest.approx(0.239, abs=0.01)
+    # -(-178.89 + 0.21768) = +178.672, i.e. -1.328.
+    assert numpy.rad2deg(oner[1].spin) == pytest.approx(-1.328, abs=0.01)
 
-    # Stored difference is +179.108, which is -0.892 once the flip is removed.
-    assert numpy.rad2deg(oner[1].spin) == pytest.approx(-0.892, abs=0.01)
+
+def test_the_fourth_and_fifth_values_are_carried_as_tilts():
+    oner = build(ONER, width=6080)
+    assert numpy.rad2deg(oner[0].tilt) == pytest.approx((-0.170038, 0.734073))
+    assert numpy.rad2deg(oner[1].tilt) == pytest.approx((0.742285, 0.733425))
 
 
 def test_two_lenses_are_required():
@@ -61,11 +69,13 @@ def test_two_lenses_are_required():
         build(text)
 
 
-def synthetic_pair(size=256, field_of_view=194.0):
+def synthetic_pair(size=256, field_of_view=194.0, tilts=((0.0, 0.0), (0.0, 0.0))):
     """Render a known pattern into two fisheye circles.
 
     The inverse of the projection under test, so a round trip should return
-    what went in.
+    what went in.  ``tilts`` rotates each lens about its OWN x and y axes, in
+    radians, before lens 1 is turned to face backwards -- the frame the camera
+    states them in.
     """
     cell = size
     image = numpy.zeros((cell, 2 * cell, 3), numpy.uint8)
@@ -84,6 +94,11 @@ def synthetic_pair(size=256, field_of_view=194.0):
         x = numpy.sin(theta) * numpy.cos(phi)
         y = numpy.sin(theta) * numpy.sin(phi)
         z = numpy.cos(theta)
+        # What the tilted lens recorded at this pixel is the direction R q.
+        t = render._tilt_matrix(*tilts[index])
+        x, y, z = (t[0, 0] * x + t[0, 1] * y + t[0, 2] * z,
+                   t[1, 0] * x + t[1, 1] * y + t[1, 2] * z,
+                   t[2, 0] * x + t[2, 1] * y + t[2, 2] * z)
         if index == 1:
             x, z = -x, -z
 
@@ -100,8 +115,8 @@ def synthetic_pair(size=256, field_of_view=194.0):
         image[:, index * cell : (index + 1) * cell] = cellpix
 
     lenses = (
-        render.Lens(radius, (cell - 1) / 2, (cell - 1) / 2),
-        render.Lens(radius, cell + (cell - 1) / 2, (cell - 1) / 2),
+        render.Lens(radius, (cell - 1) / 2, (cell - 1) / 2, tilt=tuple(tilts[0])),
+        render.Lens(radius, cell + (cell - 1) / 2, (cell - 1) / 2, tilt=tuple(tilts[1])),
     )
     return image, lenses
 
@@ -213,6 +228,35 @@ def test_the_lenses_hand_over_rather_than_averaging():
         f"{share:.1%} of the sphere is a blend of both lenses, which is where "
         "near objects turn transparent; the rim-taper weighting scored 0.179"
     )
+
+
+def _band_disagreement(hemispheres, half_degrees=6.0, size=(512, 256)):
+    rays = render._rays(*size)
+    d = 2 * numpy.arccos(numpy.clip(rays[..., 2], -1, 1)) - numpy.pi
+    (a, va), (b, vb) = hemispheres
+    band = va & vb & (numpy.abs(d) < numpy.deg2rad(half_degrees))
+    return float(numpy.abs(a.astype(float) - b.astype(float))[band].mean())
+
+
+def test_the_tilt_is_applied_in_the_lens_own_frame():
+    """A tilt on lens 1 about x is where frames matter: turning the lens round
+    reverses x, so applying it in lens 0's frame gets its sign wrong.  Lopsided
+    on purpose -- a tilt about y, or the same tilt on both lenses, would pass
+    either way.
+    """
+    tilts = ((0.0, 0.0), (numpy.deg2rad(3.0), 0.0))
+    image, lenses = synthetic_pair(size=512, tilts=tilts)
+    untilted = tuple(render.Lens(l.radius, l.centre_x, l.centre_y) for l in lenses)
+    wrong_frame = (lenses[0], render.Lens(lenses[1].radius, lenses[1].centre_x,
+                                          lenses[1].centre_y, tilt=(-tilts[1][0], 0.0)))
+
+    def score(pair):
+        _, hemispheres = render.equirectangular(image, pair, (512, 256), 194.0)
+        return _band_disagreement(hemispheres)
+
+    right, ignored, flipped = score(lenses), score(untilted), score(wrong_frame)
+    assert right < 0.5 * ignored, (right, ignored)
+    assert ignored < flipped, (ignored, flipped)
 
 
 def test_round_trip_recovers_the_pattern():

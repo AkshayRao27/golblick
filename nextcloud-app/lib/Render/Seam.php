@@ -58,7 +58,7 @@ final class Seam {
 	private const MARGIN = 0.9;
 
 	/**
-	 * @param array<int, array{float, float, float, float}> $geometry
+	 * @param array<int, array{float, float, float, float, array<int, array<int, float>>}> $geometry
 	 * @param array<int, array<int, float>> $m transposed orientation
 	 * @return float[]|null one offset in radians per azimuth column, or null to
 	 *                      hand over on the bisector
@@ -164,14 +164,20 @@ final class Seam {
 
 				$grey = [];
 				foreach ([0, 1] as $index) {
-					$lensZ = $index === 1 ? -$z : $z;
-					$lensX = $index === 1 ? -$x : $x;
-					$theta = acos(max(-1.0, min(1.0, $lensZ)));
+					// Own-frame ray, as in Equirectangular: turned round for
+					// lens 1, then the lens's tilt undone.
+					$ox = $index === 1 ? -$x : $x;
+					$oz = $index === 1 ? -$z : $z;
+					$t = $geometry[$index][4];
+					$qx = $t[0][0] * $ox + $t[1][0] * $y + $t[2][0] * $oz;
+					$qy = $t[0][1] * $ox + $t[1][1] * $y + $t[2][1] * $oz;
+					$qz = $t[0][2] * $ox + $t[1][2] * $y + $t[2][2] * $oz;
+					$theta = acos(max(-1.0, min(1.0, $qz)));
 					if ($theta > $thetaMax) {
 						continue 2;
 					}
 					[$radius, $centreX, $centreY, $lensSpin] = $geometry[$index];
-					$phi = atan2($y, $lensX) - $lensSpin;
+					$phi = atan2($qy, $qx) - $lensSpin;
 					$r = $radius * $theta / $thetaMax;
 					$fx = $centreX + $r * cos($phi);
 					$fy = $centreY - $r * sin($phi);

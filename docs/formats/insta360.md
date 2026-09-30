@@ -259,31 +259,70 @@ camera** and differs sharply between them:
 ✅ **Yaw is the sensor's rotation within its own image circle — not the
 direction the lens points.** That is why both X5 lenses read ~90°: the sensors
 are mounted a quarter turn round, and the two lenses face opposite ways by
-construction. The OneR's 179° difference is the same thing plus the
-back-to-back flip stated explicitly, which the X3 and X5 leave implicit.
+construction. Read in each lens's own frame, every camera states the
+back-to-back flip the same way: the two yaws **sum** to about ±180° (OneR
+−178.67°, X3 +178.85°, X5 +179.76°), and what is left over is the small relative
+rotation. The OneR only looks different because it puts the half turn in lens 0
+and the X3 and X5 split it between the two.
 
-So what a renderer needs is the **relative** rotation, taken modulo 180°:
+So what a renderer needs is the **relative** rotation, taken modulo 180°. Each
+lens states its yaw **in its own frame**, and lens 1 faces the other way, so a
+rotation about the shared axis that lens 1 states as positive is negative in
+lens 0's frame. The relative rotation is therefore the **sum**, negated:
 
-| Model | Stored yaw 0 | Stored yaw 1 | Difference | mod 180° | Measured |
+```
+relative spin = −(yaw₀ + yaw₁)   mod 180°
+```
+
+| Model | Stored yaw 0 | Stored yaw 1 | −(sum) mod 180° | Against the vendor's stitch | Difference mod 180° (wrong) |
 |---|---|---|---|---|---|
-| OneR | −178.890° | +0.218° | +179.108° | **−0.892°** | −1.39° |
-| X3 | +88.992° | +89.858° | +0.866° | **+0.866°** | +0.87° |
-| X5 | +90.047° | +89.714° | −0.333° | **−0.333°** | +0.17° |
+| OneR | −178.890° | +0.218° | **−1.328°** | −1.328° | −0.892° |
+| X3 | +88.992° | +89.858° | **+1.150°** | +1.116° | +0.866° |
+| X5 | +90.047° | +89.714° | **+0.239°** | +0.247° | −0.333° |
 
-"Measured" is the relative rotation recovered independently, by maximising the
-agreement between the two lenses where they overlap (see
-[Scoring without a reference](#scoring-without-a-reference)). It matches the
-stored value within ±0.5° on all three cameras and exactly on the X3, which is
-what earns the identification.
+"Against the vendor's stitch" is the relative rotation recovered by matching
+each lens of a render, block by block, against an independent stitch of the
+same file: Insta360 Studio exports for the OneR (14 scenes, spread 0.03°) and
+the X3 (2 scenes), and the stitch the X5 embeds in its own file (12 scenes).
+Away from the seam each lens appears alone in the reference, so every block
+measures one lens's placement, and the global alignment cancels out of the
+difference between the two lenses.
 
-🔴 An earlier version of this document stated "both lens axes sit near 90° and
-270°" as a fact about the format. It was wrong twice over: 270° was never
-measured at all, and the angles are not bearings.
+🔴 **An earlier version of this document gave the relative rotation as the
+difference of the two yaws**, and supported it with a "Measured" column from
+maximising lens agreement in the overlap: −1.39°, +0.87° and +0.17°. That column
+favoured the sum on two cameras of three and was read as confirming the
+difference. On a OneR the error is 0.44°, about 5 px at 4096 wide along the
+whole seam. It broke every horizon that crossed the seam, and overlap agreement
+could not see it: the two lenses disagree 21% less in the overlap once it is
+corrected (40 of 40 frames improve).
 
-⚠️ **`roll` and `pitch` remain unidentified.** They are under 1° on every camera
-measured, and applying them as tilts about the X and Y axes scores *worse* than
-ignoring them, so the convention is wrong rather than the values meaningless.
-They are not applied.
+### The fourth and fifth values are small rotations, in the same own-frame sense
+
+The fourth and fifth per-lens values are rotations about the lens's own x and y
+axes, in degrees, stated in that lens's own frame, like the yaw. In lens 0's
+frame, lens 1's x reverses, so the relative rotation they predict is
+`(−(v₄⁰ + v₄¹), v₅¹ − v₅⁰)` about x and y.
+
+| Model | Predicted about x | Measured about x | Predicted about y | Measured about y |
+|---|---|---|---|---|
+| OneR | −0.572° | −0.539° | −0.001° | −0.018° |
+| X3 | −0.027° | −0.046° | +0.047° | **−0.330°** |
+| X5 | −0.142° | −0.104° | −0.135° | **+0.212°** (spread 0.29°) |
+
+✅ Confirmed on a OneR on both axes, which is 95% of the library measured.
+
+⚠️ **Unverified about y on the X3 and X5.** Both show a residual of about 0.3°
+that the stored values do not predict, on the X5 against a reference that is
+itself noisy. The rotation is applied on every camera, because the rule is one
+reading of one format and on those two cameras the stored values about y are
+close to zero anyway, so applying them neither causes nor removes the residual.
+
+🔴 An earlier version of this document said these two values "score worse than
+ignoring them, so the convention is wrong", and later work searched 48 axis,
+sign and order conventions against lens agreement. The search could only apply
+the same signs to both lenses, and the own-frame reading needs opposite signs
+about x. It also could not reach the spin error, which was larger.
 
 ⚠️ **The rim angle is not in the file.** The equidistant model gives the image
 circle's radius in pixels but not the angle that rim corresponds to, so it has

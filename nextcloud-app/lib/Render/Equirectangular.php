@@ -186,8 +186,14 @@ final class Equirectangular {
 				$lens[1] * $scale,          // centre x
 				$lens[2] * $scale,          // centre y
 				$index === 1 ? $spin : 0.0, // only the relative spin is recoverable
+				// Applied in the lens's own frame, after lens 1 is turned round.
+				Orientation::tilt(...$calibration->tilt($index)),
 			];
 		}
+		// Each lens's tilt as scalars for the pixel loop. Calibration refuses
+		// anything but a pair, so both exist.
+		[[$a00, $a01, $a02], [$a10, $a11, $a12], [$a20, $a21, $a22]] = $geometry[0][4];
+		[[$b00, $b01, $b02], [$b10, $b11, $b12], [$b20, $b21, $b22]] = $geometry[1][4];
 
 		// Choose where the lenses hand over before rendering; see Seam. Null
 		// means it declined and the bisector is used, which is also the path
@@ -227,11 +233,25 @@ final class Equirectangular {
 				// the seam and nothing anywhere else.
 				$sumR = $sumG = $sumB = 0.0;
 				$sumW = 0.0;
-				// The lenses are exactly back to back in this model, so the
-				// second sees theta' = pi - theta and the better-placed one is
-				// simply acos(|z|). Hand over across a band that wide about
-				// the bisector; see FEATHER_DEGREES for why not from the rim.
-				$closest = acos(min(1.0, abs($z)));
+				// Each lens's own-frame ray: lens 1 turned round, then the
+				// lens's tilt undone (R transposed). The better-placed lens is
+				// the one with the smaller angle off its own axis; hand over
+				// across a band about the bisector, see FEATHER_DEGREES for
+				// why not from the rim.
+				// Unrolled, with the matrices hoisted: array lookups in this
+				// loop cost more than the arithmetic.
+				$az = $a02 * $x + $a12 * $y + $a22 * $z;
+				$bz = -$b02 * $x + $b12 * $y - $b22 * $z;
+				$rays = [
+					[$a00 * $x + $a10 * $y + $a20 * $z, $a01 * $x + $a11 * $y + $a21 * $z, $az,
+						acos($az > 1.0 ? 1.0 : ($az < -1.0 ? -1.0 : $az))],
+					[-$b00 * $x + $b10 * $y - $b20 * $z, -$b01 * $x + $b11 * $y - $b21 * $z, $bz,
+						acos($bz > 1.0 ? 1.0 : ($bz < -1.0 ? -1.0 : $bz))],
+				];
+				$closest = min(
+					$az >= $cosThetaMax ? $rays[0][3] : $thetaMax + $feather,
+					$bz >= $cosThetaMax ? $rays[1][3] : $thetaMax + $feather,
+				);
 				$shareA = null;
 				if ($delta !== null) {
 					$offset = Seam::offsetAt($delta, atan2($y, $x));
@@ -242,11 +262,10 @@ final class Equirectangular {
 					$shareA = $shareA < 0.0 ? 0.0 : ($shareA > 1.0 ? 1.0 : $shareA);
 				}
 				for ($index = 0; $index < 2; ++$index) {
-					$lensZ = $index === 1 ? -$z : $z;
-					if ($lensZ < $cosThetaMax) {
+					[$qx, $qy, $qz, $theta] = $rays[$index];
+					if ($qz < $cosThetaMax) {
 						continue;   // outside this lens's cone entirely
 					}
-					$theta = acos(max(-1.0, min(1.0, $lensZ)));
 					if ($shareA !== null) {
 						$weight = $index === 0 ? $shareA : 1.0 - $shareA;
 					} else {
@@ -267,9 +286,8 @@ final class Equirectangular {
 					}
 					$weight *= $rim > 1.0 ? 1.0 : $rim;
 
-					$lensX = $index === 1 ? -$x : $x;
 					[$radius, $centreX, $centreY, $lensSpin] = $geometry[$index];
-					$phi = atan2($y, $lensX) - $lensSpin;
+					$phi = atan2($qy, $qx) - $lensSpin;
 					$r = $radius * $theta / $thetaMax;
 
 					// Rows run down while world Y runs up, hence the minus on sin.

@@ -14,9 +14,16 @@ Confirmed by measurement across three cameras:
 * Each lens maps angle from its axis linearly to radius in its image circle,
   ``r = radius * theta / theta_max`` -- the equidistant model.
 * The two lenses sit back to back, and the stored yaw is the sensor's rotation
-  *within* its image circle, not the direction the lens points.  The relative
-  rotation between the lenses is the stored yaw difference taken modulo 180
-  degrees; a OneR states that 180 explicitly, an X3 and X5 leave it implicit.
+  *within* its image circle, not the direction the lens points.  Each lens
+  states its angles in its **own** frame, and lens 1's frame is lens 0's turned
+  180 degrees, which reverses the sense of a rotation about the lens axis.  So
+  the relative spin is ``-(yaw0 + yaw1)`` modulo 180 -- not the difference.
+  Measured against the vendor's own stitch on all three cameras, to within
+  0.04 degrees.
+* The fourth and fifth values are small rotations about the lens's own x and y
+  axes, in the same own-frame sense.  Confirmed on both axes on a OneR against
+  the vendor's stitch; on an X3 and X5 only about x, with an unexplained
+  ~0.3 degree residual about y that the stored values do not predict.
 * The *absolute* yaw is the sensor's mounting angle in the camera body, and it
   is a constant of the body -- zero spread over 1,409 files from three of them.
   Rolling the render by ``90 - yaw`` lands it in the body frame, which levels a
@@ -27,9 +34,6 @@ Confirmed by measurement across three cameras:
 
 ⚠️ **Not** established, and therefore not applied:
 
-* What ``roll`` and ``pitch`` mean.  They are under one degree on every camera
-  measured, and applying them as tilts about X and Y scores slightly *worse*
-  than ignoring them, so the convention is wrong rather than the values useless.
 * ``theta_max``, the angle the image circle's rim corresponds to.  It is not in
   the file.  :func:`fit_field_of_view` recovers it by scoring, and it differs
   per camera (194 degrees on an X5 and a OneR, 192 on an X3).
@@ -63,6 +67,10 @@ class Lens:
     centre_y: float
     #: Rotation of the sensor within its own image circle, radians.
     spin: float = 0.0
+    #: Small rotation about the lens's own x and y axes, radians -- the fourth
+    #: and fifth calibration values.  Applied after lens 1's back-to-back flip,
+    #: because that is the frame the camera states them in.
+    tilt: tuple[float, float] = (0.0, 0.0)
 
 
 def lenses_from_calibration(calibration, width: int):
@@ -79,17 +87,23 @@ def lenses_from_calibration(calibration, width: int):
 
     scale = calibration.scale_for(width)
     yaws = [lens[5] for lens in calibration.lenses]
-    # Modulo 180, signed the short way: lens 1 is physically 180 degrees round,
-    # and a OneR encodes that in the yaw while an X3 and X5 do not.
-    relative = ((yaws[1] - yaws[0]) + 90.0) % 180.0 - 90.0
+    # 🔴 A SUM, not a difference.  Each lens states its yaw in its own frame,
+    # and lens 1 faces the other way, so its rotation about the shared axis
+    # reads with the opposite sign in lens 0's frame.  Modulo 180, signed the
+    # short way.  The difference, used until 2026-09-30, was 0.44 degrees out
+    # on a OneR -- about 5 px at 4096 wide, along the whole seam -- and broke
+    # every horizon that crossed it.  Measured against the vendor's stitch:
+    # OneR -1.328 (sum -1.328, difference -0.892), X3 and X5 within 0.04.
+    relative = (-(yaws[0] + yaws[1]) + 90.0) % 180.0 - 90.0
 
     built = []
-    for index, (radius, cx, cy, _roll, _pitch, _yaw) in enumerate(calibration.lenses):
+    for index, (radius, cx, cy, tilt_x, tilt_y, _yaw) in enumerate(calibration.lenses):
         built.append(Lens(
             radius=radius * scale,
             centre_x=cx * scale,
             centre_y=cy * scale,
             spin=numpy.deg2rad(relative) if index == 1 else 0.0,
+            tilt=(float(numpy.deg2rad(tilt_x)), float(numpy.deg2rad(tilt_y))),
         ))
     return tuple(built)
 
@@ -106,6 +120,18 @@ def _rays(width: int, height: int):
     )
 
 
+def _tilt_matrix(about_x: float, about_y: float):
+    """Rotation by the vector (about_x, about_y, 0), radians, column convention."""
+    numpy = _numpy()
+    w = numpy.array([about_x, about_y, 0.0])
+    angle = float(numpy.linalg.norm(w))
+    if angle == 0.0:
+        return numpy.eye(3)
+    k = w / angle
+    cross = numpy.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    return numpy.eye(3) + numpy.sin(angle) * cross + (1 - numpy.cos(angle)) * cross @ cross
+
+
 def _project(rays, lens: Lens, index: int, theta_max: float):
     """Where each ray lands in one lens, and how far off axis it is."""
     numpy = _numpy()
@@ -113,6 +139,14 @@ def _project(rays, lens: Lens, index: int, theta_max: float):
     if index == 1:
         # Lens 1 faces the other way: rotate 180 degrees about the vertical.
         x, z = -x, -z
+    if lens.tilt != (0.0, 0.0):
+        # In the lens's own frame, after the flip.  Rows are vectors, so this
+        # is R.T applied to each ray: for an output direction, the lens ray
+        # that the tilted lens actually recorded there.
+        t = _tilt_matrix(*lens.tilt)
+        x, y, z = (x * t[0, 0] + y * t[1, 0] + z * t[2, 0],
+                   x * t[0, 1] + y * t[1, 1] + z * t[2, 1],
+                   x * t[0, 2] + y * t[1, 2] + z * t[2, 2])
 
     theta = numpy.arccos(numpy.clip(z, -1, 1))
     phi = numpy.arctan2(y, x) - lens.spin

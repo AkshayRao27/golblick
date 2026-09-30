@@ -48,6 +48,31 @@ final class Orientation {
 		return self::multiply(self::multiply($ry, $rx), $rz);
 	}
 
+	/**
+	 * Rotation by the vector (aboutX, aboutY, 0), in degrees -- one lens's
+	 * tilt, in its own frame. Column convention, like render._tilt_matrix().
+	 *
+	 * @return array<int, array<int, float>> a 3x3 matrix
+	 */
+	public static function tilt(float $aboutX, float $aboutY): array {
+		$wx = deg2rad($aboutX);
+		$wy = deg2rad($aboutY);
+		$angle = sqrt($wx * $wx + $wy * $wy);
+		if ($angle == 0.0) {
+			return [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+		}
+		$kx = $wx / $angle;
+		$ky = $wy / $angle;
+		$s = sin($angle);
+		$c = 1.0 - cos($angle);
+		// Rodrigues with k = (kx, ky, 0): I + sin K + (1 - cos) K^2.
+		return [
+			[1.0 - $c * $ky * $ky, $c * $kx * $ky, $s * $ky],
+			[$c * $kx * $ky, 1.0 - $c * $kx * $kx, -$s * $kx],
+			[-$s * $ky, $s * $kx, 1.0 - $c * ($kx * $kx + $ky * $ky)],
+		];
+	}
+
 	/** The mounting-angle correction: a roll and nothing else. */
 	public static function fromRoll(float $roll): array {
 		return self::rotation(0.0, 0.0, $roll);

@@ -73,13 +73,27 @@ final class Calibration {
 	/**
 	 * Relative rotation between the sensors, degrees, signed the short way.
 	 *
-	 * Lens 1 is physically half a turn round; a OneR states that in the yaw
-	 * and an X3 and X5 leave it implicit, so it is taken modulo 180.
+	 * 🔴 A SUM, not a difference: each lens states its yaw in its own frame,
+	 * and lens 1 faces the other way, so its rotation about the shared axis
+	 * reads with the opposite sense in lens 0's. Taken modulo 180. The
+	 * difference was 0.44 degrees out on a OneR against the vendor's stitch.
+	 * See render.lenses_from_calibration() in the parent library, which owns
+	 * the measurement.
 	 */
 	public function relativeSpin(): float {
-		$difference = $this->lenses[1][5] - $this->lenses[0][5];
+		$sum = -($this->lenses[0][5] + $this->lenses[1][5]);
 
-		return fmod(fmod($difference + 90.0, 180.0) + 180.0, 180.0) - 90.0;
+		return fmod(fmod($sum + 90.0, 180.0) + 180.0, 180.0) - 90.0;
+	}
+
+	/**
+	 * The fourth and fifth values: a small rotation about the lens's own x and
+	 * y axes, degrees, in that lens's own frame.
+	 *
+	 * @return array{float, float}
+	 */
+	public function tilt(int $index): array {
+		return [(float)$this->lenses[$index][3], (float)$this->lenses[$index][4]];
 	}
 
 	/**
