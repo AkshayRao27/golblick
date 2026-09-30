@@ -154,8 +154,16 @@ def _sample(image, u, v, valid):
     return out
 
 
-_SEAM_COLUMNS = 512
-_SEAM_ROWS = 64
+#: Grid the seam is chosen on: azimuth columns by offset rows.  Finer buys
+#: nothing measurable -- 512x64 scores 28% and 192x32 scores 25% -- and it has
+#: to stay coarse enough that the PHP port, which decides the seam from a small
+#: probe render rather than the full frame, gets enough samples per bin to fill
+#: it.  At 512x64 the port saw about 0.5 samples per bin and declined outright.
+_SEAM_COLUMNS = 256
+_SEAM_ROWS = 48
+
+#: Do not route below this output width; see the note where it is used.
+_SEAM_MIN_WIDTH = 2048
 
 #: Below this mean disagreement (0-255) the lenses already agree along the
 #: bisector, so there is nothing to route around and the straight seam is the
@@ -217,42 +225,51 @@ def _cheapest_cycle(grid):
     CONNECTED because a seam that jumps is a tear.  The connectivity is what
     limits the gain: the per-column minima are scattered, jumping as much as 62
     of 64 rows between neighbours, so a seam cannot visit them.
+
+    Two passes -- solve with a free start, then re-solve pinned to where that
+    landed -- rather than solving every start exactly.  Measured against the
+    exact answer on five frames the difference is 0.0% median and 3.9% worst,
+    and the exact version needs a back-pointer table for every start, which the
+    PHP port cannot afford.  Both implementations run this same algorithm.
     """
     numpy = _numpy()
     rows, columns = grid.shape
     work = numpy.where(numpy.isfinite(grid), grid, 1e9)
     index = numpy.arange(rows)
 
-    # Axis 0 indexes the starting row, so every start is solved at once.
-    cost = numpy.full((rows, rows), numpy.inf)
-    cost[index, index] = work[index, 0]
-    back = numpy.zeros((columns, rows, rows), numpy.int16)
-    infinite = numpy.full((rows, 1), numpy.inf)
-    for column in range(1, columns):
-        up = numpy.concatenate([infinite, cost[:, :-1]], axis=1)
-        down = numpy.concatenate([cost[:, 1:], infinite], axis=1)
-        stacked = numpy.stack([up, cost, down])
-        choice = numpy.argmin(stacked, axis=0)
-        cost = numpy.take_along_axis(stacked, choice[None], 0)[0] + work[None, :, column]
-        back[column] = index[None, :] + (choice - 1)
+    def sweep(initial):
+        cost = initial.copy()
+        back = numpy.zeros((columns, rows), numpy.int32)
+        for column in range(1, columns):
+            up = numpy.concatenate(([numpy.inf], cost[:-1]))
+            down = numpy.concatenate((cost[1:], [numpy.inf]))
+            stacked = numpy.stack([up, cost, down])
+            choice = numpy.argmin(stacked, axis=0)
+            cost = stacked[choice, index] + work[:, column]
+            back[column] = index + (choice - 1)
+        return cost, back
 
-    # Close the loop: the last column must land within one row of the start.
-    best = None
-    for offset in (-1, 0, 1):
-        ends = index + offset
-        legal = (ends >= 0) & (ends < rows)
-        totals = numpy.where(legal, cost[index, numpy.clip(ends, 0, rows - 1)], numpy.inf)
-        start = int(numpy.argmin(totals))
-        if numpy.isfinite(totals[start]) and (best is None or totals[start] < best[0]):
-            best = (float(totals[start]), start, int(ends[start]))
-    if best is None:
+    def unwind(back, end):
+        path = numpy.empty(columns, numpy.int32)
+        path[-1] = end
+        for column in range(columns - 1, 0, -1):
+            path[column - 1] = back[column][path[column]]
+        return path
+
+    cost, back = sweep(work[:, 0])
+    if not numpy.isfinite(cost).any():
         return None
-    _, start, end = best
-    path = numpy.empty(columns, numpy.int32)
-    path[-1] = end
-    for column in range(columns - 1, 0, -1):
-        path[column - 1] = back[column][start][path[column]]
-    return path
+    first = unwind(back, int(numpy.argmin(cost)))
+
+    start = int(first[0])
+    pinned = numpy.full(rows, numpy.inf)
+    pinned[start] = work[start, 0]
+    cost, back = sweep(pinned)
+    ends = [e for e in (start - 1, start, start + 1)
+            if 0 <= e < rows and numpy.isfinite(cost[e])]
+    if not ends:
+        return None
+    return unwind(back, min(ends, key=lambda e: cost[e]))
 
 
 def _seam_offset(a, b, both, d, phi, feather, half):
@@ -379,8 +396,14 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     # where nothing is close enough for parallax to separate the views.  A near
     # subject is then walked around instead of cut through.  Median 25% less
     # disagreement across nine frames, 10% to 57%.
+    # 🔴 Only decide a seam when there is enough of the frame to decide it on.
+    # Measured across nine frames, a grid built at 2048 wide is positive on all
+    # of them and never worse than +7%; at 1024 one frame loses 25% and at 512
+    # two lose up to 30%.  The cost landscape has many near-equal paths, so a
+    # thin grid picks one by noise, and a badly placed seam is worse than the
+    # bisector.  Below this the seam is not visible anyway.
     offset = None
-    if len(lenses) == 2:
+    if len(lenses) == 2 and width >= _SEAM_MIN_WIDTH:
         grey = lambda p: p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114
         both = sampled[0][1] & sampled[1][1]
         z = numpy.clip(rays[..., 2], -1, 1)
