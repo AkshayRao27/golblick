@@ -485,3 +485,67 @@ def test_levelling_can_be_turned_off():
     matrix, note = cli._levelling(render, _Vendor(up=(0.0, 0.0, 1.0)), "x", _Calibration(), "none")
 
     assert matrix is None and "none" in note
+
+
+def test_the_seam_path_is_closed_and_connected():
+    """A seam that jumps is a tear, and the azimuth wraps.
+
+    Both properties are structural, so they are checked on the search directly
+    rather than inferred from a rendered frame.
+    """
+    rows, columns = 32, 128
+    grid = numpy.full((rows, columns), 10.0)
+    path = render._cheapest_cycle(grid)
+
+    assert path is not None
+    assert path.shape == (columns,)
+    assert numpy.abs(numpy.diff(path)).max() <= 1, "the seam steps more than one row"
+    assert abs(int(path[0]) - int(path[-1])) <= 1, "the seam does not close"
+
+
+def test_the_seam_follows_the_cheap_corridor():
+    """It has to actually route, not merely return something well-formed."""
+    rows, columns = 32, 256
+    corridor = (rows / 2 + numpy.sin(numpy.arange(columns) / columns * 2 * numpy.pi)
+                * (rows / 2 - 3)).astype(int)
+    grid = numpy.full((rows, columns), 50.0)
+    grid[corridor, numpy.arange(columns)] = 1.0
+
+    path = render._cheapest_cycle(grid)
+
+    assert path is not None
+    assert numpy.abs(path - corridor).max() <= 1, (
+        f"the seam strayed from the corridor by {numpy.abs(path - corridor).max()} rows"
+    )
+
+
+def test_routing_declines_when_there_is_nothing_to_route_around():
+    """🔴 The decline has to be reachable, and once was not.
+
+    The first guard asked only whether the routed path was cheaper than the
+    straight one.  It can never fail: the search minimises over connected paths
+    and the bisector is one of them, so its optimum is always at least as good.
+    Comparing an optimum against a feasible solution of the same problem has
+    one possible answer.  A featureless pair got a seam that wandered after
+    noise, and the test that would have caught it is this one.
+    """
+    image, lenses = flat_coloured_pair()
+    theta_max = numpy.deg2rad(97.0)
+    feather = numpy.deg2rad(2.0)
+    rays = render._rays(256, 128)
+
+    sampled = []
+    for index, lens in enumerate(lenses):
+        u, v, theta = render._project(rays, lens, index, theta_max)
+        sampled.append((render._sample(image, u, v, theta <= theta_max), theta <= theta_max))
+    grey = lambda p: p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114
+    z = numpy.clip(rays[..., 2], -1, 1)
+
+    offset = render._seam_offset(
+        grey(sampled[0][0]), grey(sampled[1][0]), sampled[0][1] & sampled[1][1],
+        2 * numpy.arccos(z) - numpy.pi,
+        numpy.arctan2(rays[..., 1], rays[..., 0]),
+        feather, 2 * theta_max - numpy.pi,
+    )
+
+    assert offset is None, "routed a seam through a scene with nothing to route around"

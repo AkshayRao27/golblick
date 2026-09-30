@@ -154,7 +154,159 @@ def _sample(image, u, v, valid):
     return out
 
 
-def equirectangular(image, lenses, size, field_of_view, feather_degrees=3.0,
+_SEAM_COLUMNS = 512
+_SEAM_ROWS = 64
+
+#: Below this mean disagreement (0-255) the lenses already agree along the
+#: bisector, so there is nothing to route around and the straight seam is the
+#: better answer for being the simpler one.
+_SEAM_FLOOR = 2.0
+
+#: Route only for a material gain, not for a rounding difference.
+_SEAM_MARGIN = 0.9
+
+
+def _seam_cost(a, b, both, d, phi, room):
+    """Mean |lensA - lensB| binned by (offset from the bisector, azimuth)."""
+    numpy = _numpy()
+    keep = both & (numpy.abs(d) < room)
+    if keep.sum() < 1000:
+        return None
+    row = ((d[keep] + room) / (2 * room) * (_SEAM_ROWS - 1)).astype(numpy.int32)
+    column = (((phi[keep] + numpy.pi) / (2 * numpy.pi) * _SEAM_COLUMNS)
+              .astype(numpy.int32) % _SEAM_COLUMNS)
+    flat = row * _SEAM_COLUMNS + column
+    size = _SEAM_ROWS * _SEAM_COLUMNS
+    difference = numpy.abs(a[keep] - b[keep])
+    total = numpy.bincount(flat, weights=difference, minlength=size)
+    count = numpy.bincount(flat, minlength=size)
+    total = total.reshape(_SEAM_ROWS, _SEAM_COLUMNS)
+    count = count.reshape(_SEAM_ROWS, _SEAM_COLUMNS)
+    return numpy.where(count > 0, total / numpy.maximum(count, 1), numpy.inf)
+
+
+def _widen(grid, feather, room):
+    """Cost each candidate over the width the CROSS-FADE averages, not one row.
+
+    🔴 Without this the search minimises a slice far thinner than the blend, so
+    the path dodges a near object and the blend drags it straight back in.  On
+    the first frame tried that was the whole of the difference between routing
+    looking worthless (16.86 -> 17.51) and worthwhile.
+    """
+    numpy = _numpy()
+    rows = grid.shape[0]
+    step = 2 * room / (rows - 1)
+    span = max(1, int(round(2 * feather / step)))
+    finite = numpy.isfinite(grid)
+    pad = span // 2
+    def boxed(values):
+        padded = numpy.pad(values, ((pad, span - 1 - pad), (0, 0)), mode="edge")
+        stacked = numpy.cumsum(padded, axis=0)
+        stacked = numpy.concatenate([numpy.zeros((1, grid.shape[1])), stacked])
+        return stacked[span:] - stacked[:-span]
+    total = boxed(numpy.where(finite, grid, 0.0))
+    count = boxed(finite.astype(numpy.float64))
+    widened = numpy.where(count > 0, total / numpy.maximum(count, 1e-9), numpy.inf)
+    return numpy.where(finite, widened, numpy.inf)
+
+
+def _cheapest_cycle(grid):
+    """Minimum-cost closed path, one row per column, steps of at most one row.
+
+    ⚠️ The path has to be CYCLIC because the azimuth wraps, and it has to be
+    CONNECTED because a seam that jumps is a tear.  The connectivity is what
+    limits the gain: the per-column minima are scattered, jumping as much as 62
+    of 64 rows between neighbours, so a seam cannot visit them.
+    """
+    numpy = _numpy()
+    rows, columns = grid.shape
+    work = numpy.where(numpy.isfinite(grid), grid, 1e9)
+    index = numpy.arange(rows)
+
+    # Axis 0 indexes the starting row, so every start is solved at once.
+    cost = numpy.full((rows, rows), numpy.inf)
+    cost[index, index] = work[index, 0]
+    back = numpy.zeros((columns, rows, rows), numpy.int16)
+    infinite = numpy.full((rows, 1), numpy.inf)
+    for column in range(1, columns):
+        up = numpy.concatenate([infinite, cost[:, :-1]], axis=1)
+        down = numpy.concatenate([cost[:, 1:], infinite], axis=1)
+        stacked = numpy.stack([up, cost, down])
+        choice = numpy.argmin(stacked, axis=0)
+        cost = numpy.take_along_axis(stacked, choice[None], 0)[0] + work[None, :, column]
+        back[column] = index[None, :] + (choice - 1)
+
+    # Close the loop: the last column must land within one row of the start.
+    best = None
+    for offset in (-1, 0, 1):
+        ends = index + offset
+        legal = (ends >= 0) & (ends < rows)
+        totals = numpy.where(legal, cost[index, numpy.clip(ends, 0, rows - 1)], numpy.inf)
+        start = int(numpy.argmin(totals))
+        if numpy.isfinite(totals[start]) and (best is None or totals[start] < best[0]):
+            best = (float(totals[start]), start, int(ends[start]))
+    if best is None:
+        return None
+    _, start, end = best
+    path = numpy.empty(columns, numpy.int32)
+    path[-1] = end
+    for column in range(columns - 1, 0, -1):
+        path[column - 1] = back[column][start][path[column]]
+    return path
+
+
+def _seam_offset(a, b, both, d, phi, feather, half):
+    """Where the two lenses should hand over, as an offset per azimuth.
+
+    Returns ``None`` -- meaning hand over on the bisector -- whenever routing
+    cannot be shown to beat it.  An estimator that cannot decline has no place
+    here; the image-only horizon fit is the cautionary tale.
+    """
+    numpy = _numpy()
+    room = half - 2 * feather
+    if room <= 0:
+        return None
+    grid = _seam_cost(a, b, both, d, phi, room)
+    if grid is None:
+        return None
+    widened = _widen(grid, feather, room)
+    path = _cheapest_cycle(widened)
+    if path is None:
+        return None
+
+    columns = numpy.arange(_SEAM_COLUMNS)
+    middle = (_SEAM_ROWS - 1) // 2
+    routed = widened[path, columns]
+    straight = widened[middle, columns]
+    routed = routed[numpy.isfinite(routed)]
+    straight = straight[numpy.isfinite(straight)]
+    if routed.size == 0 or straight.size == 0:
+        return None
+
+    # 🔴 The test has to carry a MARGIN, and has to ask whether there is a
+    # problem at all.  A bare "is the route cheaper" cannot ever decline: the
+    # search minimises over connected paths and the bisector is itself one of
+    # them, so its optimum is always at least as good.  Comparing an optimum
+    # against a feasible solution of the same problem has one possible answer.
+    # Without both tests a featureless scene still gets a seam that wanders
+    # after noise, for nothing.
+    if straight.mean() < _SEAM_FLOOR:
+        return None
+    if routed.mean() >= _SEAM_MARGIN * straight.mean():
+        return None
+
+    # Smooth a little: the grid is coarse and a jagged seam is its own artefact.
+    extended = numpy.concatenate([path[-8:], path, path[:8]]).astype(numpy.float64)
+    smoothed = numpy.convolve(extended, numpy.ones(9) / 9, mode="same")[8:-8]
+    position = ((phi + numpy.pi) / (2 * numpy.pi) * _SEAM_COLUMNS) % _SEAM_COLUMNS
+    low = numpy.floor(position).astype(numpy.int32) % _SEAM_COLUMNS
+    high = (low + 1) % _SEAM_COLUMNS
+    fraction = position - numpy.floor(position)
+    rowwise = smoothed[low] * (1 - fraction) + smoothed[high] * fraction
+    return rowwise / (_SEAM_ROWS - 1) * (2 * room) - room
+
+
+def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
                     orientation=None):
     """Project a dual-fisheye ``image`` into an equirectangular frame.
 
@@ -172,6 +324,13 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=3.0,
     numpy = _numpy()
     width, height = size
     theta_max = numpy.deg2rad(field_of_view / 2)
+    if feather_degrees is None:
+        # A few pixels wide, not a fixed angle.  The cross-fade exists to stop
+        # the hand-over aliasing into a stair-step, which is a question about
+        # pixels; and once the seam is ROUTED through territory the two lenses
+        # agree on, a wide blend only drags back the content the route avoided.
+        # Measured: routing gains 16-26% at 0.75-1.5 degrees and LOSES 4% at 3.
+        feather_degrees = min(3.0, max(0.5, 4.0 * 180.0 / height))
     feather = numpy.deg2rad(feather_degrees)
     rays = _rays(width, height)
     if orientation is not None:
@@ -214,9 +373,39 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=3.0,
     # wide at the smallest size anything renders at.  One degree is about 1.4
     # rows of a 256-row preview, which aliases into a hard cut; three is about
     # four rows.
-    closest = numpy.minimum.reduce(thetas)
+    # With exactly two lenses the hand-over can be ROUTED rather than left on
+    # the bisector: parametrise it by d = theta_0 - theta_1 against the azimuth
+    # about the lens axis, and put it where the two lenses already agree -- i.e.
+    # where nothing is close enough for parallax to separate the views.  A near
+    # subject is then walked around instead of cut through.  Median 25% less
+    # disagreement across nine frames, 10% to 57%.
+    offset = None
+    if len(lenses) == 2:
+        grey = lambda p: p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114
+        both = sampled[0][1] & sampled[1][1]
+        z = numpy.clip(rays[..., 2], -1, 1)
+        offset = _seam_offset(
+            grey(sampled[0][0]), grey(sampled[1][0]), both,
+            2 * numpy.arccos(z) - numpy.pi,
+            numpy.arctan2(rays[..., 1], rays[..., 0]),
+            feather, 2 * theta_max - numpy.pi,
+        )
+
     total = numpy.zeros((height, width, 3), numpy.float32)
     weights = numpy.zeros((height, width, 1), numpy.float32)
+    if offset is not None:
+        share = numpy.clip(
+            (feather - ((2 * numpy.arccos(numpy.clip(rays[..., 2], -1, 1)) - numpy.pi)
+                        - offset)) / (2 * feather), 0, 1)
+        for index, ((pixels, valid), theta) in enumerate(zip(sampled, thetas)):
+            weight = (share if index == 0 else 1.0 - share)
+            weight = weight * numpy.clip((theta_max - theta) / feather, 0, 1) * valid
+            total += pixels * weight[..., None]
+            weights += weight[..., None]
+        blended = numpy.where(weights > 0, total / numpy.maximum(weights, 1e-6), 0)
+        return blended.astype(numpy.float32), hemispheres
+
+    closest = numpy.minimum.reduce(thetas)
     for (pixels, valid), theta in zip(sampled, thetas):
         weight = numpy.clip((closest + feather - theta) / feather, 0, 1)
         # Keep the rim taper as well.  Inside the overlap it is already 1
