@@ -1,9 +1,9 @@
 """The vendor registry: detection is by content, not by file extension."""
 
 from conftest import write_file
-from kugelblick import detect
-from kugelblick.vendors import VENDORS, owned_extensions
-from kugelblick.vendors.insta360 import METADATA
+from golblick import detect
+from golblick.vendors import VENDORS, owned_extensions
+from golblick.vendors.insta360 import METADATA
 
 
 def test_detects_by_trailer_magic_not_extension(tmp_path):

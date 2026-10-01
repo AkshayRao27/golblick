@@ -1,12 +1,10 @@
-# kugelblick
+# Golblick
 
 **Read, inspect and render 360-camera files on Linux.**
 
-> The name is provisional and will change: [kugelblick.de](http://kugelblick.de) is an existing site about interactive 360° panoramas, which is close enough to cause confusion.
-
 360 cameras wrap their footage in vendor-specific containers, and vendors ship little or nothing for Linux. An Insta360 `.insp` opens in any image viewer as two fisheye circles side by side, because that is what it contains: the camera does not store a stitched photo. Everything needed to turn those circles into a panorama is in a trailer at the end of the file, in plain ASCII and protobuf, readable without any of the vendor's code.
 
-kugelblick reads that trailer. It finds clips you are about to lose, pulls out the camera's own previews, and renders a levelled panorama that any 360 viewer will open as a sphere. A companion Nextcloud app does the same for your photo timeline.
+Golblick reads that trailer. It finds clips you are about to lose, pulls out the camera's own previews, and renders a levelled panorama that any 360 viewer will open as a sphere. A companion Nextcloud app does the same for your photo timeline. The name is Hindi *gol* (round) and German *Blick* (view).
 
 ---
 
@@ -51,9 +49,9 @@ This is alpha software. It works on the three cameras it was tested with, and no
 ## Quick start
 
 ```sh
-uv tool install 'kugelblick[render]'      # or: pipx install 'kugelblick[render]'
-kugelblick render IMG_20260314_090809_00_007.insp -o pano.jpg
-kugelblick triage ~/Photos
+uv tool install 'golblick[render]'      # or: pipx install 'golblick[render]'
+golblick render IMG_20260314_090809_00_007.insp -o pano.jpg
+golblick triage ~/Photos
 ```
 
 Without `[render]` everything except rendering still works, with no dependencies at all.

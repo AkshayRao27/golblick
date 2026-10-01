@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from conftest import write_file
-from kugelblick.vendors.insta360 import lens
-from kugelblick.vendors.insta360.trailer import METADATA
+from golblick.vendors.insta360 import lens
+from golblick.vendors.insta360.trailer import METADATA
 
 STEP = 2.0  # render.RADIAL_STEP, restated so this test needs no numpy
 

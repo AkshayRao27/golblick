@@ -32,7 +32,7 @@ Re-verified on Nextcloud 35 with the app installed, running against the containe
 ## Install
 
 ```sh
-occ app:enable kugelblick
+occ app:enable golblick
 ```
 
 ⚠️ **Then register the file extension**, or nothing changes. Nextcloud stores `.insp` as `application/octet-stream` and never offers it to any image provider. Add `insp` to `config/mimetypemapping.json`, creating the file if it does not exist and *merging* if it does:
@@ -92,7 +92,7 @@ lib/Render/       Equirectangular · Seam · Orientation                        
 lib/Preview/      Insta360                                                                the provider
 ```
 
-The reader is a deliberate port of `src/kugelblick/vendors/insta360/` in the parent repository, kept close enough to compare side by side. The container format itself is documented in `docs/formats/insta360.md`, which is the owner of every measured fact quoted above.
+The reader is a deliberate port of `src/golblick/vendors/insta360/` in the parent repository, kept close enough to compare side by side. The container format itself is documented in `docs/formats/insta360.md`, which is the owner of every measured fact quoted above.
 
 ## Licence
 

@@ -8,7 +8,7 @@ A Python library and CLI that reads 360-camera container files on Linux (Insta36
 
 Read these first, in this order:
 
-1. The vendor contract at the top of [`src/kugelblick/vendors/__init__.py`](src/kugelblick/vendors/__init__.py). Everything else follows from it.
+1. The vendor contract at the top of [`src/golblick/vendors/__init__.py`](src/golblick/vendors/__init__.py). Everything else follows from it.
 2. [`docs/formats/insta360.md`](docs/formats/insta360.md), for what is known about the container and how each fact was measured.
 3. [`docs/accuracy.md`](docs/accuracy.md), for what each check can and cannot see.
 
@@ -17,7 +17,7 @@ Read these first, in this order:
 ```sh
 uv sync --group dev && uv run pytest -q                    # without numpy
 uv sync --group dev --extra render && uv run pytest -q     # with the render extra
-uv run kugelblick --help
+uv run golblick --help
 find nextcloud-app/lib -name '*.php' -exec php -l {} \;     # the PHP has no test suite; lint it
 ```
 
@@ -31,7 +31,7 @@ Run the tests both ways. The core must pass without numpy installed, and with nu
 - Vendor-specific code lives in the vendor's module. Adding a vendor should need a new module and a `VENDORS` entry, nothing else.
 - Do not name what has not been verified. Unconfirmed calibration models stay raw tuples. In `docs/formats/`, mark inferred claims as unverified and never upgrade one without a measurement.
 - Per-camera values the file does not carry (field of view, lens correction) live in the vendor's lens profile, with how they were measured. The PHP app restates those tables; a test fails if they drift.
-- A change to the projection goes into both `src/kugelblick/render.py` and `nextcloud-app/lib/Render/`, and the two outputs are compared on the same file afterwards.
+- A change to the projection goes into both `src/golblick/render.py` and `nextcloud-app/lib/Render/`, and the two outputs are compared on the same file afterwards.
 - Never add real photos or videos, or camera serial numbers, to the repository, including in pasted `probe` output. Fixtures are synthesised in the tests.
 - Never develop or test the Nextcloud app against an instance that holds someone's real photos. Use a throwaway one in Docker.
 - Commit messages explain why: what was measured, what was rejected, what a decision costs. One line per paragraph, no hard wrapping, and nothing about the people or places in anyone's photos.

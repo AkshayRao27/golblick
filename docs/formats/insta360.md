@@ -40,7 +40,7 @@ An `.lrv` is a *proxy*, not a preview: it is dual fisheye too, so it is no more 
 
 ### Getting the full-resolution frame out
 
-For a `.insp` this costs nothing: the JPEG is everything in front of the trailer, so the frame comes out by slicing the file at the trailer offset. No decoding, no re-encoding, no vendor software. `kugelblick render` projects from this rather than from record `0x0200`, which is a tenth of the pixels on a OneR.
+For a `.insp` this costs nothing: the JPEG is everything in front of the trailer, so the frame comes out by slicing the file at the trailer offset. No decoding, no re-encoding, no vendor software. `golblick render` projects from this rather than from record `0x0200`, which is a tenth of the pixels on a OneR.
 
 Worth checking that the slice ends on `FFD9`. The trailer is appended after the JPEG's own end marker, so the two boundaries must coincide; if they do not, the trailer was misparsed and everything downstream is built on it.
 
@@ -554,8 +554,8 @@ The orientation correction was found by grid search, not derived. The ceiling is
 ## Reproducing this
 
 ```sh
-kugelblick probe FILE -v        # records, metadata, every calibration model
-kugelblick preview FILE -o p.png  # record 0x0200, the camera's full-size preview
-kugelblick thumb FILE -o t.jpg    # the 320x160 EXIF thumbnail
+golblick probe FILE -v        # records, metadata, every calibration model
+golblick preview FILE -o p.png  # record 0x0200, the camera's full-size preview
+golblick thumb FILE -o t.jpg    # the 320x160 EXIF thumbnail
 exiftool -ee3 -G1 -s FILE       # independent cross-check
 ```

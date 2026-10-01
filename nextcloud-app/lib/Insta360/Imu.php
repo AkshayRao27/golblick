@@ -6,7 +6,7 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\Kugelblick\Insta360;
+namespace OCA\Golblick\Insta360;
 
 /**
  * Record 0x0300 -- the inertial log, and which way is up in it.
@@ -17,7 +17,7 @@ namespace OCA\Kugelblick\Insta360;
  * however carefully that is applied. The accelerometer says which way the
  * ground was.
  *
- * A direct port of src/kugelblick/vendors/insta360/imu.py, kept close enough
+ * A direct port of src/golblick/vendors/insta360/imu.py, kept close enough
  * to read side by side. docs/formats/insta360.md owns the measured facts.
  *
  * ⚠️ Two encodings, and the camera does not announce which. An entry is a

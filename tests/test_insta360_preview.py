@@ -3,9 +3,9 @@ import struct
 import pytest
 
 from conftest import write_file
-from kugelblick.errors import FormatError, ThumbnailError
-from kugelblick.vendors.insta360 import preview
-from kugelblick.vendors.insta360.trailer import METADATA
+from golblick.errors import FormatError, ThumbnailError
+from golblick.vendors.insta360 import preview
+from golblick.vendors.insta360.trailer import METADATA
 
 
 def nv12_record(width, height, *, declared=None, payload_bytes=None):

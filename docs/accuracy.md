@@ -4,7 +4,7 @@ A stitch has to be checked against something, and every check here has a blind s
 
 ## The self-check: lens agreement
 
-The lenses see past 180°, so there is a band where both observe the same scene, and a correct projection makes those two views coincide. Correlating them over that band scores a render with no reference image at all, on any dual-fisheye camera. `kugelblick render` prints it as *lens agreement*.
+The lenses see past 180°, so there is a band where both observe the same scene, and a correct projection makes those two views coincide. Correlating them over that band scores a render with no reference image at all, on any dual-fisheye camera. `golblick render` prints it as *lens agreement*.
 
 On correctly projected stills it sits around +0.7 to +0.9, and a wrong rotation convention drops it to about +0.02. That makes it good at telling a right convention from a wrong one, and not much else. What it cannot see:
 

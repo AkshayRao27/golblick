@@ -69,7 +69,7 @@ def write_png(rgb: bytes, width: int, height: int, xmp: bytes | None = None) -> 
 
     ``xmp`` goes in an ``iTXt`` chunk between IHDR and IDAT -- metadata before
     pixels, so a reader that stops at the first IDAT still sees it.  Build one
-    with :func:`kugelblick.gpano.packet`.
+    with :func:`golblick.gpano.packet`.
     """
     if len(rgb) != width * height * 3:
         raise ValueError(f"RGB {width}x{height} needs {width * height * 3} bytes, got {len(rgb)}")

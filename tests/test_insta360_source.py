@@ -10,9 +10,9 @@ import struct
 import pytest
 from conftest import write_file
 
-from kugelblick.errors import FormatError, UnsupportedFile
-from kugelblick.vendors.insta360 import source
-from kugelblick.vendors.insta360.preview import DUAL_FISHEYE
+from golblick.errors import FormatError, UnsupportedFile
+from golblick.vendors.insta360 import source
+from golblick.vendors.insta360.preview import DUAL_FISHEYE
 
 
 def _jpeg(width: int, height: int, *, padding: bytes = b"") -> bytes:

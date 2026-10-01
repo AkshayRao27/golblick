@@ -14,7 +14,7 @@ There is no linter configured yet. Match the surrounding style.
 ## Layout
 
 ```
-src/kugelblick/
+src/golblick/
   errors.py            shared exceptions, vendor-neutral names
   triage.py            master/proxy pairing, vendor-neutral
   imaging.py           stdlib-only NV12 decode and PNG writing
@@ -43,7 +43,7 @@ These come from mistakes made while building it.
 
 ## Adding a vendor
 
-A vendor is a module exposing the names in the contract at the top of [`vendors/__init__.py`](../src/kugelblick/vendors/__init__.py): `NAME`, `DESCRIPTION`, `EXTENSIONS`, `matches`, `classify`, `describe` and `extract_thumbnail`, plus the optional `extract_preview`, `extract_source`, `gravity_up`, `gravity_up_nearby` and `lens_profile`. Listing it in `VENDORS` is the only change needed anywhere else. If something else has to change, the abstraction is wrong, and that is worth raising.
+A vendor is a module exposing the names in the contract at the top of [`vendors/__init__.py`](../src/golblick/vendors/__init__.py): `NAME`, `DESCRIPTION`, `EXTENSIONS`, `matches`, `classify`, `describe` and `extract_thumbnail`, plus the optional `extract_preview`, `extract_source`, `gravity_up`, `gravity_up_nearby` and `lens_profile`. Listing it in `VENDORS` is the only change needed anywhere else. If something else has to change, the abstraction is wrong, and that is worth raising.
 
 Measured facts about a container go in `docs/formats/<vendor>.md`. Values that a renderer needs but the file does not carry, such as the field of view or a lens correction, go in the vendor's lens profile, with a note on how they were measured.
 

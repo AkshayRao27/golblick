@@ -1,4 +1,4 @@
-from kugelblick import triage
+from golblick import triage
 
 
 def _touch(path, size=1024):

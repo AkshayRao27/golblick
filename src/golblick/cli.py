@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import imaging, triage
-from .errors import KugelblickError, MissingDependency, UnsupportedFile
+from .errors import GolblickError, MissingDependency, UnsupportedFile
 from .vendors import VENDORS, detect
 
 
@@ -205,7 +205,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     )
     score = render.overlap_agreement(hemispheres)
 
-    xmp = gpano.packet(width, height, software=f"kugelblick {_version()}")
+    xmp = gpano.packet(width, height, software=f"golblick {_version()}")
     output = Path(args.output) if args.output else Path(args.file).with_suffix(".pano.jpg")
     _write_image(output, pixels, xmp, args.quality)
 
@@ -242,7 +242,7 @@ def _levelling(render, vendor, path: str, calibration, mode: str):
     if mode in ("auto", "imu") and reader is not None:
         try:
             up = reader(path)
-        except KugelblickError:
+        except GolblickError:
             if mode == "imu":
                 raise
             note = "no usable inertial record"
@@ -273,7 +273,7 @@ def _require_render_extra() -> None:
     if missing:
         raise MissingDependency(
             f"rendering needs {' and '.join(missing)}, which the 'render' extra "
-            f"installs: pip install 'kugelblick[render]'"
+            f"installs: pip install 'golblick[render]'"
         )
 
 
@@ -281,7 +281,7 @@ def _version() -> str:
     from importlib.metadata import PackageNotFoundError, version
 
     try:
-        return version("kugelblick")
+        return version("golblick")
     except PackageNotFoundError:  # pragma: no cover - running from a source tree
         return "dev"
 
@@ -332,7 +332,7 @@ def cmd_vendors(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="kugelblick",
+        prog="golblick",
         description="Read, inspect and triage 360 camera files on Linux.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -360,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     pano = sub.add_parser(
         "render",
         help="project the lens pair into a viewable equirectangular panorama",
-        description="Needs the 'render' extra: pip install kugelblick[render]",
+        description="Needs the 'render' extra: pip install golblick[render]",
     )
     pano.add_argument("file")
     pano.add_argument("-o", "--output", help="output path; .png writes PNG, anything else JPEG")
@@ -389,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except KugelblickError as exc:
+    except GolblickError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

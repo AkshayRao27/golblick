@@ -3,7 +3,7 @@ import zlib
 
 import pytest
 
-from kugelblick import imaging
+from golblick import imaging
 
 
 def nv12(width, height, luma, u, v):

@@ -9,9 +9,9 @@ import struct
 import pytest
 
 from conftest import write_file
-from kugelblick.errors import FormatError
-from kugelblick.vendors.insta360 import imu
-from kugelblick.vendors.insta360.trailer import IMU, METADATA
+from golblick.errors import FormatError
+from golblick.vendors.insta360 import imu
+from golblick.vendors.insta360.trailer import IMU, METADATA
 
 
 def biased(timecode, values):

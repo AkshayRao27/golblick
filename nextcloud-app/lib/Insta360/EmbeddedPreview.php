@@ -6,7 +6,7 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\Kugelblick\Insta360;
+namespace OCA\Golblick\Insta360;
 
 /**
  * Record 0x0200 -- the camera's own full-size preview.

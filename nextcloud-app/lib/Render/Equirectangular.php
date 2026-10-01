@@ -6,12 +6,12 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\Kugelblick\Render;
+namespace OCA\Golblick\Render;
 
-use OCA\Kugelblick\Insta360\Calibration;
-use OCA\Kugelblick\Insta360\LensProfile;
-use OCA\Kugelblick\Insta360\EmbeddedPreview;
-use OCA\Kugelblick\Insta360\FormatError;
+use OCA\Golblick\Insta360\Calibration;
+use OCA\Golblick\Insta360\LensProfile;
+use OCA\Golblick\Insta360\EmbeddedPreview;
+use OCA\Golblick\Insta360\FormatError;
 
 /**
  * Projects a dual-fisheye pair into an equirectangular thumbnail, with GD.

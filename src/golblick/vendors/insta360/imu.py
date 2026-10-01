@@ -32,7 +32,7 @@ that camera's stills), 6 have no trailer, and 2 carry a zero-length record.  Of
 the 442 that decode, 404 belong to a camera whose axis mapping is measured, so
 an IMU-derived horizon serves a little under a third of the library and any
 levelling that has to work everywhere needs a second route --
-:func:`kugelblick.render.body_orientation`, which reaches all 1,409 files that
+:func:`golblick.render.body_orientation`, which reaches all 1,409 files that
 carry a trailer but corrects roll only.
 """
 
@@ -111,7 +111,7 @@ def gravity(path) -> tuple[float, float, float]:
     end of it should not tilt the horizon.
 
     ⚠️ This is the direction of gravity **in the IMU's own axes**, which are
-    not the render's axes.  :func:`kugelblick.render.level` holds the rotation
+    not the render's axes.  :func:`golblick.render.level` holds the rotation
     between them, which was measured rather than assumed.
     """
     samples = entries(path)
@@ -274,8 +274,8 @@ def gravity_up_nearby(path) -> tuple[float, float, float]:
 def gravity_up(path) -> tuple[float, float, float]:
     """Which way is up, as a unit vector in the render's own frame.
 
-    Feed it to :func:`kugelblick.render.level` to build the rotation, and that
-    to :func:`kugelblick.render.equirectangular` as its ``orientation``.
+    Feed it to :func:`golblick.render.level` to build the rotation, and that
+    to :func:`golblick.render.equirectangular` as its ``orientation``.
 
     Raises :class:`FormatError` for a camera whose axis mapping has not been
     measured, rather than borrowing another camera's.

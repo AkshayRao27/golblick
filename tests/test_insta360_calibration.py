@@ -11,8 +11,8 @@ X5-specific values get recorded as properties of the format.
 
 import pytest
 
-from kugelblick.vendors.insta360 import metadata
-from kugelblick.vendors.insta360.calibration import CalibrationError, best, parse
+from golblick.vendors.insta360 import metadata
+from golblick.vendors.insta360.calibration import CalibrationError, best, parse
 
 EQUIDISTANT = (
     "2_2650.989_2691.500_2693.820_-0.873_0.140_90.047"

@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from kugelblick.vendors.insta360 import MAGIC  # noqa: E402
+from golblick.vendors.insta360 import MAGIC  # noqa: E402
 
 
 def build_trailer(records, *, version=3, pad=32):

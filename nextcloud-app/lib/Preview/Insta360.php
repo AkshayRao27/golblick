@@ -6,16 +6,16 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\Kugelblick\Preview;
+namespace OCA\Golblick\Preview;
 
-use OCA\Kugelblick\Insta360\Calibration;
-use OCA\Kugelblick\Insta360\EmbeddedPreview;
-use OCA\Kugelblick\Insta360\FormatError;
-use OCA\Kugelblick\Insta360\Imu;
-use OCA\Kugelblick\Insta360\Protobuf;
-use OCA\Kugelblick\Insta360\Trailer;
-use OCA\Kugelblick\Render\Equirectangular;
-use OCA\Kugelblick\Render\Orientation;
+use OCA\Golblick\Insta360\Calibration;
+use OCA\Golblick\Insta360\EmbeddedPreview;
+use OCA\Golblick\Insta360\FormatError;
+use OCA\Golblick\Insta360\Imu;
+use OCA\Golblick\Insta360\Protobuf;
+use OCA\Golblick\Insta360\Trailer;
+use OCA\Golblick\Render\Equirectangular;
+use OCA\Golblick\Render\Orientation;
 use OCP\Files\File;
 use OCP\Files\FileInfo;
 use OCP\IImage;
@@ -110,15 +110,15 @@ final class Insta360 implements IProviderV2 {
 			// Refusing is a normal outcome, not a failure: six files in one
 			// library of 1,415 carry no trailer at all.
 			\OC::$server->get(LoggerInterface::class)->debug(
-				'kugelblick: declined ' . $file->getPath() . ': ' . $e->getMessage(),
-				['app' => 'kugelblick']
+				'golblick: declined ' . $file->getPath() . ': ' . $e->getMessage(),
+				['app' => 'golblick']
 			);
 
 			return null;
 		} catch (\Throwable $e) {
 			\OC::$server->get(LoggerInterface::class)->warning(
-				'kugelblick: failed to preview ' . $file->getPath(),
-				['app' => 'kugelblick', 'exception' => $e]
+				'golblick: failed to preview ' . $file->getPath(),
+				['app' => 'golblick', 'exception' => $e]
 			);
 
 			return null;

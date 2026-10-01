@@ -6,7 +6,7 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\Kugelblick\Insta360;
+namespace OCA\Golblick\Insta360;
 
 /**
  * What the file does not say about the lenses, per camera model, measured.

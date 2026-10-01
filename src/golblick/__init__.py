@@ -6,15 +6,15 @@ everything describing how to turn it into a viewable panorama lives in a
 proprietary trailer the decoder skipped.
 
 This package reads those containers.  Support is organised per vendor behind a
-small contract; see :mod:`kugelblick.vendors`.
+small contract; see :mod:`golblick.vendors`.
 """
 
-from .errors import FormatError, KugelblickError, ThumbnailError, UnsupportedFile
+from .errors import FormatError, GolblickError, ThumbnailError, UnsupportedFile
 from .vendors import VENDORS, detect
 
 __all__ = [
     "FormatError",
-    "KugelblickError",
+    "GolblickError",
     "ThumbnailError",
     "UnsupportedFile",
     "VENDORS",

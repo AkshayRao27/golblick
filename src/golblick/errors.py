@@ -1,15 +1,15 @@
 """Exceptions shared by every vendor reader."""
 
 
-class KugelblickError(Exception):
+class GolblickError(Exception):
     """Base class for every error this package raises."""
 
 
-class UnsupportedFile(KugelblickError):
+class UnsupportedFile(GolblickError):
     """No registered vendor recognises this file."""
 
 
-class FormatError(KugelblickError):
+class FormatError(GolblickError):
     """The file was recognised but could not be parsed.
 
     Raised in preference to returning a partial or guessed result: a reader that
@@ -18,11 +18,11 @@ class FormatError(KugelblickError):
     """
 
 
-class ThumbnailError(KugelblickError):
+class ThumbnailError(GolblickError):
     """No embedded preview image could be extracted."""
 
 
-class MissingDependency(KugelblickError):
+class MissingDependency(GolblickError):
     """An optional extra is needed for this operation and is not installed.
 
     The library and CLI are dependency-free on purpose, so the one thing that

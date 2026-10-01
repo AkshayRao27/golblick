@@ -10,7 +10,7 @@ import zlib
 
 import pytest
 
-from kugelblick import gpano, imaging
+from golblick import gpano, imaging
 
 REQUIRED = (
     "UsePanoramaViewer",
@@ -201,8 +201,8 @@ def test_the_cli_render_command_asks_for_the_extra_rather_than_traceback(monkeyp
     """
     import builtins
 
-    from kugelblick import cli
-    from kugelblick.errors import MissingDependency
+    from golblick import cli
+    from golblick.errors import MissingDependency
 
     real_import = builtins.__import__
 

@@ -3,8 +3,8 @@
 Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra.
 
 ```sh
-uv tool install kugelblick              # or: pipx install kugelblick
-uv tool install 'kugelblick[render]'    # adds panorama rendering
+uv tool install golblick              # or: pipx install golblick
+uv tool install 'golblick[render]'    # adds panorama rendering
 ```
 
 ## Find clips whose master has gone missing
@@ -19,7 +19,7 @@ LRV_20260227_142557_01_005.lrv     proxy, one low-bitrate H.264 stream
 The proxy is not a stitched preview. It is dual fisheye too, so it is no more viewable than the master, and pure duplication while the master is present. Once the master is deleted, the proxy becomes the only surviving copy of that clip, at a fraction of the quality. That is easy to do by accident and invisible afterwards:
 
 ```sh
-$ kugelblick triage ~/Photos/Trips
+$ golblick triage ~/Photos/Trips
   13 clip(s), 2 photo(s)
     paired          8
     master only     0
@@ -42,7 +42,7 @@ $ kugelblick triage ~/Photos/Trips
 ## Inspect a file
 
 ```sh
-$ kugelblick probe IMG_20260314_090809_00_007.insp
+$ golblick probe IMG_20260314_090809_00_007.insp
   vendor      insta360
   trailer     version 3, 4.7 MiB at offset 7775494, pad 32
   records     5
@@ -65,7 +65,7 @@ Add `-v` to print the calibration parameters themselves. The full output also in
 Insta360 stills carry the camera's own preview, which is larger and more useful than the 320×160 EXIF thumbnail:
 
 ```sh
-$ kugelblick preview IMG_20260314_090809_00_007.insp -o preview.png
+$ golblick preview IMG_20260314_090809_00_007.insp -o preview.png
   2560x1280  nv12  equirectangular
 ```
 
@@ -76,14 +76,14 @@ What you get depends on the camera, and the command says which you got:
 | X5 | 2560×1280, stitched and horizon-levelled on the device | yes |
 | X3, OneR | 1920×960, the dual-fisheye pair | no, it still needs stitching |
 
-`kugelblick thumb` extracts the small EXIF thumbnail, with the same caveat: it is a stitch on an X5 and the fisheye pair everywhere else.
+`golblick thumb` extracts the small EXIF thumbnail, with the same caveat: it is a stitch on an X5 and the fisheye pair everywhere else.
 
 ## Render a panorama
 
 `render` projects the lens pair into an equirectangular image and writes the GPano XMP that tells a viewer it is a sphere rather than a wide photograph.
 
 ```sh
-$ kugelblick render IMG_20260314_090809_00_007.insp -o pano.jpg -w 4096
+$ golblick render IMG_20260314_090809_00_007.insp -o pano.jpg -w 4096
   pano.jpg  (1.9 MiB)
     4096x2048  equirectangular  from 6080x3040
     field of view  194 degrees (the camera's measured value)

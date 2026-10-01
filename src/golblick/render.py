@@ -738,7 +738,7 @@ def body_orientation(calibration):
     tilted afterwards.  Compose it with :func:`level` when a gravity vector is
     also available.
 
-    See :attr:`~kugelblick.vendors.insta360.calibration.Calibration.body_roll`
+    See :attr:`~golblick.vendors.insta360.calibration.Calibration.body_roll`
     for what is measured and what is fitted.
     """
     return rotation(0.0, 0.0, calibration.body_roll)
@@ -748,7 +748,7 @@ def level(up, yaw: float = 0.0):
     """Rotation that lifts ``up`` to the top of the frame.
 
     ``up`` is which way is up expressed in the render's own frame -- from
-    :func:`kugelblick.vendors.insta360.imu.gravity_up`, or from the ``pitch``
+    :func:`golblick.vendors.insta360.imu.gravity_up`, or from the ``pitch``
     and ``roll`` that :func:`fit_orientation` solved.  Pass the result to
     :func:`equirectangular` as its ``orientation``.
 

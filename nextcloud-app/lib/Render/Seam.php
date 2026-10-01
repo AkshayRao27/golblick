@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace OCA\Kugelblick\Render;
+namespace OCA\Golblick\Render;
 
-use OCA\Kugelblick\Insta360\Calibration;
+use OCA\Golblick\Insta360\Calibration;
 
 /**
  * Where the two lenses should hand over.
@@ -364,7 +364,7 @@ final class Seam {
 		if ($last < 0) {
 			return $theta;
 		}
-		$k = $theta * (180.0 / M_PI) / \OCA\Kugelblick\Insta360\LensProfile::RADIAL_STEP;
+		$k = $theta * (180.0 / M_PI) / \OCA\Golblick\Insta360\LensProfile::RADIAL_STEP;
 		$i = (int)$k;
 
 		return $theta + ($i >= $last ? $radial[$last] : $radial[$i] + ($radial[$i + 1] - $radial[$i]) * ($k - $i));

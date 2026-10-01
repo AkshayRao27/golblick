@@ -6,12 +6,12 @@ declare(strict_types=1);
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-namespace OCA\Kugelblick\Insta360;
+namespace OCA\Golblick\Insta360;
 
 /**
  * Reader for the binary trailer Insta360 appends to .insp files.
  *
- * A port of the Python reader in src/kugelblick/vendors/insta360/trailer.py,
+ * A port of the Python reader in src/golblick/vendors/insta360/trailer.py,
  * kept deliberately close to it so the two can be compared line for line. The
  * format write-up in docs/formats/insta360.md owns the layout; this file does
  * not restate it.

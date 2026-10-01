@@ -1,5 +1,5 @@
 [project]
-name = "kugelblick"
+name = "golblick"
 version = "0.1.0"
 description = "Read, inspect and triage 360 camera files on Linux"
 readme = "README.md"
@@ -22,7 +22,7 @@ dependencies = []
 render = ["numpy>=1.24", "pillow>=10.0"]
 
 [project.scripts]
-kugelblick = "kugelblick.cli:main"
+golblick = "golblick.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
@@ -32,7 +32,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kugelblick"]
+packages = ["src/golblick"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

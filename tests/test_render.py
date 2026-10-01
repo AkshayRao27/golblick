@@ -9,8 +9,8 @@ import pytest
 
 numpy = pytest.importorskip("numpy")
 
-from kugelblick import render
-from kugelblick.vendors.insta360 import calibration, metadata
+from golblick import render
+from golblick.vendors.insta360 import calibration, metadata
 
 # An X5 and a OneR string, verbatim from real files; neither carries anything
 # identifying.  The OneR is here because it encodes the 180-degree flip in its
@@ -471,7 +471,7 @@ def test_body_orientation_undoes_the_sensor_mounting_angle():
     Without this rotation a OneR render comes out on its side, which is how
     1,344 of the 1,415 files in one library looked.
     """
-    from kugelblick.vendors.insta360 import calibration, metadata
+    from golblick.vendors.insta360 import calibration, metadata
 
     oner = calibration.parse(
         "2_1478.32_1515.09_1518.95_-0.17_0.73_-178.89"
@@ -488,7 +488,7 @@ def test_body_orientation_undoes_the_sensor_mounting_angle():
 
 
 def test_body_orientation_is_a_near_identity_for_an_x5():
-    from kugelblick.vendors.insta360 import calibration, metadata
+    from golblick.vendors.insta360 import calibration, metadata
 
     x5 = calibration.parse(
         "2_2650.989_2691.500_2693.820_-0.873_0.140_90.047"
@@ -523,7 +523,7 @@ class _Calibration:
 def test_levelling_prefers_the_inertial_record():
     import numpy
 
-    from kugelblick import cli, render
+    from golblick import cli, render
 
     matrix, note = cli._levelling(render, _Vendor(up=(0.0, 0.0, 1.0)), "x", _Calibration(), "auto")
 
@@ -534,8 +534,8 @@ def test_levelling_prefers_the_inertial_record():
 def test_levelling_falls_back_to_the_calibration():
     """Most files carry no usable inertial record, so the fallback is the
     common path rather than an edge case."""
-    from kugelblick import cli, render
-    from kugelblick.errors import FormatError
+    from golblick import cli, render
+    from golblick.errors import FormatError
 
     vendor = _Vendor(error=FormatError("not measured for this camera"))
     matrix, note = cli._levelling(render, vendor, "x", _Calibration(), "auto")
@@ -547,8 +547,8 @@ def test_levelling_falls_back_to_the_calibration():
 def test_forcing_the_inertial_route_refuses_rather_than_falling_back():
     """--level imu means 'fail if you cannot', so a silent downgrade to a
     worse horizon is not possible."""
-    from kugelblick import cli, render
-    from kugelblick.errors import FormatError
+    from golblick import cli, render
+    from golblick.errors import FormatError
 
     vendor = _Vendor(error=FormatError("not measured for this camera"))
 
@@ -557,7 +557,7 @@ def test_forcing_the_inertial_route_refuses_rather_than_falling_back():
 
 
 def test_levelling_can_be_turned_off():
-    from kugelblick import cli, render
+    from golblick import cli, render
 
     matrix, note = cli._levelling(render, _Vendor(up=(0.0, 0.0, 1.0)), "x", _Calibration(), "none")
 
