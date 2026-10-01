@@ -36,6 +36,11 @@ organised per vendor behind a small contract.  A vendor module provides:
     ⚠️ It is a separate entry point on purpose.  Everything else here is handed
     a path and reports what is inside it; this is the one that looks outside,
     so a caller that must not touch the filesystem can still use ``gravity_up``.
+``lens_profile(path) -> profile | None``
+    Optional.  What the file does not carry about the lenses but a renderer
+    needs: ``field_of_view``, and ``radial``, a measured correction to the
+    equidistant model (see ``render.Lens.radial``).  Per camera model and
+    measured, never guessed; None for a camera nobody has measured.
 ``extract_source(path) -> Source``
     Optional.  The full-resolution imagery the container wraps, for a renderer
     to project from.  Reports its own encoding, size and layout.  Distinct from

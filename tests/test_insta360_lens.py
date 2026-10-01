@@ -1,0 +1,55 @@
+"""Per-model lens profiles: read from the right camera, sane, and identical in the port."""
+
+import re
+from pathlib import Path
+
+import pytest
+
+from conftest import write_file
+from kugelblick.vendors.insta360 import lens
+from kugelblick.vendors.insta360.trailer import METADATA
+
+STEP = 2.0  # render.RADIAL_STEP, restated so this test needs no numpy
+
+
+def model_record(name):
+    text = name.encode()
+    return b"\x12" + bytes([len(text)]) + text
+
+
+@pytest.mark.parametrize("model, field_of_view", [
+    ("Insta360 OneR", 194.0), ("Insta360 X3", 192.0), ("Insta360 X5", 194.0),
+])
+def test_the_profile_follows_the_camera_that_wrote_the_file(tmp_path, model, field_of_view):
+    path = write_file(tmp_path / "a.insp", [(METADATA, model_record(model))])
+    assert lens.lens_profile(path).field_of_view == field_of_view
+
+
+def test_an_unmeasured_camera_gets_no_profile(tmp_path):
+    path = write_file(tmp_path / "a.insp", [(METADATA, model_record("Insta360 Nonesuch"))])
+    assert lens.lens_profile(path) is None
+
+
+@pytest.mark.parametrize("model", sorted(lens.PROFILES))
+def test_a_radial_correction_keeps_the_lens_monotone(model):
+    """A correction that folded the mapping back would send two directions to
+    one pixel, and one on the axis cannot move at all."""
+    table = lens.PROFILES[model].radial
+    if not table:
+        pytest.skip(f"{model} has no measured correction")
+    assert table[0] == 0.0
+    mapped = [i * STEP + e for i, e in enumerate(table)]
+    assert all(b > a for a, b in zip(mapped, mapped[1:]))
+
+
+def test_the_preview_provider_carries_the_same_table():
+    """The PHP port restates the table; a drift between the two is a silent
+    difference between the CLI and every preview."""
+    php = Path(__file__).parents[1] / "nextcloud-app/lib/Insta360/LensProfile.php"
+    text = php.read_text()
+    for model, profile in lens.PROFILES.items():
+        match = re.search(re.escape(f"'{model}' => [") + r"([\d.]+), \[([^\]]*)\]\]", text)
+        assert match, f"{model} missing from {php.name}"
+        assert float(match.group(1)) == profile.field_of_view
+        values = tuple(float(v) for v in match.group(2).split(",") if v.strip())
+        assert values == profile.radial

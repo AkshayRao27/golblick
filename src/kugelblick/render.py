@@ -11,8 +11,12 @@ confirmed.  See ``docs/formats/insta360.md``.
 
 Confirmed by measurement across three cameras:
 
-* Each lens maps angle from its axis linearly to radius in its image circle,
-  ``r = radius * theta / theta_max`` -- the equidistant model.
+* Each lens maps angle from its axis nearly linearly to radius in its image
+  circle, ``r = radius * theta / theta_max`` -- the equidistant model.  Nearly:
+  measured against the vendor's own stitch, a OneR departs from it by up to
+  1.45 degrees and an X3 by up to 1.75, the same curve in every scene.  That
+  curve is not in the file; a vendor supplies it per camera model, and
+  :attr:`Lens.radial` applies it.
 * The two lenses sit back to back, and the stored yaw is the sensor's rotation
   *within* its image circle, not the direction the lens points.  Each lens
   states its angles in its **own** frame, and lens 1's frame is lens 0's turned
@@ -71,10 +75,23 @@ class Lens:
     #: and fifth calibration values.  Applied after lens 1's back-to-back flip,
     #: because that is the frame the camera states them in.
     tilt: tuple[float, float] = (0.0, 0.0)
+    #: Correction to the equidistant model, degrees, sampled every
+    #: :data:`RADIAL_STEP` degrees out from the axis: a direction at angle
+    #: theta off the axis is recorded where the equidistant model would put
+    #: ``theta + radial(theta)``.  Not in the file -- a vendor supplies it per
+    #: camera model, measured, or leaves it empty for the plain model.
+    radial: tuple[float, ...] = ()
 
 
-def lenses_from_calibration(calibration, width: int):
+#: Spacing of :attr:`Lens.radial`, degrees.
+RADIAL_STEP = 2.0
+
+
+def lenses_from_calibration(calibration, width: int, radial: tuple[float, ...] = ()):
     """Build the lens pair from an equidistant calibration string.
+
+    ``radial`` is a measured correction to the equidistant model, applied to
+    both lenses; see :attr:`Lens.radial`.  The file does not carry it.
 
     Only the relative spin between the lenses is used here, so lens 0 is taken
     as the reference and lens 1 carries the difference.  That renders in lens
@@ -104,6 +121,7 @@ def lenses_from_calibration(calibration, width: int):
             centre_y=cy * scale,
             spin=numpy.deg2rad(relative) if index == 1 else 0.0,
             tilt=(float(numpy.deg2rad(tilt_x)), float(numpy.deg2rad(tilt_y))),
+            radial=tuple(radial),
         ))
     return tuple(built)
 
@@ -149,6 +167,14 @@ def _project(rays, lens: Lens, index: int, theta_max: float):
                    x * t[0, 2] + y * t[1, 2] + z * t[2, 2])
 
     theta = numpy.arccos(numpy.clip(z, -1, 1))
+    if lens.radial:
+        # Where the lens actually recorded this direction.  The returned angle
+        # is the corrected one, so validity and the rim taper are judged
+        # against the image circle; the hand-over does not move, because both
+        # lenses share one increasing curve and so still match at the bisector.
+        grid = numpy.arange(len(lens.radial)) * RADIAL_STEP
+        theta = theta + numpy.deg2rad(
+            numpy.interp(numpy.rad2deg(theta), grid, numpy.asarray(lens.radial)))
     phi = numpy.arctan2(y, x) - lens.spin
     r = lens.radius * theta / theta_max
     # Rows run downward while world Y runs up, hence the minus on sin.

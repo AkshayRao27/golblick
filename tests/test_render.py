@@ -69,7 +69,7 @@ def test_two_lenses_are_required():
         build(text)
 
 
-def synthetic_pair(size=256, field_of_view=194.0, tilts=((0.0, 0.0), (0.0, 0.0))):
+def synthetic_pair(size=256, field_of_view=194.0, tilts=((0.0, 0.0), (0.0, 0.0)), radial=()):
     """Render a known pattern into two fisheye circles.
 
     The inverse of the projection under test, so a round trip should return
@@ -89,6 +89,12 @@ def synthetic_pair(size=256, field_of_view=194.0, tilts=((0.0, 0.0), (0.0, 0.0))
         r = numpy.hypot(dx, dy)
         inside = r <= radius
         theta = numpy.clip(r / radius * theta_max, 0, numpy.pi)
+        if radial:
+            # The pixel at equidistant angle theta saw the TRUE angle t with
+            # t + E(t) = theta; invert the table to build it.
+            grid = numpy.arange(len(radial)) * render.RADIAL_STEP
+            mapped = grid + numpy.asarray(radial)
+            theta = numpy.deg2rad(numpy.interp(numpy.rad2deg(theta), mapped, grid))
         phi = numpy.arctan2(dy, dx)
 
         x = numpy.sin(theta) * numpy.cos(phi)
@@ -115,8 +121,10 @@ def synthetic_pair(size=256, field_of_view=194.0, tilts=((0.0, 0.0), (0.0, 0.0))
         image[:, index * cell : (index + 1) * cell] = cellpix
 
     lenses = (
-        render.Lens(radius, (cell - 1) / 2, (cell - 1) / 2, tilt=tuple(tilts[0])),
-        render.Lens(radius, cell + (cell - 1) / 2, (cell - 1) / 2, tilt=tuple(tilts[1])),
+        render.Lens(radius, (cell - 1) / 2, (cell - 1) / 2, tilt=tuple(tilts[0]),
+                    radial=tuple(radial)),
+        render.Lens(radius, cell + (cell - 1) / 2, (cell - 1) / 2, tilt=tuple(tilts[1]),
+                    radial=tuple(radial)),
     )
     return image, lenses
 
@@ -257,6 +265,31 @@ def test_the_tilt_is_applied_in_the_lens_own_frame():
     right, ignored, flipped = score(lenses), score(untilted), score(wrong_frame)
     assert right < 0.5 * ignored, (right, ignored)
     assert ignored < flipped, (ignored, flipped)
+
+
+def test_a_radial_correction_is_applied_where_the_lens_recorded_it():
+    """A lens that departs from the equidistant model by a known curve.
+
+    The curve is lopsided on purpose -- zero at the axis, a bump at 60 degrees,
+    and a different value at the rim -- so it cannot pass by cancelling.
+    Rendering with it must restore agreement; ignoring it, or applying it with
+    the wrong sign, must not.
+    """
+    grid = numpy.arange(0, 101, render.RADIAL_STEP)
+    curve = 2.5 * numpy.sin(numpy.pi * grid / 120.0) ** 2 * numpy.exp(-((grid - 60) / 40) ** 2)
+    curve = tuple(float(v) for v in curve)
+    image, lenses = synthetic_pair(size=512, radial=curve)
+    plain = tuple(render.Lens(l.radius, l.centre_x, l.centre_y) for l in lenses)
+    reversed_ = tuple(render.Lens(l.radius, l.centre_x, l.centre_y,
+                                  radial=tuple(-v for v in curve)) for l in lenses)
+
+    def score(pair):
+        _, hemispheres = render.equirectangular(image, pair, (512, 256), 194.0)
+        return _band_disagreement(hemispheres, half_degrees=12.0)
+
+    right, ignored, wrong = score(lenses), score(plain), score(reversed_)
+    assert right < 0.5 * ignored, (right, ignored)
+    assert ignored < wrong, (ignored, wrong)
 
 
 def test_round_trip_recovers_the_pattern():

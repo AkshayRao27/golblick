@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace OCA\Kugelblick\Render;
 
 use OCA\Kugelblick\Insta360\Calibration;
+use OCA\Kugelblick\Insta360\LensProfile;
 use OCA\Kugelblick\Insta360\EmbeddedPreview;
 use OCA\Kugelblick\Insta360\FormatError;
 
@@ -25,15 +26,6 @@ use OCA\Kugelblick\Insta360\FormatError;
  * is measured and what is fitted.
  */
 final class Equirectangular {
-	/**
-	 * Full angle each lens sees, in degrees.
-	 *
-	 * ⚠️ Not carried in the file. Recovered by scoring: 194 on a OneR and X5,
-	 * 192 on an X3. The difference is worth about a degree of seam placement
-	 * at thumbnail size, so one default is used rather than a model lookup --
-	 * a model table here would be a second place to keep that fact.
-	 */
-	private const FIELD_OF_VIEW = 194.0;
 
 	/**
 	 * Sampling the source at roughly the output resolution is enough; going
@@ -133,6 +125,7 @@ final class Equirectangular {
 		Calibration $calibration,
 		int $width,
 		?array $orientation = null,
+		?string $model = null,
 	): \GdImage {
 		$height = intdiv($width, 2);
 		$sourceWidth = imagesx($source);
@@ -155,8 +148,13 @@ final class Equirectangular {
 		$sampleHeight = imagesy($scaled);
 
 		$scale = $calibration->scaleFor($sourceWidth) * $shrink;
-		$thetaMax = deg2rad(self::FIELD_OF_VIEW) / 2.0;
-		$cosThetaMax = cos($thetaMax);
+		// Neither the rim angle nor the lens's departure from the equidistant
+		// model is in the file; both are measured per camera. See LensProfile.
+		[$fieldOfView, $radial] = LensProfile::for($model);
+		$thetaMax = deg2rad($fieldOfView) / 2.0;
+		$radialRad = array_map('deg2rad', $radial);
+		$radialLast = count($radialRad) - 1;
+		$perStep = (180.0 / M_PI) / LensProfile::RADIAL_STEP;
 		// A few PIXELS, so the hand-over does not stair-step at small sizes,
 		// but never below a minimum ANGLE. 🔴 Hiding the photometric step
 		// between two lenses is a question about angle, and treating it as
@@ -188,6 +186,7 @@ final class Equirectangular {
 				$index === 1 ? $spin : 0.0, // only the relative spin is recoverable
 				// Applied in the lens's own frame, after lens 1 is turned round.
 				Orientation::tilt(...$calibration->tilt($index)),
+				$radialRad,                 // measured correction, radians
 			];
 		}
 		// Each lens's tilt as scalars for the pixel loop. Calibration refuses
@@ -242,15 +241,27 @@ final class Equirectangular {
 				// loop cost more than the arithmetic.
 				$az = $a02 * $x + $a12 * $y + $a22 * $z;
 				$bz = -$b02 * $x + $b12 * $y - $b22 * $z;
+				$ta = acos($az > 1.0 ? 1.0 : ($az < -1.0 ? -1.0 : $az));
+				$tb = acos($bz > 1.0 ? 1.0 : ($bz < -1.0 ? -1.0 : $bz));
+				if ($radialLast >= 0) {
+					// Where each lens actually recorded this direction: linear
+					// in the table, held flat past its end, as numpy.interp.
+					$k = $ta * $perStep;
+					$i = (int)$k;
+					$ta += $i >= $radialLast ? $radialRad[$radialLast]
+						: $radialRad[$i] + ($radialRad[$i + 1] - $radialRad[$i]) * ($k - $i);
+					$k = $tb * $perStep;
+					$i = (int)$k;
+					$tb += $i >= $radialLast ? $radialRad[$radialLast]
+						: $radialRad[$i] + ($radialRad[$i + 1] - $radialRad[$i]) * ($k - $i);
+				}
 				$rays = [
-					[$a00 * $x + $a10 * $y + $a20 * $z, $a01 * $x + $a11 * $y + $a21 * $z, $az,
-						acos($az > 1.0 ? 1.0 : ($az < -1.0 ? -1.0 : $az))],
-					[-$b00 * $x + $b10 * $y - $b20 * $z, -$b01 * $x + $b11 * $y - $b21 * $z, $bz,
-						acos($bz > 1.0 ? 1.0 : ($bz < -1.0 ? -1.0 : $bz))],
+					[$a00 * $x + $a10 * $y + $a20 * $z, $a01 * $x + $a11 * $y + $a21 * $z, $az, $ta],
+					[-$b00 * $x + $b10 * $y - $b20 * $z, -$b01 * $x + $b11 * $y - $b21 * $z, $bz, $tb],
 				];
 				$closest = min(
-					$az >= $cosThetaMax ? $rays[0][3] : $thetaMax + $feather,
-					$bz >= $cosThetaMax ? $rays[1][3] : $thetaMax + $feather,
+					$ta <= $thetaMax ? $ta : $thetaMax + $feather,
+					$tb <= $thetaMax ? $tb : $thetaMax + $feather,
 				);
 				$shareA = null;
 				if ($delta !== null) {
@@ -263,8 +274,8 @@ final class Equirectangular {
 				}
 				for ($index = 0; $index < 2; ++$index) {
 					[$qx, $qy, $qz, $theta] = $rays[$index];
-					if ($qz < $cosThetaMax) {
-						continue;   // outside this lens's cone entirely
+					if ($theta > $thetaMax) {
+						continue;   // outside this lens's image circle entirely
 					}
 					if ($shareA !== null) {
 						$weight = $index === 0 ? $shareA : 1.0 - $shareA;

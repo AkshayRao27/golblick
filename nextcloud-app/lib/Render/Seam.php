@@ -58,7 +58,7 @@ final class Seam {
 	private const MARGIN = 0.9;
 
 	/**
-	 * @param array<int, array{float, float, float, float, array<int, array<int, float>>}> $geometry
+	 * @param array<int, array{float, float, float, float, array<int, array<int, float>>, float[]}> $geometry
 	 * @param array<int, array<int, float>> $m transposed orientation
 	 * @return float[]|null one offset in radians per azimuth column, or null to
 	 *                      hand over on the bisector
@@ -172,7 +172,7 @@ final class Seam {
 					$qx = $t[0][0] * $ox + $t[1][0] * $y + $t[2][0] * $oz;
 					$qy = $t[0][1] * $ox + $t[1][1] * $y + $t[2][1] * $oz;
 					$qz = $t[0][2] * $ox + $t[1][2] * $y + $t[2][2] * $oz;
-					$theta = acos(max(-1.0, min(1.0, $qz)));
+					$theta = self::corrected(acos(max(-1.0, min(1.0, $qz))), $geometry[$index][5]);
 					if ($theta > $thetaMax) {
 						continue 2;
 					}
@@ -352,6 +352,24 @@ final class Seam {
 	}
 
 	/** The offset to use at one azimuth, interpolated between grid columns. */
+	/**
+	 * Where a lens actually recorded a direction theta off its axis, given its
+	 * measured correction in radians; see LensProfile. Matches the inline
+	 * version in Equirectangular, which is unrolled for speed.
+	 *
+	 * @param float[] $radial
+	 */
+	public static function corrected(float $theta, array $radial): float {
+		$last = count($radial) - 1;
+		if ($last < 0) {
+			return $theta;
+		}
+		$k = $theta * (180.0 / M_PI) / \OCA\Kugelblick\Insta360\LensProfile::RADIAL_STEP;
+		$i = (int)$k;
+
+		return $theta + ($i >= $last ? $radial[$last] : $radial[$i] + ($radial[$i + 1] - $radial[$i]) * ($k - $i));
+	}
+
 	public static function offsetAt(array $delta, float $azimuth): float {
 		$position = (($azimuth + M_PI) / (2 * M_PI) * self::COLUMNS);
 		$low = ((int)floor($position)) % self::COLUMNS;

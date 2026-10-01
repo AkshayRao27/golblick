@@ -190,14 +190,18 @@ def cmd_render(args: argparse.Namespace) -> int:
 
     source = vendor.extract_source(args.file)
     image = _decode_jpeg(source.data)
-    lenses = render.lenses_from_calibration(model, source.width)
+    reader = getattr(vendor, "lens_profile", None)
+    profile = reader(args.file) if reader is not None else None
+    field_of_view = args.field_of_view or (profile.field_of_view if profile else 194.0)
+    radial = profile.radial if profile is not None else ()
+    lenses = render.lenses_from_calibration(model, source.width, radial)
 
     width = args.width
     height = width // 2
     orientation, levelling = _levelling(render, vendor, args.file, model, args.level)
 
     pixels, hemispheres = render.equirectangular(
-        image, lenses, (width, height), args.field_of_view, orientation=orientation
+        image, lenses, (width, height), field_of_view, orientation=orientation
     )
     score = render.overlap_agreement(hemispheres)
 
@@ -207,7 +211,9 @@ def cmd_render(args: argparse.Namespace) -> int:
 
     print(f"{output}  ({_human(output.stat().st_size)})")
     print(f"  {width}x{height}  equirectangular  from {source.width}x{source.height}")
-    print(f"  field of view  {args.field_of_view:g} degrees (fit it with --field-of-view)")
+    print(f"  field of view  {field_of_view:g} degrees"
+          + ("" if args.field_of_view else " (the camera's measured value)"))
+    print(f"  lens model     {'equidistant, measured correction' if radial else 'equidistant'}")
     print(f"  levelling      {levelling}")
     if score is not None:
         print(f"  lens agreement {score:+.3f}  (a wrong convention scores about +0.02)")
@@ -362,9 +368,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="output width in pixels; height is half (default: %(default)s)")
     pano.add_argument("-q", "--quality", type=int, default=92,
                       help="JPEG quality (default: %(default)s)")
-    pano.add_argument("-f", "--field-of-view", type=float, default=194.0,
-                      help="full angle each lens sees, in degrees. Not carried in the file: "
-                           "measured at 194 on a OneR and X5, 192 on an X3 (default: %(default)s)")
+    pano.add_argument("-f", "--field-of-view", type=float, default=None,
+                      help="full angle each lens sees, in degrees. Not carried in the file; "
+                           "defaults to the camera's measured value (194 on a OneR and X5, "
+                           "192 on an X3), or 194 for a camera nobody has measured")
     pano.add_argument("--level", choices=("auto", "imu", "calibration", "none"),
                       default="auto",
                       help="auto prefers the inertial record and falls back to the "

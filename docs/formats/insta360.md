@@ -327,7 +327,49 @@ about x. It also could not reach the spin error, which was larger.
 ⚠️ **The rim angle is not in the file.** The equidistant model gives the image
 circle's radius in pixels but not the angle that rim corresponds to, so it has
 to be fitted. Recovered by scoring: **194° on the X5 and the OneR, 192° on the
-X3.**
+X3.** ⚠️ Refitted on 2026-10-01 with the lenses in register, the OneR and X3
+values hold; the X5's does not settle. Lens agreement prefers 198°, while the
+stitch the X5 embeds puts its rim at 194°. It stays at 194° until something
+decides between them.
+
+### The equidistant model is close, but not exact
+
+The equidistant model maps the angle off a lens's axis linearly to radius in its
+image circle. Matching single-lens blocks of a render against Insta360 Studio's
+export of the same file, as for the rotations above, shows that **no lens here
+is exactly equidistant**. The departure is a smooth curve that is the same for
+both lenses of a camera and the same in every scene measured. It is not in the
+file.
+
+Correction to the equidistant model, in degrees: a direction at the angle shown
+is recorded where the equidistant model would put that angle **plus** this.
+
+| Angle off the axis | 10° | 20° | 30° | 40° | 50° | 60° | 70° | 74° | 80° | 86° |
+|---|---|---|---|---|---|---|---|---|---|---|
+| OneR (194°) | −0.02 | −0.23 | −0.32 | −0.15 | +0.31 | +0.92 | +1.39 | **+1.45** | +1.29 | +0.72 |
+| X3 (192°) | −0.74 | −1.27 | −1.64 | **−1.75** | −1.50 | −0.86 | −0.02 | +0.28 | +0.56 | +0.45 |
+
+Held out means scored on scenes the curve was not fitted on: the other seven
+bursts for the OneR, and the other scene for the X3. Distances are median
+displacement against Studio at 2048 wide.
+
+| | Measured on | Fit residual | Held out, uncorrected | Held out, corrected |
+|---|---|---|---|---|
+| OneR | 14 scenes | 0.017° RMS | 9.8 px | **3.0 px**, 7 of 7 scenes better |
+| X3 | 2 scenes | 0.044° RMS | 3.95 px and 2.89 px | **1.02 px** and **1.10 px** |
+
+Studio shows a blend near the seam, so it constrains the curve only out to
+about 86°. Beyond that the curve is continued in a straight line. That rule has
+no free parameter, and lens agreement across the seam, scored on bursts it was
+not chosen on, prefers it to any bend: 12% better than no correction on a OneR,
+and better on all 40 X3 frames tried.
+
+⚠️ **Two X3 scenes is thin.** They agree to within 0.2° in every bin, but it is
+still two scenes. ⚠️ **The X5 is not corrected.** The only reference available for it
+is the stitch it embeds. Against that stitch the curve has a consistent shape,
+but its size varies from 0.5° to 2.1° between scenes, which a fixed lens
+property should not do. ⚠️ The table depends on the field of view it was fitted
+at: a table fitted at 194° and used at 192° double-counts the difference.
 
 ### The absolute yaw is the mounting angle, and it levels the roll axis for free
 

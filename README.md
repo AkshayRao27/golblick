@@ -150,7 +150,8 @@ It needs the `render` extra.
 $ kugelblick render IMG_20260314_090809_00_007.insp -o pano.jpg -w 4096
   pano.jpg  (1.9 MiB)
     4096x2048  equirectangular  from 6080x3040
-    field of view  194 degrees (fit it with --field-of-view)
+    field of view  194 degrees (the camera's measured value)
+    lens model     equidistant, measured correction
     levelling      roll -91.11 degrees, from the calibration
                    this corrects the sensor mounting, not how the camera was held
     lens agreement +0.858  (a wrong convention scores about +0.02)
@@ -176,9 +177,12 @@ Two numbers in that output are worth reading rather than ignoring:
 `--level` forces the choice. `imu` and `calibration` fail rather than quietly
 falling back, which is what you want when comparing the two.
 
-`--field-of-view` is worth knowing about: the angle the rim of each fisheye
-circle corresponds to is **not stored in the file**. The default of 194° is
-right for a OneR and an X5; an X3 wants 192.
+The file does not say what angle the rim of each fisheye circle corresponds
+to, or how far the lens departs from the equidistant model the calibration
+describes. Both are measured per camera and applied automatically: 194° for a
+OneR and an X5, 192° for an X3, and a radial correction of up to 1.75° on the
+OneR and X3. `--field-of-view` overrides the first. See [the format notes](docs/formats/insta360.md#the-equidistant-model-is-close-but-not-exact)
+for how they were measured.
 
 #### What the metadata does and does not claim
 

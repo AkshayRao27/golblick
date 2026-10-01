@@ -190,7 +190,8 @@ final class Insta360 implements IProviderV2 {
 			$source,
 			$calibration,
 			min($width, $available),
-			$this->orientationFor($file, $trailer, $fields, $calibration)
+			$this->orientationFor($file, $trailer, $fields, $calibration),
+			Protobuf::firstText($fields, Protobuf::MODEL),
 		);
 	}
 
