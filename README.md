@@ -1,274 +1,78 @@
 # kugelblick
 
-Read, inspect and triage 360 camera files on Linux.
+**Read, inspect and render 360-camera files on Linux.**
 
-> ⚠️ **The name is provisional and will change before release.**
-> [kugelblick.de](http://kugelblick.de) is an existing site about interactive 360°
-> panoramas — the same subject matter — so shipping under this name would be
-> confusing. A replacement needs to be free on PyPI, npm and GitHub, absent from
-> the web, and must bake in no assumption: not a vendor, and not a lens geometry.
+> The name is provisional and will change: [kugelblick.de](http://kugelblick.de) is an existing site about interactive 360° panoramas, which is close enough to cause confusion.
 
-360 cameras wrap their footage in vendor-specific containers. Standard tools
-open them and show *something* — which is exactly why they are confusing. An
-Insta360 `.insp` opens in any image viewer as two fisheye circles side by side,
-because that is what it contains: the camera does not store a stitched image.
-Everything describing how to turn those circles into a viewable panorama lives
-in a proprietary trailer the decoder skipped over.
+360 cameras wrap their footage in vendor-specific containers, and vendors ship little or nothing for Linux. An Insta360 `.insp` opens in any image viewer as two fisheye circles side by side, because that is what it contains: the camera does not store a stitched photo. Everything needed to turn those circles into a panorama is in a trailer at the end of the file, in plain ASCII and protobuf, readable without any of the vendor's code.
 
-Vendors ship little or nothing for Linux, which leaves people unable to do basic
-things with their own footage — including working out which clips they still
-have. It turns out the necessary information is already in the files, in plain
-ASCII, readable without any proprietary code.
+kugelblick reads that trailer. It finds clips you are about to lose, pulls out the camera's own previews, and renders a levelled panorama that any 360 viewer will open as a sphere. A companion Nextcloud app does the same for your photo timeline.
 
-Status: **early, but it renders now.** Reading, inspection and triage work, and
-`kugelblick render` turns a still into an equirectangular panorama with the
-GPano metadata that makes standard 360 viewers open it as a sphere. The horizon
-is levelled: fully, from the camera's inertial record, where the file carries
-one and that camera's axes have been measured; otherwise for roll only. See
-[Roadmap](#roadmap).
+---
 
-## Supported formats
+## 🚩 Please read this before you use it
 
-| Vendor | Formats |
+**Essentially all of the code here was written by LLMs.** Claude Code (Opus 5, then Fable 5) did the work. I directed it and tested it, but I know just enough programming to know how much I don't know, and I could not have written or fully reviewed this myself.
+
+What has been checked:
+
+- The test suite: 100 tests without the optional extras, 130 with rendering enabled, all synthesised (no real photos in the repository).
+- A test library of 1,438 stills from three cameras (Insta360 OneR, X3 and X5). 1,432 of them render and level; the other six carry no trailer and are refused.
+- Renders scored against two references the project did not produce: the stitch the X5 embeds in its own files, and panoramas exported from Insta360 Studio. How that works, and what it can't see, is in [docs/accuracy.md](docs/accuracy.md).
+- The Nextcloud app, on throwaway Nextcloud 33 and 35 instances in Docker. Not on anyone's production server.
+
+The CLI only reads your files. `render`, `preview` and `thumb` write a new file and leave the original alone. The Nextcloud app only reads files and generates previews, but it needs a line in your Nextcloud config, and that line has side effects worth reading about in [the app's README](nextcloud-app/README.md) before you add it.
+
+### ⚠️ YMMV
+
+This is alpha software. It works on the three cameras it was tested with, and nothing else has been tried. There is no support, no warranty, and no promise that any of this will be maintained. Keep backups of anything you care about, which for photos you should be doing anyway.
+
+---
+
+## What it does
+
+| | |
 |---|---|
-| Insta360 | `.insp`, `.insv`, `.lrv` — [format notes](docs/formats/insta360.md) |
+| 🧭 **Triage** | Pairs video masters with their low-resolution proxies and lists the clips whose master is gone, so you can see what exists only as a proxy before deleting anything |
+| 🔍 **Probe** | Shows what a file contains: the trailer's records, the camera model and firmware, and the lens calibration |
+| 🖼️ **Previews** | Extracts the camera's own preview, which on an X5 is already a stitched panorama |
+| 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled from the camera's motion sensor where possible, with the seam routed around nearby subjects |
+| ☁️ **Nextcloud** | A pure-PHP preview app, so `.insp` stills show up as panoramas in Files and Memories, with no extra server dependencies |
 
-Verified against OneR, X3 and X5 files.
+## Cameras
 
-One vendor so far, but the architecture is built around a
-[registry](src/kugelblick/vendors/__init__.py) rather than assuming it. Adding a
-second is a new module, not a refactor — see [Adding a vendor](#adding-a-vendor).
+| Camera | Status |
+|---|---|
+| Insta360 OneR, X3, X5, stills (`.insp`) | ✅ Read, rendered and levelled. Lens corrections measured per camera (the X5 is not yet corrected) |
+| Insta360 video (`.insv`, `.lrv`) | 🟨 Read and triaged; not rendered yet |
+| Other Insta360 models | ❓ Untested. Other models may store things differently, and [I'd love to hear how yours does](CONTRIBUTING.md#testing-a-camera-i-dont-have) |
+| Other vendors | ❌ None yet. The code is built around a vendor registry, so adding one is a new module rather than a rewrite |
 
-## Install
-
-```sh
-uv tool install kugelblick     # or: pipx install kugelblick
-```
-
-The library and CLI have **no dependencies**, and the test suite is run both
-with and without the extra to keep it that way. Rendering needs numpy under the
-optional `render` extra:
-
-```sh
-uv tool install 'kugelblick[render]'
-```
-
-## Usage
-
-### Find clips whose master has gone missing
-
-Cameras commonly write a full-quality master and a low-resolution proxy for
-every clip:
-
-```
-VID_20260227_142557_00_005.insv    master, two HEVC fisheye streams
-LRV_20260227_142557_01_005.lrv     proxy, one low-bitrate H.264 stream
-```
-
-The proxy is *not* a stitched preview — it is dual fisheye too, so it is no more
-viewable than the master, and pure duplication while the master is present. Once
-the master is deleted the proxy becomes the only surviving copy of that clip, at
-a fraction of the quality. That is easy to do by accident and invisible
-afterwards:
+## Quick start
 
 ```sh
-$ kugelblick triage ~/Photos/Trips
-  13 clip(s), 2 photo(s)
-    paired          8
-    master only     0
-    orphan proxy    5
-
-  ORPHANED PROXIES -- the master is missing, so the low-resolution
-  proxy is the only surviving copy of these clips:
-       1.8 GiB  Feb 2026/LRV_20260228_112240_01_006.lrv
-     956.7 MiB  Feb 2026/LRV_20260228_112240_01_007.lrv
-     ...
-
-  3.8 GiB exists only as proxy.
-  Whether that was deliberate is not recorded in the files -- check before deleting.
-
-  4.2 GiB of proxies duplicate a master that is still present.
+uv tool install 'kugelblick[render]'      # or: pipx install 'kugelblick[render]'
+kugelblick render IMG_20260314_090809_00_007.insp -o pano.jpg
+kugelblick triage ~/Photos
 ```
 
-`--json` gives the same thing machine-readably. Nothing records whether a
-deletion was deliberate, so the tool reports and does not judge.
+Without `[render]` everything except rendering still works, with no dependencies at all.
 
-### Inspect a file
+## More
 
-```sh
-$ kugelblick probe IMG_20260314_090809_00_007.insp
-  vendor      insta360
-  trailer     version 3, 4.7 MiB at offset 7775494, pad 32
-  records     5
-    0x0300  imu                   2000 bytes
-    0x0101  metadata              2956 bytes
-    ...
-  metadata
-    model       Insta360 X5
-    firmware    v1.10.7_build2
-    dimensions  5888x2944
-  calibration 4 model(s)
-    field 5    equidistant   2 lenses x 6 params, reference 10752x5376, scale x0.547619
-    field 111  mei-extended  2 lenses x 27 params, reference 10752x5376, scale x0.547619
-```
-
-Add `-v` to print the calibration parameters themselves.
-
-### Get a viewable image today
-
-Insta360 stills carry the camera's own preview, larger and more useful than the
-320×160 EXIF thumbnail:
-
-```sh
-kugelblick preview IMG_20260314_090809_00_007.insp -o preview.png
-  2560x1280  nv12  equirectangular
-```
-
-**What you get depends on the camera**, and the command says which you got:
-
-| Camera | Preview | Viewable as a panorama? |
-|---|---|---|
-| X5 | 2560×1280, stitched and horizon-levelled on device | yes |
-| X3, OneR | 1920×960, the dual-fisheye pair | no — it still needs stitching |
-
-On an X5 that is also this project's ground truth: a stitch built from the
-calibration data can be scored against the camera's own output, so accuracy is
-measurable without reference renders from the vendor's desktop software. On the
-other cameras there is no embedded stitch to score against, which is a real
-constraint on the rendering work rather than a gap in the reader.
-
-`kugelblick thumb` still extracts the small EXIF thumbnail, with the same
-caveat: it is a stitch on an X5 and the fisheye pair everywhere else.
-
-### Render a panorama
-
-`render` projects the lens pair into an equirectangular image and writes the
-GPano XMP that tells a viewer it is a sphere rather than a wide photograph.
-It needs the `render` extra.
-
-```sh
-$ kugelblick render IMG_20260314_090809_00_007.insp -o pano.jpg -w 4096
-  pano.jpg  (1.9 MiB)
-    4096x2048  equirectangular  from 6080x3040
-    field of view  194 degrees (the camera's measured value)
-    lens model     equidistant, measured correction
-    levelling      roll -91.11 degrees, from the calibration
-                   this corrects the sensor mounting, not how the camera was held
-    lens agreement +0.858  (a wrong convention scores about +0.02)
-```
-
-It projects from the **full-resolution frame**, not the embedded preview — on a
-OneR that is 6080×3040 rather than 1920×960. Output is JPEG unless the filename
-ends in `.png`.
-
-Two numbers in that output are worth reading rather than ignoring:
-
-- **Lens agreement** scores the render against itself, by correlating the two
-  lenses where they overlap. Around +0.7 to +0.9 is a correct projection; +0.02
-  means something is wrong. See [How accuracy is measured](#how-accuracy-is-measured).
-- **Levelling** reports which of two routes it used. *From gravity* means the
-  file carried an inertial record and that camera's axes are known, so pitch
-  and roll are both corrected — a shot taken with the camera upside down comes
-  out the right way up. *From the calibration* is the fallback: it corrects the
-  sensor's *mounting angle* — 91° on a OneR, so without it those renders come
-  out on their side — but ⚠️ **not** how the camera was held, so a tilted shot
-  stays tilted.
-
-`--level` forces the choice. `imu` and `calibration` fail rather than quietly
-falling back, which is what you want when comparing the two.
-
-The file does not say what angle the rim of each fisheye circle corresponds
-to, or how far the lens departs from the equidistant model the calibration
-describes. Both are measured per camera and applied automatically: 194° for a
-OneR and an X5, 192° for an X3, and a radial correction of up to 1.75° on the
-OneR and X3. `--field-of-view` overrides the first. See [the format notes](docs/formats/insta360.md#the-equidistant-model-is-close-but-not-exact)
-for how they were measured.
-
-#### What the metadata does and does not claim
-
-The geometry fields are written, including the cropped-area fields — a partial
-panorama without them gets stretched around the whole sphere, which looks
-plausible rather than broken.
-
-The **pose** fields are deliberately omitted. `PoseHeadingDegrees` would state
-which compass direction the centre faces, and nothing in the file fixes that;
-`PosePitchDegrees` and `PoseRollDegrees` would assert the panorama is level,
-which is only as true as the levelling. A viewer that finds no pose fields
-assumes an unknown heading and a level horizon, which is the honest claim.
-Writing a fabricated `0.0` would be indistinguishable from a measured one.
-
-## Adding a vendor
-
-A vendor is a module exposing `NAME`, `DESCRIPTION`, `EXTENSIONS`, and the
-functions `matches`, `classify`, `describe` and `extract_thumbnail`, plus the
-optional `extract_preview` and `extract_source`. Listing it in `VENDORS` is the only change needed
-elsewhere. Three conventions matter:
-
-- **Detect by content, not extension.** `matches()` should sniff the file, so a
-  renamed file is still recognised and an impostor is not claimed.
-- **Refuse rather than guess.** A reader that cannot prove it understood a
-  layout should raise `FormatError` instead of returning a plausible-looking
-  result. See the padding discovery in
-  [the Insta360 notes](docs/formats/insta360.md#the-self-check) for why.
-- **Test against more than one camera.** Much of what looks like a property of a
-  format turns out to be a property of the camera that wrote the file — which
-  model carries a stitch, what reference frame calibration is quoted against,
-  how the lenses are oriented. The Insta360 notes mark each of those explicitly.
-
-## Roadmap
-
-- [x] Container parsing, metadata, calibration, embedded previews, triage
-- [x] Equirectangular rendering, with GPano XMP so standard 360 viewers open it
-- [~] Levelling — pitch and roll from the inertial record where there is one;
-      roll everywhere else. One camera's inertial axes are still unmeasured
-- [x] Nextcloud app: preview provider — `nextcloud-app/`, pure PHP, GD only
-- [ ] 360 viewing in Nextcloud Memories (upstream)
-- [ ] Video
-
-## How accuracy is measured
-
-A stitch has to be checked against something. The obvious reference is the
-camera's own stitched preview — but only some cameras embed one (on this
-project's sample, the X5 does and the OneR and X3 do not), so it cannot be the
-basis for the whole library.
-
-Every file carries a better-distributed reference: the lenses see **past** 180°,
-so there is a band where both observe the same scene, and a correct projection
-makes those two views coincide. Correlating them over that band scores a render
-with no vendor software, no reference image, and no embedded stitch — on any
-dual-fisheye camera.
-
-On correctly-projected stills this sits around +0.7 to +0.9; a wrong rotation
-convention drops it to +0.02, so it discriminates sharply. It is what identified
-the meaning of the stored lens angles.
-
-🔴 It compares the lenses to each other, not to the world, so it is blind to the
-absolute orientation of the result — a render that scores well can still be
-upside down. Orientation has to come from somewhere else: the sensor mounting
-angle in the calibration (every file), the camera's own stitch (one camera
-only), or the gravity vector in the inertial record (about a third of files).
-
-Where a camera embeds its own levelled stitch, levelling can be scored against
-it properly. Correlation with that reference: **0.33** unlevelled, **0.86**
-from the inertial record, **0.88** for the best rotation solvable against the
-reference itself. So the inertial route gets most of the way to the ceiling
-without using the reference at all — which matters, because most cameras do
-not provide one.
-
-⚠️ Treating that blind spot as a property of the *format* rather than of the
-*metric* is what left every OneR render lying on its side for a while. The
-absolute lens angle was in the calibration string the whole time.
+- [docs/usage.md](docs/usage.md): every command, with example output
+- [nextcloud-app/README.md](nextcloud-app/README.md): installing the Nextcloud app, and what it changes
+- [docs/formats/insta360.md](docs/formats/insta360.md): what is known about the Insta360 container, and how each fact was measured
+- [docs/accuracy.md](docs/accuracy.md): how renders are checked, and the blind spot of each check
+- [CONTRIBUTING.md](CONTRIBUTING.md): reporting issues, and testing a camera I don't have
+- [docs/development.md](docs/development.md) and [AGENTS.md](AGENTS.md): working on the code, by hand or with a coding agent
 
 ## Prior art
 
-[insv-stitch](https://github.com/BenjaminHenriksson/insv-stitch) (MIT) is a
-video-only Insta360 X5 stitching pipeline and a useful reference for the
-projection maths. It is not vendored here.
+[insv-stitch](https://github.com/BenjaminHenriksson/insv-stitch) (MIT) is a video-only Insta360 X5 stitching pipeline and was a useful reference for the projection maths. It is not vendored here.
 
 ## Licence
 
-MIT. The Nextcloud app, when added, will be AGPLv3 under `nextcloud-app/` as
-that ecosystem requires.
+MIT, except `nextcloud-app/`, which is AGPL-3.0-or-later as the Nextcloud app ecosystem requires.
 
-Not affiliated with, endorsed by, or connected to any camera manufacturer.
-Vendor names are used only to identify the file formats this software reads.
+Not affiliated with, endorsed by, or connected to any camera manufacturer. Vendor names are used only to identify the file formats this software reads.
