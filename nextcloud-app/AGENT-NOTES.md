@@ -51,6 +51,23 @@ Nextcloud reads custom mimetype mappings only from `config/mimetypemapping.json`
 
 The mapping also tells the rest of Nextcloud that the original file is an ordinary photo, so anything that serves originals directly (Memories' zoom, for one) serves the lens pair.
 
+## Memories zoom (`lib/Middleware/MemoriesZoom.php`)
+
+Memories (9.0.1 and earlier) loads `/apps/memories/api/image/decodable/{id}` when the viewer zooms past the preview, controlled by its `high_res_cond` setting (`zoom` by default). For `image/jpeg` that endpoint returns the original bytes, so a `.insp` zoomed into the lens pair. The app registers a **global** middleware (`registerMiddleware(..., true)`, NC 26+) whose `afterController` matches `OCA\Memories\Controller\ImageController::decodable`, a 200 response and a `.insp` extension, and replaces the body with a panorama from the preview provider at `zoom_width` (app config, default 4096, clamped 1024–4096). Memories' controller still runs first and decides access, so nothing new is exposed. Renders are cached in app data as `zoom/{fileid}-{etag}-{width}.jpg`; a new etag replaces the old entry.
+
+| Measured on NC 35.0.0 / PHP 8.4.25 / Memories 9.0.1 | |
+|---|---|
+| OneR, cold, by width | 1920: 5.7 s · 2048: 6.2 s · 3072: 11.0 s · 4096: 19.0 s (about 2.2 µs per output pixel) |
+| X5, cold | 1.8 s (its stored stitch, 2560 wide) |
+| Cached | 0.45 s, mostly Memories reading the original before the swap |
+
+What it doesn't cover, and why:
+
+- **WebDAV downloads are left alone.** files_photospheres builds its sphere from the WebDAV download (`node.encodedSource`), and its button depends on a DAV property computed from the file's XMP. Rewriting either would change what downloads and sync clients receive.
+- **The Viewer app** (Files, Photos) never loads the original for a JPEG that has a preview; it requests a screen-sized preview, capped by `preview_max_x`. Zoom there enlarges the preview.
+- **Class and method names are not API.** If Memories renames them, the middleware stops matching and zoom shows the lens pair again.
+- ⚠️ When testing a redeploy, the official image runs `opcache.revalidate_freq=60`, and Apache's workers keep the old bootstrap: a newly registered middleware did nothing until `apachectl graceful`.
+
 ## Levelling routes
 
 | Route | What it fixes | Stills in the test library |

@@ -81,6 +81,8 @@ Each of these comes from a confident wrong answer in this project's history.
 ## Nextcloud traps
 
 - Clear previews with `occ preview:cleanup`, never by deleting files: the `oc_previews` rows outlive them.
+- After copying new PHP into a running container, run `apachectl graceful`. The official image sets `opcache.revalidate_freq=60`, and a newly registered middleware did nothing until Apache restarted.
+- Check a setting on the instance you're testing before crediting a fix. Memories' per-user `high_res_cond: never` stops zoom loading the original at all, which makes a broken zoom look fixed.
 - With `debug` set, Nextcloud drops the `?v=` cache-busting suffix from scripts, so a rebuilt script can stay cached in the browser indefinitely. Load the page in a headless browser to see what is actually served.
 - `sudo -u www-data` strips the environment, so a `php.ini` that reads `memory_limit=${PHP_MEMORY_LIMIT}` silently falls back. Measure under the limit the code will run with.
 - Running out of PHP memory is fatal, not catchable. Check dimensions before decoding, as `checkImageMemory()` does in core.

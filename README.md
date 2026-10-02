@@ -24,7 +24,7 @@ But Slopinators exist now, so I asked one to help me.
 
 An Insta360 `.insp` opens in any image viewer on Linux, but as two fisheye circles side by side. Turns out that everything you need to turn those circles into a panorama is in a trailer at the end of the file, in plain ASCII and protobuf, readable without any of the vendor's code.
 
-Golblick reads that trailer and renders a levelled panorama that any 360 viewer will open as a sphere. A companion Nextcloud app does the same in Nextcloud Files as well as in Memories.
+Golblick reads that trailer and renders a levelled panorama that any 360 viewer will open as a sphere. A companion Nextcloud app shows them as flat panoramas in Nextcloud Files and Memories. It can't show them as a sphere you drag around yet.
 
 ---
 
@@ -60,7 +60,7 @@ What I can say, however, is that
 | 🔍 **Probe** | Shows what the camera stored in a file: model, firmware, lens calibration, and which data blocks are present. Mainly useful for bug reports and for trying a new camera |
 | 🖼️ **Previews** | Extracts the camera's own preview, if available (e.g. the Insta360 X5 already has a stitched pano) |
 | 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled from the camera's motion sensor where possible. The seam between the lenses is placed per photo, where the two lenses agree best |
-| ☁️ **Nextcloud** | A pure-PHP preview app, so `.insp` stills show up as panoramas in Files and Memories, with no extra server dependencies. Works alongside [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) |
+| ☁️ **Nextcloud** | A pure-PHP preview app, so `.insp` stills show up as flat panoramas in Files and Memories, zoom included, with no extra server dependencies. No sphere view yet. Works alongside [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) |
 
 ## Cameras
 
