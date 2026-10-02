@@ -25,6 +25,7 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
 | Cameras | Insta360 OneR, X3 and X5 photos (`.insp`). No video yet |
 | Nextcloud | 33 to 35. Tested on 33 and 35.0.0; 34 is assumed to work |
 | Memories | Tested with 9.0.1 |
+| PHP | Tested on 8.4 and 8.5 |
 | Server requirements | none beyond what Nextcloud already needs (PHP with GD) |
 
 ## What the previews look like
