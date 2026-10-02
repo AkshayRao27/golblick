@@ -34,5 +34,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/golblick"]
 
+# The Nextcloud app is released separately; without this the sdist picks up
+# its node_modules, which only the app's own .gitignore excludes.
+[tool.hatch.build.targets.sdist]
+exclude = ["nextcloud-app"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
