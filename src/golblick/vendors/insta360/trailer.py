@@ -25,6 +25,18 @@ every file measured, but nothing in the format announces it, so the reader tries
 the plausible widths and keeps whichever one makes the record walk land exactly
 on the start of the trailer.  That check is the parser's correctness proof: a
 wrong pad width leaves the walk ending somewhere other than the boundary.
+
+X5 video (``.insv`` and ``.lrv``) lays the same records out differently: they
+are scattered through the trailer with gaps of zeros or stale bytes between
+them, so no backward walk can close.  The last record before the pad then has
+id 0 and is an index of 10-byte entries::
+
+    uint16be record_id     the footer's id, bytes in the opposite order
+    uint32   record_size
+    uint32   offset        of the record data, from the start of the trailer
+
+with all-zero entries for unused slots.  See ``_read_index`` for the checks
+that stand in for the walk's boundary proof.
 """
 
 from __future__ import annotations
@@ -40,6 +52,9 @@ MAGIC = b"8db42d694ccc418790edff439fe026bf"
 _FOOTER = struct.Struct("<II")  # trailer_size, version
 _REC_FOOTER = struct.Struct("<HI")  # record_id, record_size
 _CANDIDATE_PADS = (32, 0, 16, 8, 64)
+_INDEX_ENTRY = struct.Struct(">H")  # then _SIZE_OFFSET; the id alone is big-endian
+_SIZE_OFFSET = struct.Struct("<II")  # record_size, offset within the trailer
+_INDEX_ENTRY_SIZE = _INDEX_ENTRY.size + _SIZE_OFFSET.size
 
 # Record ids seen so far.  Names are descriptive, not authoritative -- Insta360
 # publishes no schema, so these come from matching payloads against exiftool's
@@ -101,16 +116,55 @@ def _walk(blob: bytes, end: int) -> tuple[list[Record], int]:
         # 0x0900 and 0x0b00 with no payload, and refusing those loses 63% of a
         # real library.  But an all-zero footer is the *pad*, not a record, and
         # a run of zero bytes that divides by six would otherwise be read as
-        # phantom records and make the pad width ambiguous.  No record id of 0
-        # has ever been observed, so treating it as the end of the walk keeps
-        # the boundary check decisive -- and if such a record ever exists, the
-        # walk stops short and the reader raises rather than misreporting.
+        # phantom records and make the pad width ambiguous.  Id 0 only ever
+        # appears as the index of an X5 video trailer, which a walk cannot
+        # read anyway, so treating it as the end of the walk keeps the boundary
+        # check decisive and leaves the index to ``_read_index``.
         if start < 0 or record_id == 0:
             break
         records.append(Record(record_id, start, size, blob[start : pos - _REC_FOOTER.size]))
         pos = start
     records.reverse()
     return records, pos
+
+
+def _read_index(blob: bytes, end: int) -> list[Record] | None:
+    """Read an indexed trailer whose index record ends at ``end``, or return None.
+
+    The gaps between indexed records hold stale data, so nothing can be said to
+    consume the trailer exactly.  What replaces that proof: every entry must
+    point at a record whose own footer repeats the entry's id and size, the
+    records must not overlap, and the last of them must end exactly where the
+    index begins -- the one boundary this layout still has.  All 83 X5 videos
+    measured satisfy all three, and anything else is refused.
+    """
+    if end < _REC_FOOTER.size:
+        return None
+    record_id, size = _REC_FOOTER.unpack_from(blob, end - _REC_FOOTER.size)
+    index_start = end - _REC_FOOTER.size - size
+    if record_id != 0 or size == 0 or size % _INDEX_ENTRY_SIZE or index_start < 0:
+        return None
+
+    records: list[Record] = []
+    for pos in range(index_start, index_start + size, _INDEX_ENTRY_SIZE):
+        (entry_id,) = _INDEX_ENTRY.unpack_from(blob, pos)
+        entry_size, offset = _SIZE_OFFSET.unpack_from(blob, pos + _INDEX_ENTRY.size)
+        if entry_id == 0 and entry_size == 0 and offset == 0:
+            continue
+        footer = offset + entry_size
+        if entry_id == 0 or footer + _REC_FOOTER.size > index_start:
+            return None
+        if _REC_FOOTER.unpack_from(blob, footer) != (entry_id, entry_size):
+            return None
+        records.append(Record(entry_id, offset, entry_size, blob[offset:footer]))
+
+    records.sort(key=lambda record: record.offset)
+    for before, after in zip(records, records[1:]):
+        if before.offset + before.size + _REC_FOOTER.size > after.offset:
+            return None
+    if not records or records[-1].offset + records[-1].size + _REC_FOOTER.size != index_start:
+        return None
+    return records
 
 
 def read_trailer(path: str | Path) -> Trailer:
@@ -143,6 +197,7 @@ def read_trailer(path: str | Path) -> Trailer:
         raise FormatError(f"{path}: short read of trailer ({len(blob)} of {size})")
 
     footer_start = size - len(MAGIC) - _FOOTER.size
+    found = None
     for pad in _CANDIDATE_PADS:
         end = footer_start - pad
         if end < 0:
@@ -150,17 +205,29 @@ def read_trailer(path: str | Path) -> Trailer:
         records, stopped = _walk(blob, end)
         # The walk is only trustworthy if it consumes the records region exactly.
         if stopped == 0 and records:
-            return Trailer(
-                version=version,
-                offset=trailer_offset,
-                size=size,
-                pad=pad,
-                records=tuple(
-                    Record(r.id, trailer_offset + r.offset, r.size, r.data) for r in records
-                ),
-            )
+            found = pad, records
+            break
+    else:
+        # Only once no walk closes, so a layout that already parsed is never
+        # reinterpreted.  An id-0 footer is what stopped the walks above.
+        for pad in _CANDIDATE_PADS:
+            end = footer_start - pad
+            records = _read_index(blob, end) if end >= 0 else None
+            if records:
+                found = pad, records
+                break
 
-    raise FormatError(
-        f"{path}: no padding width in {_CANDIDATE_PADS} makes the record walk "
-        f"consume the trailer exactly; the layout may have changed"
+    if found is None:
+        raise FormatError(
+            f"{path}: no padding width in {_CANDIDATE_PADS} makes the record walk "
+            f"consume the trailer exactly, or ends on a consistent record index; "
+            f"the layout may have changed"
+        )
+    pad, records = found
+    return Trailer(
+        version=version,
+        offset=trailer_offset,
+        size=size,
+        pad=pad,
+        records=tuple(Record(r.id, trailer_offset + r.offset, r.size, r.data) for r in records),
     )

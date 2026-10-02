@@ -9,8 +9,23 @@ A Python library and CLI that reads 360-camera container files on Linux (Insta36
 Read these first, in this order:
 
 1. The vendor contract at the top of [`src/golblick/vendors/__init__.py`](src/golblick/vendors/__init__.py). Everything else follows from it.
-2. [`docs/formats/insta360.md`](docs/formats/insta360.md), for what is known about the container and how each fact was measured.
-3. [`docs/accuracy.md`](docs/accuracy.md), for what each check can and cannot see.
+2. [`docs/formats/insta360-agent-notes.md`](docs/formats/insta360-agent-notes.md), for what is known about the container, how each fact was measured, and which earlier conclusions were wrong.
+3. [`nextcloud-app/AGENT-NOTES.md`](nextcloud-app/AGENT-NOTES.md), before touching the PHP app.
+
+## Where things go
+
+The docs are split by reader. Pages for people stay short and plain; the detail an agent needs lives in notes files. Keep each fact in one place and link to it rather than restating it.
+
+| What | Where |
+|---|---|
+| Container layout, record ids, calibration, measurements and their method | `docs/formats/<vendor>-agent-notes.md` |
+| The same, in a page a person will read to the end | `docs/formats/<vendor>.md` |
+| What each check measures, for users | `docs/accuracy.md` |
+| Every CLI command | `docs/usage.md` |
+| Nextcloud app internals | `nextcloud-app/AGENT-NOTES.md` |
+| The vendor contract | the docstring in `src/golblick/vendors/__init__.py` |
+
+When a measurement overturns something in a notes file, record the correction next to it rather than quietly editing the old claim. Several sections of `insta360-agent-notes.md` exist because an earlier confident answer was wrong.
 
 ## Commands
 
@@ -51,3 +66,23 @@ Each of these comes from a confident wrong answer in this project's history.
 - When two implementations disagree, reproduce the second one's exact conditions in the first before looking for a bug in the port.
 - Measuring the source is not testing the deployment. Nextcloud caches previews on the server and the browser caches them under a URL keyed on the file's etag, so a regenerated preview can sit behind an old one.
 - Weight anything measured along the seam by area on the sphere. The seam passes through the poles, where equirectangular pixels crowd.
+- When checking against a reference, put both sides through the same pipeline. A box filter on one side and Lanczos on the other was once measured as a regression in the thing under test.
+- A metric validated on a large effect doesn't transfer to a fine ranking. Lens agreement separates a right projection from a wrong one well, and ranks scene texture, not seam quality.
+- Self-consistency can't see an error both halves share. A lens-model error that moves both lenses alike leaves lens agreement unchanged; matching each lens against an outside reference, where it appears alone, is what found it.
+- An estimator has to be able to decline, and the decline has to be reachable. Comparing an optimum against a feasible solution of the same problem never fires; a guard needs a margin and a floor, and a test that it can trigger.
+- Ghosting is not blur, and a sharpness metric can't see it. The test that catches a 50/50 blend is painting one lens red and the other blue.
+- A 2:1 image is not necessarily equirectangular. Two square fisheye cells side by side are also 2:1. Render it and look.
+- "Not measured" is a valid answer. Say what was measured and what was assumed, separately, and decompose a number before reporting it (total tilt is mostly the known sensor mounting angle; the residual is what matters).
+- A route that does less work cannot cost more. If it measures that way, the cause is outside the code, usually a cold cache.
+- A claim about what a system stores is a claim about its write path. Follow the data to whatever filters it, and prefer testing it to reading it.
+- A port inherits the original's I/O semantics, not just its arithmetic. Nextcloud's stream wrappers return one 8 KiB chunk per `fread`.
+- Check a claim about code with a `grep` before writing it down, and check the reason a comment gives as well as the claim.
+
+## Nextcloud traps
+
+- Clear previews with `occ preview:cleanup`, never by deleting files: the `oc_previews` rows outlive them.
+- With `debug` set, Nextcloud drops the `?v=` cache-busting suffix from scripts, so a rebuilt script can stay cached in the browser indefinitely. Load the page in a headless browser to see what is actually served.
+- `sudo -u www-data` strips the environment, so a `php.ini` that reads `memory_limit=${PHP_MEMORY_LIMIT}` silently falls back. Measure under the limit the code will run with.
+- Running out of PHP memory is fatal, not catchable. Check dimensions before decoding, as `checkImageMemory()` does in core.
+- Mapping a type is a promise about the bytes. Anything downstream that serves originals will now treat the file as that type.
+- A standalone harness can't see the integration it was extracted from. Measure in isolation, then confirm on a running server.

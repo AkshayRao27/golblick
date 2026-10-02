@@ -31,7 +31,7 @@ The interior layout of the richer models is *not* yet confirmed.  The names in
 MODELS are descriptions of shape, not claims about meaning, and the parameters
 are deliberately exposed as a raw tuple rather than as named attributes so that
 nothing here reads as a fact it has not earned.  Identifying them is the first
-experiment of the rendering work; see docs/formats/insta360.md.
+experiment of the rendering work; see docs/formats/insta360-agent-notes.md.
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ class Calibration:
         ⚠️ The 90 in the formula is fitted to three camera bodies, not derived
         from anything the file states.  It holds across a 90-degree difference
         in mounting, which is why it is trusted at all, but a fourth camera
-        could still disagree.  ``docs/formats/insta360.md`` owns the evidence.
+        could still disagree.  ``docs/formats/insta360-agent-notes.md`` owns the evidence.
         """
         if self.field != metadata.CALIBRATION_EQUIDISTANT:
             # Only the equidistant model's interior is confirmed, so only it

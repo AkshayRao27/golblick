@@ -3,7 +3,7 @@
 This is what makes levelling possible on a camera that embeds no stitch of its
 own, which is most of them: the accelerometer says which way is down, and a
 panorama that ignores it comes out at whatever angle the camera happened to be
-held.  See ``docs/formats/insta360.md``.
+held.  See ``docs/formats/insta360-agent-notes.md``.
 
 ⚠️ **Two encodings, and the camera does not announce which.**  The entry is a
 64-bit millisecond timecode followed by six values -- three accelerometer axes
@@ -149,7 +149,7 @@ def gravity(path) -> tuple[float, float, float]:
 #: shots the camera is upright *on average*, so the signed permutation that
 #: carries the population's median reading to vertical is the mapping.  That
 #: estimator was validated by running it on the X5 first, where it recovers the
-#: directly-measured answer.  ``docs/formats/insta360.md`` has the evidence and
+#: directly-measured answer.  ``docs/formats/insta360-agent-notes.md`` has the evidence and
 #: the failure case.
 _AXES = {
     # up_render = (-az, -ax, -ay).  Determinant -1; see above.  The sign on

@@ -1,42 +1,34 @@
-# How accuracy is measured
+# How good are the panoramas?
 
-A stitch has to be checked against something, and every check here has a blind spot. This page says what each one sees and what it misses, because several wrong conclusions in this project came from trusting a number further than it could see.
+On the three cameras tested, close to what Insta360 Studio 6.0.6 on Windows 11 produces. Horizons are level to about a degree, the two lenses line up to within a few pixels, and the main visible flaw is where something close to the camera crosses the line between the lenses.
 
-## The self-check: lens agreement
+This page says how that was checked, and what the *lens agreement* number that `golblick render` prints does and doesn't tell you.
 
-The lenses see past 180°, so there is a band where both observe the same scene, and a correct projection makes those two views coincide. Correlating them over that band scores a render with no reference image at all, on any dual-fisheye camera. `golblick render` prints it as *lens agreement*.
+## Numbers
 
-On correctly projected stills it sits around +0.7 to +0.9, and a wrong rotation convention drops it to about +0.02. That makes it good at telling a right convention from a wrong one, and not much else. What it cannot see:
+| Check | Result | Compared against |
+|---|---|---|
+| Horizon level | median error 1.0–1.2° on all three cameras | Insta360 Studio's levelled exports of the same photos |
+| Photos levelled | 1,432 of 1,438 (the other 6 have no trailer to read) | |
+| Where each lens's picture lands, OneR | median 3.0 px off at 2048 px wide (9.8 px before the lens correction) | Insta360 Studio's exports, on scenes not used to measure the correction |
+| Same, X3 | about 1 px (about 3–4 px before) | the same, but only two scenes |
+| Same, X5 | 5.5–6.7 px, with no correction; a fixed correction doesn't improve it (see below) | the panorama the X5 stores, and Studio's exports, all 48 photos |
 
-- It compares the lenses with each other, not with the world, so an upside-down or mirrored render can score well.
-- A lens model that misplaces content the same way in both lenses moves both views together, so they still agree.
-- A parameter fitted to it can absorb other errors. The field of view was fitted this way. The rule for the relative rotation between the lenses was confirmed with it, and turned out to be 0.44° wrong.
-- It ranks how much texture a scene has as much as how well the seam lines up, so it cannot rank files by seam quality.
+Insta360 Studio exports were made with its stitching optimisation switched off, so they show where the camera's calibration puts things rather than Studio's extra per-photo warping. On X5 photos, Studio's horizon and the horizon of the panorama the camera stores agree to within 0.03°, so for levelling the two references are effectively the same thing.
 
-## Outside references
+## What's still visible
 
-Two kinds of reference were not produced by this project:
+- **Near objects at the seam.** The two lenses don't sit at the same point, so they see something a metre away from slightly different angles, and no fixed projection can make both views line up. golblick moves the seam, per photo, to where the two lenses agree best, which can steer it around a nearby subject, but anything close that the seam can't avoid will still show a break. Insta360 Studio's *Optical Flow* stitching handles this somewhat better.
+- **Brightness differences between the lenses.** Each lens exposes slightly differently. golblick blends across the seam but doesn't correct the exposure.
 
-- An X5 embeds a stitched, levelled panorama in every still, so X5 renders can be scored against the camera's own output.
-- Insta360 Studio, the vendor's desktop app, was used to export stitched panoramas of the same files with stitching optimisation switched off. That gives a reference for the OneR and X3 too, which embed only the fisheye pair.
+## The *lens agreement* line
 
-The useful measurement against either is per lens. Away from the seam, each lens appears alone in the reference, so a block of one lens matched to its place in the reference measures that lens's geometry with no blending involved. Splitting the displacement into radial and sideways parts, in each lens's own frame, then separates a lens-model error from a rotation error.
+`golblick render` prints a number like `lens agreement +0.858`. Each lens sees a little more than half the sphere, so there is a band both lenses see. The number is how closely the two lenses' pictures of that band match.
 
-That is what found the two corrections described in the [format notes](formats/insta360.md). The first is the relative lens orientation, which the stored values give once each lens's angles are read in its own frame; correcting it makes the two lenses disagree 23% less in the overlap on a OneR, and stops horizons breaking at the seam. The second is the departure from the equidistant lens model, which moves content away from the seam rather than at it:
+Around +0.7 to +0.9 means the projection is right. Around +0.02 means something is badly wrong, usually a camera golblick doesn't understand yet.
 
-| OneR, scenes not used for fitting | Median displacement against Studio at 2048 wide |
-|---|---|
-| Equidistant model | 9.8 px |
-| With the measured correction | 3.0 px |
+It is a quick sanity check and not a quality score. Because it only compares the lenses with each other, it can't tell you whether the panorama is upside down, mirrored, or tilted, and it can't see errors that move both lenses the same way. It also depends on the scene: a photo of a plain wall scores lower than a busy street even when both are stitched equally well. So don't use it to rank photos against each other. If you are checking a new camera, look at the picture too: text in the scene shows a mirror at a glance, and a horizon or a straight edge shows whether the lenses line up across the seam.
 
-Lens agreement could not see either.
+On the X5, both references move the lens picture by a different amount in every scene (from 0.1° to 2.9°), and they agree with each other scene by scene. They seem to adjust the stitch to each scene, so they can't pin down a fixed lens curve, and a correction fitted on half the photos made the other half no better. The X5 is left uncorrected.
 
-## Levelling
-
-Levelling is scored against the same outside references. Against Studio's levelled exports, the median horizon error is 1.0–1.2° on all three cameras, and 1,432 of 1,438 stills in the test library are levelled. The other six carry no trailer.
-
-## Things that turned out to matter
-
-- Weight seam measurements by area on the sphere. The seam passes through the zenith and the ground, where equirectangular pixels crowd together, so a per-pixel average can say a change made things worse when, on the sphere, it made them better.
-- Put both sides of a comparison through the same pipeline. A box filter on one side and a Lanczos filter on the other was once measured as a regression in the thing being tested.
-- A number that cannot see a defect will happily improve while the defect gets worse. When a seam setting is tuned to reduce disagreement between the lenses, it also needs a check that the seam does not become a visible line.
+For the method behind each measurement, see the [research notes](formats/insta360-agent-notes.md).

@@ -7,7 +7,7 @@ WHAT IS MEASURED, AND WHAT IS NOT
 ---------------------------------
 The geometry here is built from the *equidistant* calibration model, because it
 is the only one every camera carries and the only one whose interior is
-confirmed.  See ``docs/formats/insta360.md``.
+confirmed.  See ``docs/formats/insta360-agent-notes.md``.
 
 Confirmed by measurement across three cameras:
 

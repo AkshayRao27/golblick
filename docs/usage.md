@@ -9,14 +9,14 @@ uv tool install 'golblick[render]'    # adds panorama rendering
 
 ## Find clips whose master has gone missing
 
-Cameras commonly write a full-quality master and a low-resolution proxy for every clip:
+Insta360 cameras write two files for every clip: a full-quality master and a low-resolution proxy. For example:
 
 ```
 VID_20260227_142557_00_005.insv    master, two HEVC fisheye streams
 LRV_20260227_142557_01_005.lrv     proxy, one low-bitrate H.264 stream
 ```
 
-The proxy is not a stitched preview. It is dual fisheye too, so it is no more viewable than the master, and pure duplication while the master is present. Once the master is deleted, the proxy becomes the only surviving copy of that clip, at a fraction of the quality. That is easy to do by accident and invisible afterwards:
+The `.lrv` is the same two fisheye circles at low resolution, so while the `.insv` is there it's just taking up space. If the `.insv` gets deleted, though, the `.lrv` is all that's left of that clip, and nothing tells you. `triage` finds those clips. It goes by filename, so it's quick on a whole photo library, and it doesn't change or delete anything:
 
 ```sh
 $ golblick triage ~/Photos/Trips
@@ -37,7 +37,7 @@ $ golblick triage ~/Photos/Trips
   4.2 GiB of proxies duplicate a master that is still present.
 ```
 
-`--json` gives the same thing machine-readably. Nothing in the files records whether a deletion was deliberate, so the tool reports and does not judge.
+`--json` gives the same report as JSON.
 
 ## Inspect a file
 
@@ -102,7 +102,7 @@ Two lines in that output are worth reading:
 
 `--level` forces the choice. `imu` and `calibration` fail rather than quietly falling back, which is what you want when comparing the two.
 
-The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR and an X5, 192° for an X3, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the first. The [format notes](formats/insta360.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
+The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR and an X5, 192° for an X3, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the first. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
 
 ### What the metadata does and does not claim
 

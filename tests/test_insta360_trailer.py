@@ -111,3 +111,65 @@ def test_corrupt_record_sizes_are_rejected(tmp_path):
 
     with pytest.raises(FormatError):
         read_trailer(path)
+
+
+# X5 video: records scattered through the trailer, located by an id-0 index.
+# The gap contents are deliberately record-like and non-zero, as the camera's
+# stale bytes are, so a reader that walked through them would be caught.
+_X5_RECORDS = [(0x1D00, b"late-record"), (0x0300, b"imu" * 7), (0x0200, b"preview"), (METADATA, b"meta")]
+_X5_GAPS = [b"\x32\x3f" * 40, b"\x00" * 64, b"\x00\x02\x28\xc0\x12\x00stale" * 3, b""]
+
+
+def _write_indexed(path, trailer):
+    path.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"m" * 100 + trailer)
+    return path
+
+
+def test_indexed_trailer_is_read(tmp_path):
+    from conftest import build_indexed_trailer
+
+    path = _write_indexed(tmp_path / "a.insv", build_indexed_trailer(_X5_RECORDS, gaps=_X5_GAPS))
+    trailer = read_trailer(path)
+
+    assert trailer.pad == 32
+    assert [record.id for record in trailer.records] == [0x1D00, 0x0300, 0x0200, METADATA]
+    assert trailer.get(METADATA).data == b"meta"
+    blob = path.read_bytes()
+    for record in trailer.records:
+        assert blob[record.offset : record.offset + record.size] == record.data
+    assert trailer.get(0x1D00).name == "unknown_1d00"
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        "entry_size",       # an entry whose size disagrees with the record's own footer
+        "entry_id",         # an entry whose id disagrees with the record's own footer
+        "entry_offset",     # an entry pointing past the index
+        "gap_before_index", # the last record no longer ends where the index begins
+        "index_length",     # an index that is not a whole number of entries
+    ],
+)
+def test_corrupt_index_is_refused(tmp_path, corrupt):
+    from conftest import build_indexed_trailer
+
+    trailer = bytearray(build_indexed_trailer(_X5_RECORDS, gaps=_X5_GAPS))
+    index_footer = len(trailer) - 40 - 32 - 6
+    index_size = struct.unpack_from("<I", trailer, index_footer + 2)[0]
+    index_start = index_footer - index_size
+    metadata_entry = index_start + 10  # slot 1 holds 0x0101
+
+    if corrupt == "entry_size":
+        struct.pack_into("<I", trailer, metadata_entry + 2, 3)
+    elif corrupt == "entry_id":
+        struct.pack_into(">H", trailer, metadata_entry, 0x0102)
+    elif corrupt == "entry_offset":
+        struct.pack_into("<I", trailer, metadata_entry + 6, index_start)
+    elif corrupt == "gap_before_index":
+        trailer[index_start:index_start] = b"\x00" * 10
+    elif corrupt == "index_length":
+        struct.pack_into("<I", trailer, index_footer + 2, index_size - 4)
+
+    path = _write_indexed(tmp_path / "bad.insv", bytes(trailer))
+    with pytest.raises(FormatError):
+        read_trailer(path)

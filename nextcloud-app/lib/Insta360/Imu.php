@@ -18,7 +18,7 @@ namespace OCA\Golblick\Insta360;
  * ground was.
  *
  * A direct port of src/golblick/vendors/insta360/imu.py, kept close enough
- * to read side by side. docs/formats/insta360.md owns the measured facts.
+ * to read side by side. docs/formats/insta360-agent-notes.md owns the measured facts.
  *
  * ⚠️ Two encodings, and the camera does not announce which. An entry is a
  * 64-bit millisecond timecode followed by six values -- three accelerometer

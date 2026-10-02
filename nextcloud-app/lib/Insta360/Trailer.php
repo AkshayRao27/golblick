@@ -13,7 +13,7 @@ namespace OCA\Golblick\Insta360;
  *
  * A port of the Python reader in src/golblick/vendors/insta360/trailer.py,
  * kept deliberately close to it so the two can be compared line for line. The
- * format write-up in docs/formats/insta360.md owns the layout; this file does
+ * format write-up in docs/formats/insta360-agent-notes.md owns the layout; this file does
  * not restate it.
  *
  * Reads only the trailer, never the whole file. That matters more here than in
@@ -169,9 +169,10 @@ final class Trailer {
 		while ($pos >= 6) {
 			$footer = unpack('vid/Vsize', substr($blob, $pos - 6, 6));
 			$start = $pos - 6 - $footer['size'];
-			// An all-zero footer is the pad, not a record. No record id of 0
-			// has ever been observed, and treating it as the end of the walk
-			// keeps the boundary check decisive.
+			// An all-zero footer is the pad, not a record. Id 0 only appears as
+			// the record index of X5 video trailers, which this port does not
+			// read, so treating it as the end of the walk keeps the boundary
+			// check decisive.
 			if ($start < 0 || $footer['id'] === 0) {
 				break;
 			}

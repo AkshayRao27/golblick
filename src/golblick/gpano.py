@@ -31,7 +31,7 @@ level, which is only true to the extent the levelling worked -- and
 A viewer that finds no pose fields assumes an unknown heading and a level
 horizon, which is exactly the honest claim.  Writing a fabricated 0.0 would
 look identical to a measured 0.0 to everything downstream.
-``docs/formats/insta360.md`` owns the measurements behind this.
+``docs/formats/insta360-agent-notes.md`` owns the measurements behind this.
 """
 
 from __future__ import annotations

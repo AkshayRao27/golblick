@@ -1,6 +1,6 @@
 # Contributing
 
-Issues and pull requests are welcome. This is a hobby project that is almost entirely written by LLMs (see the disclaimer in the [README](README.md)), so I can't promise when, or whether, I'll get to something that doesn't affect the cameras I use. Reports with clear evidence get looked at first.
+Issues and pull requests are welcome. This is a hobby project that is almost entirely written by LLMs (see the disclaimer in the [README](README.md)), so I can't promise when, or whether, I'll get to something that doesn't affect the cameras I use. I'll most likely point my instance of Claude Code at new issues, and it will probably pick up reports with clear evidence first.
 
 ## Testing a camera I don't have
 
@@ -17,7 +17,7 @@ Then open an issue with the camera model and firmware, the command output, and w
 
 ⚠️ `probe` prints the camera's serial number. Delete that line before posting. `probe -v` also prints the calibration values, which are specific to your camera body. They are very useful for working out how a new model stores its lenses, so share them if you're comfortable with that, but it's your call.
 
-Video (`.insv`) is not rendered yet, but `probe` and `triage` work on it, and reports on those are welcome too.
+Video isn't rendered yet, but `triage` and `probe` work on it, and reports on those are welcome too.
 
 ## Code
 
@@ -29,8 +29,8 @@ Video (`.insv`) is not rendered yet, but `probe` and `triage` work on it, and re
 - A change to the projection is made in both the Python library and the PHP Nextcloud app.
 - Commit messages explain why, not just what. Write paragraphs as single lines.
 
-LLM-assisted contributions are fine; this project is one. [AGENTS.md](AGENTS.md) is written for a coding agent, so point yours at it.
+LLM-assisted contributions are fine; this project is fully vibe-coded anyway. [AGENTS.md](AGENTS.md) is written for a coding agent, so point yours at it.
 
 ## Licence
 
-By contributing, you agree that your contribution is licensed under the same terms as the part of the repository it touches: MIT for everything except `nextcloud-app/`, which is AGPL-3.0-or-later.
+By contributing, you agree that your contribution is licensed under AGPL-3.0-or-later, like the rest of the repository.

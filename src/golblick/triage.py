@@ -132,8 +132,14 @@ def scan(root: str | Path, *, recursive: bool = True, vendors=None) -> Report:
 
     paths = sorted(root.rglob("*") if recursive else root.glob("*"))
     for path in paths:
-        if not path.is_file():
-            continue
+        try:
+            if not path.is_file():
+                continue
+        except OSError:
+            # Sync clients leave names that stat() rejects (one NTFS mount
+            # returns EINVAL).  One odd file must not abort a library-wide
+            # scan, and the name is all classification needs anyway.
+            pass
 
         info = None
         for vendor in vendors:

@@ -13,7 +13,7 @@ namespace OCA\Golblick\Insta360;
  *
  * Only this model is read. It is the one every camera carries and the only one
  * whose interior is confirmed; the richer models exist on one camera and their
- * parameter meanings are inferred from shape. docs/formats/insta360.md owns
+ * parameter meanings are inferred from shape. docs/formats/insta360-agent-notes.md owns
  * the detail.
  */
 final class Calibration {
@@ -101,7 +101,7 @@ final class Calibration {
 	 *
 	 * The absolute yaw is the sensor's mounting angle, which differs by 90
 	 * degrees between a OneR and an X3 or X5 -- without this a OneR renders on
-	 * its side. See docs/formats/insta360.md.
+	 * its side. See docs/formats/insta360-agent-notes.md.
 	 */
 	public function bodyRoll(): float {
 		return fmod(fmod(90.0 - $this->lenses[0][5] + 180.0, 360.0) + 360.0, 360.0) - 180.0;

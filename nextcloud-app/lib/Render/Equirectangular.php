@@ -22,7 +22,7 @@ use OCA\Golblick\Insta360\FormatError;
  * Python library. Measured at roughly 100 ms for a 512x256 thumbnail.
  *
  * The geometry is the equidistant model: each lens maps angle from its axis
- * linearly to radius in its image circle. docs/formats/insta360.md owns what
+ * linearly to radius in its image circle. docs/formats/insta360-agent-notes.md owns what
  * is measured and what is fitted.
  */
 final class Equirectangular {
@@ -362,13 +362,6 @@ final class Equirectangular {
 	 */
 	public static function fromNv12(EmbeddedPreview $preview, int $width): \GdImage {
 		$height = intdiv($width, 2);
-		// Choose where the lenses hand over before rendering; see Seam. Null
-		// means it declined and the bisector is used, which is also the path
-		// for anything that is not a two-lens pair.
-		$delta = (count($geometry) === 2 && $width >= Seam::MIN_OUTPUT_WIDTH)
-			? Seam::route($scaled, $sampleWidth, $sampleHeight, $geometry, $thetaMax, $feather, $m)
-			: null;
-
 		$out = imagecreatetruecolor($width, $height);
 		if ($out === false) {
 			throw new FormatError('could not allocate the output image');

@@ -64,3 +64,21 @@ def test_unexpected_names_are_reported_not_silently_dropped(tmp_path):
     report = triage.scan(tmp_path)
 
     assert [p.name for p in report.unmatched] == ["holiday.insv"]
+
+
+def test_a_file_that_cannot_be_statted_does_not_abort_the_scan(tmp_path, monkeypatch):
+    """A sync client's temp file once made stat() raise EINVAL mid-library."""
+    _touch(tmp_path / "LRV_20260228_112240_01_006.lrv", 2048)
+    _touch(tmp_path / ".VID_20200728_174652.mp4.~7460e97b")
+
+    real_is_file = type(tmp_path).is_file
+
+    def is_file(self, *args, **kwargs):
+        if self.name.startswith(".VID_"):
+            raise OSError(22, "Invalid argument")
+        return real_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(tmp_path), "is_file", is_file)
+    report = triage.scan(tmp_path)
+
+    assert [clip.status for clip in report.clips] == [triage.ORPHAN_PROXY]

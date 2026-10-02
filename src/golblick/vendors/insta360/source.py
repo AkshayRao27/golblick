@@ -34,7 +34,7 @@ reader that caps how much it scans looking for the dimensions will find
 nothing and must not conclude the file is malformed.  Those APP2 payloads
 concatenate to a byte-identical copy of trailer record 0x0200's payload -- the
 camera writes its preview twice -- measured on all 1,384 files that carry that
-record.  ``docs/formats/insta360.md`` owns the detail.
+record.  ``docs/formats/insta360-agent-notes.md`` owns the detail.
 
 ⚠️ **The layout is the lens pair, not a panorama** -- on every camera, unlike
 record ``0x0200``, where an X5 stores a stitch.  Nothing here is viewable as a

@@ -1,99 +1,73 @@
 # 360 photo previews for Nextcloud
 
-Generates previews for 360 camera container formats, so the files appear in Files and in a photo timeline instead of as a generic icon.
+Shows Insta360 `.insp` photos as panoramas in Nextcloud. Without it, Nextcloud doesn't recognise `.insp` at all: by default, Files shows a generic icon and Memories leaves them out of the timeline.
 
-Insta360 `.insp` stills are supported today. The camera stores a **dual-fisheye pair**, not a panorama, so a usable thumbnail has to be *projected* rather than extracted, which is why a preview provider is needed at all.
+## 🚩 Please read this before you proceed
 
-## No new server-side dependency
+This is barely even an alpha of a fully vibe-coded app, tested on throwaway Nextcloud instances in Docker. Read the [main README's warning](../README.md#-please-read-this-before-you-proceed) first, and try it on a test instance before your real one.
 
-The whole reader is reimplemented here in PHP: the trailer walk, the protobuf field walk, the lens calibration parse and the equirectangular projection. Pixels go through **GD**, which Nextcloud already requires. Nothing shells out, and the Python library in the parent repository is not called.
+## How it works
 
-Measured over 1,415 stills from three camera bodies, at 256 px wide:
-
-| | |
-|---|---|
-| Rendered | **1,409** (1,359 projected from the embedded preview, 25 from the full-resolution frame, 25 already-stitched) |
-| Declined | 6 (no trailer), handed back to Nextcloud's own JPEG provider |
-| Errors | **0** |
-| Cost | 41 ms median, 58 ms at p95, 411 ms worst |
-
-The full-resolution fallback is the expensive case by a wide margin (369 ms median, against 41 ms for the embedded preview), which is why it stays a fallback. The camera's own stitch is cheapest at 20 ms, being a colour conversion and nothing else.
-
-A 1024 px preview through the full Nextcloud stack, including PNG encoding and storage, costs roughly half a second. It is generated once and cached.
-
-Re-verified on Nextcloud 35 with the app installed, running against the container's own PHP at `memory_limit=128M`: 305 of 311 rendered, 6 declined for carrying no trailer, **zero errors**, 40 ms median.
-
-### Memory
-
-⚠️ The **full-resolution fallback** is the only path here that can be large. GD decodes to four bytes a pixel whatever size the output is, and offers no way to decode a JPEG at reduced scale, so an 18 MP frame needs about 70 MB and a 72 MP one about 290 MB. The renderer checks the frame's dimensions before decoding and **refuses rather than exhausting the limit**, because running out of memory inside `imagecreatefromstring` is a fatal error that takes the whole request with it instead of raising something catchable.
-
-⚠️ The six trailer-less files fall through to Nextcloud's own JPEG provider, which then has to decode a full-resolution dual-fisheye frame itself. Depending on `preview_max_memory` (core's default is 256 MB, compared against `width * height * 4`) core may refuse them too, or run out of memory. That is a consequence of mapping `.insp` to `image/jpeg`, which makes these files visible to a provider that would otherwise never have been offered them.
-
-## Install
-
-```sh
-occ app:enable golblick
-```
-
-⚠️ **Then register the file extension**, or nothing changes. Nextcloud stores `.insp` as `application/octet-stream` and never offers it to any image provider. Add `insp` to `config/mimetypemapping.json`, creating the file if it does not exist and *merging* if it does:
-
-```json
-{
-    "insp": ["image/jpeg"]
-}
-```
-
-```sh
-occ maintenance:mimetype:update-db --repair-filecache
-occ files:scan --all          # only needed for files already indexed
-```
-
-An app cannot ship this: Nextcloud reads custom mimetype mappings only from its own config directory. The private `registerType()` on the mimetype detector looks like an alternative and is a trap. Calling it before the defaults load makes the loader think mappings are already present and skip **every** built-in type.
-
-### Why `image/jpeg` and not a type of its own
-
-Because a `.insp` genuinely is a JPEG. Everything in front of the proprietary trailer is a complete one, and PHP's own `finfo` reports `image/jpeg` for these files already; Nextcloud disagrees only because its *extension* table has never heard of the format. The mapping above makes the extension agree with content detection rather than inventing a new type.
-
-It is also the only thing that works. Nextcloud Memories chooses what to index from a hardcoded list of image mimetypes, so a bespoke `image/x-…` would be indexed by nothing however good its previews were.
-
-## How it shares `image/jpeg` with Nextcloud's own provider
-
-Nextcloud orders preview providers by the **length of their mimetype regex**, descending. This app registers `/^image\/jpeg$/`, which is longer than core's `/image\/jpeg/` and therefore tried first. It then looks for the Insta360 trailer magic and returns `null` for anything else, so ordinary JPEGs fall straight through to core.
-
-⚠️ That ordering is an implementation detail of Nextcloud, not published API. If it ever changes, the failure is graceful: core renders the frame it finds, which is the unprojected lens pair. A wrong-looking thumbnail was preferred here to a hard dependency on internals.
-
-## What the thumbnail shows
-
-An equirectangular panorama, levelled by the best route the file supports:
-
-| route | what it fixes | stills in the test library |
-|---|---|---|
-| The camera's own stitch | everything; it was levelled on the device | 48 (X5 only) |
-| **Gravity**, from the inertial record | roll **and pitch** | 1,384 (417 from their own record, 967 from another frame of the same shutter press) |
-| The lens calibration | the sensor's **mounting angle** only | the fallback when neither of the above is available |
-
-Most stills carry no inertial record of their own, but every one in the test library sits in a burst or bracket where another frame does, and the camera writes the same reading to all of them. The provider looks for that frame in the same folder, never further. Without any levelling a OneR renders 90° on its side, so the calibration route is the floor.
-
-The two lenses hand over across a narrow band about the line where they see equally well, and the hand-over is moved around nearby subjects where the scene allows. The relative orientation of the lenses and a per-camera lens correction come from the calibration and from measurement; see [docs/formats/insta360.md](../docs/formats/insta360.md). ⚠️ Objects within a metre or two of the camera can still break where the lenses meet, because the two lenses see them from slightly different places.
+The app reads the camera's data from the end of each `.insp` file and renders the preview in plain PHP, using the GD library Nextcloud already requires. It doesn't need the Python tool from this repository, and doesn't run any external programs. [AGENT-NOTES.md](AGENT-NOTES.md), written mainly for coding agents, has the implementation details: performance, memory use, and how it shares JPEG previews with Nextcloud's own provider.
 
 ## What installing it changes
 
-⚠️ Mapping `.insp` to `image/jpeg` is what gets the files indexed, and it also tells the rest of Nextcloud that the original file is an ordinary photo:
+The app needs one line added to Nextcloud's config, which tells Nextcloud that `.insp` files are JPEG images. That is what makes them show up, and it has side effects:
 
-- Any `.insp` this app declines, such as the six in the test library that carry no trailer, goes to Nextcloud's own JPEG provider, which shows the raw lens pair and may run out of memory doing it (see [Memory](#memory)).
-- In Nextcloud Memories, zooming into a `.insp` past the preview's resolution loads the original, which is the lens pair, so the panorama is replaced by two fisheye circles. A fix for that is written for Memories but not yet proposed upstream.
-- Viewing a `.insp` as an interactive sphere needs a panorama viewer in Memories, which is in the same state.
+- **Zooming in Memories shows the two fisheye circles.** When you zoom past the preview's resolution, Memories loads the original file, and the original is the lens pair, not a panorama. Seen with Memories 8.1.0 from the app store. A fix for Memories is written and works on a test instance, but it isn't in any release yet.
+- **No interactive sphere view.** The previews are flat panoramas, and Memories shows no panorama button for `.insp` files. A sphere viewer for Memories is written too, in the same state as the zoom fix. Both also need Memories to learn that `.insp` files are panoramas, which nothing tells it yet.
+- **Files the app can't read go to Nextcloud's normal JPEG preview**, which shows the fisheye pair. On a large photo it may also run out of memory. In the test library this was 6 files out of 1,438, all damaged or exported without the camera's data.
 
-## Layout
+## Requirements, and what's been tested
 
-```
-lib/Insta360/     Trailer · Protobuf · Calibration · EmbeddedPreview · Imu · LensProfile   the reader
-lib/Render/       Equirectangular · Seam · Orientation                                    the projection
-lib/Preview/      Insta360                                                                the provider
-```
+| | |
+|---|---|
+| Cameras | Insta360 OneR, X3 and X5 photos (`.insp`). No video yet |
+| Nextcloud | 33 to 35. Tested on 33 and 35; 34 is assumed to work |
+| Server requirements | none beyond what Nextcloud already needs (PHP with GD) |
 
-The reader is a deliberate port of `src/golblick/vendors/insta360/` in the parent repository, kept close enough to compare side by side. The container format itself is documented in `docs/formats/insta360.md`, which is the owner of every measured fact quoted above.
+## What the previews look like
+
+Each preview is a full equirectangular panorama with the horizon levelled. On an X5 the app uses the panorama the camera already made. On a OneR or X3 it builds one from the two lenses and levels it using the camera's motion sensor.
+
+Things close to the camera, within a metre or two, can show a visible break where the two lenses meet, because each lens sees them from a slightly different position. [docs/accuracy.md](../docs/accuracy.md) has the details.
+
+## Using it with files_photospheres
+
+[files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) can be installed alongside this app; tested together on Nextcloud 33. It doesn't generate previews, so `.insp` thumbnails still come from here. It opens a JPEG as a sphere only when the file carries panorama metadata, which `.insp` files don't, so clicking a `.insp` in Files opens the normal image viewer showing the flat panorama preview. A panorama made with `golblick render` does carry that metadata, and files_photospheres opens it as a sphere you can drag around.
+
+## Install
+
+1. Copy this folder into your Nextcloud's `custom_apps/` directory as `golblick`, and enable it:
+
+   ```sh
+   occ app:enable golblick
+   ```
+
+2. Tell Nextcloud that `.insp` is a JPEG. Add this to `config/mimetypemapping.json`, creating the file if it doesn't exist, or merging it in if it does:
+
+   ```json
+   {
+       "insp": ["image/jpeg"]
+   }
+   ```
+
+   Without it, nothing changes. Some apps (Nextcloud's own Maps app, for example) write this file for you when they're installed. golblick doesn't, so that nothing in your config changes without you seeing it.
+
+3. Update the file types of files Nextcloud already knows about:
+
+   ```sh
+   occ maintenance:mimetype:update-db --repair-filecache
+   occ files:scan --all          # only needed for files already indexed
+   ```
+   Both commands work through every file Nextcloud knows about, so on a large instance they can take a while.
+
+4. If you use Memories, run `occ memories:index` so the photos appear in the timeline straight away, rather than at its next background run.
+
+Previews are generated the first time each photo is viewed, or ahead of time if you run Preview Generator. Each takes about half a second.
+
+Once `.insp` counts as JPEG, every app that works on photos treats these files as photos too. An app that reads the original file, such as one that runs face or object recognition, gets the two fisheye circles rather than a panorama.
 
 ## Licence
 
-AGPL-3.0-or-later, as the Nextcloud app ecosystem requires; the full text is in [COPYING](COPYING). The parent library is MIT.
+AGPL-3.0-or-later, like the rest of the repository; the full text is in [COPYING](COPYING).

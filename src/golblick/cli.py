@@ -29,6 +29,18 @@ def _require_vendor(path: str):
     return vendor
 
 
+def _output_path(args: argparse.Namespace, default_suffix: str) -> Path:
+    """Where to write, refusing the one path that would destroy the original.
+
+    Every command that writes leaves the source alone, and the docs promise
+    it; a slip in ``-o`` is the only way to break that, so check for it.
+    """
+    output = Path(args.output) if args.output else Path(args.file).with_suffix(default_suffix)
+    if output.resolve() == Path(args.file).resolve():
+        raise GolblickError(f"{output}: refusing to write over the file being read")
+    return output
+
+
 def cmd_probe(args: argparse.Namespace) -> int:
     vendor = _require_vendor(args.file)
     info = vendor.describe(args.file)
@@ -136,7 +148,7 @@ def cmd_triage(args: argparse.Namespace) -> int:
 def cmd_thumb(args: argparse.Namespace) -> int:
     vendor = _require_vendor(args.file)
     data = vendor.extract_thumbnail(args.file)
-    output = Path(args.output) if args.output else Path(args.file).with_suffix(".thumb.jpg")
+    output = _output_path(args, ".thumb.jpg")
     output.write_bytes(data)
     print(f"{output}  ({_human(len(data))})")
     return 0
@@ -149,7 +161,7 @@ def cmd_preview(args: argparse.Namespace) -> int:
 
     preview = vendor.extract_preview(args.file)
     default_suffix = ".preview.jpg" if preview.encoding == "jpeg" else ".preview.png"
-    output = Path(args.output) if args.output else Path(args.file).with_suffix(default_suffix)
+    output = _output_path(args, default_suffix)
 
     if preview.encoding == "jpeg":
         # Already a JPEG, so copy it out rather than decoding and re-encoding it.
@@ -206,7 +218,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     score = render.overlap_agreement(hemispheres)
 
     xmp = gpano.packet(width, height, software=f"golblick {_version()}")
-    output = Path(args.output) if args.output else Path(args.file).with_suffix(".pano.jpg")
+    output = _output_path(args, ".pano.jpg")
     _write_image(output, pixels, xmp, args.quality)
 
     print(f"{output}  ({_human(output.stat().st_size)})")

@@ -41,3 +41,25 @@ def build_exif_jpeg(thumbnail: bytes) -> bytes:
     tiff = header + ifd0 + ifd1 + thumbnail
     payload = b"Exif\x00\x00" + tiff
     return b"\xff\xd8" + b"\xff\xe1" + struct.pack(">H", len(payload) + 2) + payload + b"\xff\xd9"
+
+
+def build_indexed_trailer(records, *, gaps=(), version=3, pad=32):
+    """Assemble an indexed trailer the way the X5 lays out video, as a fixture.
+
+    ``records`` is a sequence of ``(record_id, payload)`` in file order.  Each
+    record is preceded by the matching entry of ``gaps``, standing in for the
+    stale bytes the camera leaves between records, and the last record is
+    followed directly by the id-0 index.  Index slots are numbered by the id's
+    high byte, with all-zero entries for the unused ones.
+    """
+    body = b""
+    entries = {}
+    for (record_id, data), gap in zip(records, list(gaps) + [b""] * len(records)):
+        body += gap
+        entries[record_id >> 8] = struct.pack(">H", record_id) + struct.pack("<II", len(data), len(body))
+        body += data + struct.pack("<HI", record_id, len(data))
+    slots = max(entries) + 2
+    index = b"".join(entries.get(slot, b"\x00" * 10) for slot in range(slots))
+    body += index + struct.pack("<HI", 0, len(index)) + b"\x00" * pad
+    size = len(body) + 8 + len(MAGIC)
+    return body + struct.pack("<II", size, version) + MAGIC
