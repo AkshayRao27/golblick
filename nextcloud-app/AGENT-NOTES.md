@@ -68,6 +68,22 @@ What it doesn't cover, and why:
 - **Class and method names are not API.** If Memories renames them, the middleware stops matching and zoom shows the lens pair again.
 - ⚠️ When testing a redeploy, the official image runs `opcache.revalidate_freq=60`, and Apache's workers keep the old bootstrap: a newly registered middleware did nothing until `apachectl graceful`.
 
+## Sphere viewer (`src/`, built into `js/`)
+
+`lib/Listener/LoadSphereViewer.php` adds `js/golblick-main.mjs` to every logged-in page rendered for `files`, `photos` and `memories` (`BeforeTemplateRenderedEvent`). Nothing in those apps is configured or patched. The script adds a **View as sphere** entry in three places; all three open the same full-window overlay (`src/overlay.ts`), which starts on `/core/preview?…&x=2048` and swaps in `/apps/golblick/sphere/{id}` (the `PanoramaStore` render shared with `MemoriesZoom`). three.js loads as a separate chunk only when a sphere opens.
+
+| Where | Hook | Finds the file by | Stability |
+|---|---|---|---|
+| Files list | `registerFileAction` from `@nextcloud/files` ~4.0 (shared registry `window._nc_files_scope.v4_0`) | the node | public API; pin the major to what the server ships |
+| Viewer (Files, Photos) | button inserted into `#viewer .modal-header .header-actions` | `fileId=` or `/preview/{id}` in the active image's `src` | DOM, provisional |
+| Memories | button inserted into `.memories-viewer .top-bar .action-items`; skipped if a button labelled "View as panorama" exists | `#v/{day}/{id}` in the URL hash | DOM, provisional |
+
+- **Buttons are clones of a neighbouring button**, with the icon and label replaced. Copying class names alone showed the browser's default border: Nextcloud's buttons get their look from scoped styles keyed on `data-v-*` attributes, which a clone carries. Computed styles of the clone and its neighbour were compared in Chromium and matched in both places.
+- `GET /apps/golblick/sphere/{id}/info` (name check only, cheap) and `GET /apps/golblick/sphere/{id}` (the JPEG) are `NoCSRFRequired` read-only GETs, resolved inside the signed-in user's folder. Public shares get no button.
+- The sphere code is a cut-down port of `PsPanorama.ts` from the Memories branch: full spheres only, same mirror fix and drag scaling.
+- Build: `npm ci && npm run build` in `nextcloud-app/`, then commit `js/`. The app installs by copying the folder, so the built files have to be in the repository. `npm run typecheck` runs `tsc`. Vite doesn't strip whitespace in library ES builds, so the three.js chunk is about 850 KB (180 KB gzipped).
+- Test with a headless browser on a running server: the Files action is inside the row's "Actions" menu, not the sharing button next to it.
+
 ## Levelling routes
 
 | Route | What it fixes | Stills in the test library |

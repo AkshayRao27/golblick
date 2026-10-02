@@ -26,7 +26,7 @@ src/golblick/
     insta360/          trailer, metadata, calibration, thumbnail, preview, source, imu, lens, naming
 tests/                 pytest; every fixture is synthesised, none is real media
 docs/formats/          what is known about each vendor's container, measured or marked unverified
-nextcloud-app/         the Nextcloud preview app, a pure-PHP port
+nextcloud-app/         the Nextcloud preview app, a pure-PHP port, and its sphere viewer (src/, built into js/)
 ```
 
 ## Rules for changes
@@ -49,7 +49,7 @@ Measured facts about a container go in `docs/formats/<vendor>.md`. Values that a
 
 ## The Nextcloud app
 
-`nextcloud-app/` is a separate implementation in PHP, using only GD, so that installing it adds no server-side dependency. It does not call the Python library. It ports the reader, the calibration parse, the projection, the seam routing and the per-camera lens tables. A test fails if the lens tables in the two implementations drift apart.
+`nextcloud-app/` is a separate implementation in PHP, using only GD, so that installing it adds no server-side dependency. It does not call the Python library. It ports the reader, the calibration parse, the projection, the seam routing and the per-camera lens tables. A test fails if the lens tables in the two implementations drift apart. Its sphere viewer is TypeScript in `nextcloud-app/src/`; build it with `npm ci && npm run build` in that folder and commit the result in `js/`, because the app installs by copying the folder.
 
 When changing the projection, change both, then compare their output on the same file. A port can be correct arithmetic and still behave differently: the first PHP reader read the trailer with a single `fread`, which works on a local file and fails through Nextcloud's stream wrappers, which return one 8 KiB chunk per read.
 

@@ -4,7 +4,7 @@ This project was written almost entirely by LLM coding agents, and contributions
 
 ## What this is
 
-A Python library and CLI that reads 360-camera container files on Linux (Insta360 `.insp`, `.insv`, `.lrv` so far), extracts what the camera stored, and projects the dual-fisheye pair into an equirectangular panorama with GPano metadata. `nextcloud-app/` is a separate pure-PHP port that shows those files as panoramic previews in Nextcloud.
+A Python library and CLI that reads 360-camera container files on Linux (Insta360 `.insp`, `.insv`, `.lrv` so far), extracts what the camera stored, and projects the dual-fisheye pair into an equirectangular panorama with GPano metadata. `nextcloud-app/` is a separate pure-PHP port that shows those files as panoramic previews in Nextcloud, plus a small browser-side sphere viewer.
 
 Read these first, in this order:
 
@@ -34,6 +34,7 @@ uv sync --group dev && uv run pytest -q                    # without numpy
 uv sync --group dev --extra render && uv run pytest -q     # with the render extra
 uv run golblick --help
 find nextcloud-app/lib -name '*.php' -exec php -l {} \;     # the PHP has no test suite; lint it
+(cd nextcloud-app && npm ci && npm run typecheck && npm run build)   # the sphere viewer; commit js/
 ```
 
 Run the tests both ways. The core must pass without numpy installed, and with numpy present a wrongly skipped test is invisible.

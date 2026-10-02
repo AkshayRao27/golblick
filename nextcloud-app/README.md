@@ -1,6 +1,6 @@
 # 360 photo previews for Nextcloud
 
-Shows Insta360 `.insp` photos as panoramas in Nextcloud. Without it, Nextcloud doesn't recognise `.insp` at all: by default, Files shows a generic icon and Memories leaves them out of the timeline.
+Shows Insta360 `.insp` photos as panoramas in Nextcloud, and lets you look around them as a sphere. Without it, Nextcloud doesn't recognise `.insp` at all: by default, Files shows a generic icon and Memories leaves them out of the timeline.
 
 ## 🚩 Please read this before you proceed
 
@@ -8,15 +8,26 @@ This is barely even an alpha of a fully vibe-coded app, tested on throwaway Next
 
 ## How it works
 
-The app reads the camera's data from the end of each `.insp` file and renders the preview in plain PHP, using the GD library Nextcloud already requires. It doesn't need the Python tool from this repository, and doesn't run any external programs. [AGENT-NOTES.md](AGENT-NOTES.md), written mainly for coding agents, has the implementation details: performance, memory use, and how it shares JPEG previews with Nextcloud's own provider.
+The app reads the camera's data from the end of each `.insp` file and renders the preview in plain PHP, using the GD library Nextcloud already requires. It doesn't need the Python tool from this repository, and doesn't run any external programs. The sphere view runs in the browser, using JavaScript that ships with the app. [AGENT-NOTES.md](AGENT-NOTES.md), written mainly for coding agents, has the implementation details: performance, memory use, and how it shares JPEG previews with Nextcloud's own provider.
 
 ## What installing it changes
 
 The app needs one line added to Nextcloud's config, which tells Nextcloud that `.insp` files are JPEG images. That is what makes them show up, and it has side effects:
 
-- **No sphere view anywhere.** Files, Photos and Memories all show `.insp` photos as flat panoramas. files_photospheres won't open them (see below), and Memories has no sphere viewer for any photo yet.
 - **Zooming in Memories needed a workaround.** When you zoom past the preview's size, Memories loads the original file, and for a `.insp` that is the two fisheye circles. The app swaps that one image for a full-size panorama, so zooming stays a panorama. It doesn't change the file or what you get when you download it. The first zoom on each photo makes the server render that panorama, which takes up to about 20 seconds on a OneR photo; Memories shows the preview meanwhile, and later zooms take under a second. To make it faster at the cost of detail, set a smaller width (1024 to 4096, default 4096): `occ config:app:set golblick zoom_width --value=2048`. X5 photos stop at 2560, the size of the panorama the camera stores.
 - **Files the app can't read go to Nextcloud's normal JPEG preview**, which shows the fisheye pair. On a large photo it may also run out of memory. In the test library this was 6 files out of 1,438, all damaged or exported without the camera's data.
+
+## Viewing a photo as a sphere
+
+A **View as sphere** button opens the photo full-window as a sphere you can drag around, with the mouse wheel or a pinch to zoom. Escape closes it. You'll find it:
+
+- in Files, in a `.insp` file's actions menu
+- in the image viewer that Files and Photos open, next to the edit button
+- in Memories, in the viewer's top bar
+
+It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
+
+The buttons in the image viewer and in Memories are a stopgap. Neither app lets another app add a button, so golblick adds them to the page from outside. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks. A sphere viewer for Memories itself is written and waiting to be offered upstream, and if Memories gets its own panorama button, golblick's steps aside. The button doesn't appear on public share links.
 
 ## Requirements, and what's been tested
 
@@ -36,7 +47,7 @@ Things close to the camera, within a metre or two, can show a visible break wher
 
 ## Using it with files_photospheres
 
-[files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) can be installed alongside this app; tested with 1.33.1 on Nextcloud 33 and 1.35.0 on Nextcloud 35. It doesn't generate previews, so `.insp` thumbnails still come from here. It shows its sphere button only for files that carry panorama metadata, which `.insp` files don't, so clicking a `.insp` in Files opens the normal image viewer showing the flat panorama. Adding the metadata wouldn't help: files_photospheres wraps the downloaded original around the sphere, and for a `.insp` that is the two fisheye circles. A panorama made with `golblick render` does carry the metadata, and files_photospheres opens it as a sphere you can drag around.
+[files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) can be installed alongside this app; tested with 1.33.1 on Nextcloud 33 and 1.35.0 on Nextcloud 35. It doesn't generate previews, so `.insp` thumbnails still come from here. It shows its sphere button only for files that carry panorama metadata, which `.insp` files don't, so it doesn't offer its button for them; use golblick's **View as sphere** instead. Adding the metadata wouldn't help: files_photospheres wraps the downloaded original around the sphere, and for a `.insp` that is the two fisheye circles. A panorama made with `golblick render` does carry the metadata, and files_photospheres opens it as a sphere you can drag around.
 
 ## Install
 

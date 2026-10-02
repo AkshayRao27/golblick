@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace OCA\Golblick\AppInfo;
 
+use OCA\Golblick\Listener\LoadSphereViewer;
 use OCA\Golblick\Middleware\MemoriesZoom;
 use OCA\Golblick\Preview\Insta360;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
+use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 
 final class Application extends App implements IBootstrap {
 	public const APP_ID = 'golblick';
@@ -29,6 +31,8 @@ final class Application extends App implements IBootstrap {
 
 		// Global, because the response it rewrites belongs to Memories.
 		$context->registerMiddleware(MemoriesZoom::class, true);
+
+		$context->registerEventListener(BeforeTemplateRenderedEvent::class, LoadSphereViewer::class);
 	}
 
 	public function boot(IBootContext $context): void {
