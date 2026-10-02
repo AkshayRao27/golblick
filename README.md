@@ -43,12 +43,12 @@ What I can say, however, is that
 ### ⚠️ YMMV
 
 > [!WARNING]
-> This is barely-alpha, fully-vibe-coded "software" built to solve a specific problem that I couldn't find a better solution for. It works with my files from the three cameras I have had access to and it's optimised specifically for those files and for my use case on my system. There is no support, no warranty, no promise that any of this will be maintained, and no assurance that it won't cause your system to commit sudoku.
+> This is barely-alpha, fully-vibe-coded "software" built to solve a specific problem that I couldn't find a better solution for. It works with data from the three cameras I have had access to, is optimised specifically for those files, for my use case and on my system. There is no support, no warranty, no promise that any of this will be maintained, and no assurance that it won't cause your system to commit sudoku.
 
 - **Try it somewhere disposable first**, like a throwaway system or a test instance. Don't point it at originals until it does what you want.
 - **Keep backups** of anything you care about (which for photos you should be doing anyway).
 
-<p align="center"><i>It might work for you.<br>It might not.<br>I do not claim to know.</i></p>
+<i>It might work for you.<br>It might not.<br>I do not claim to know.</i>
 
 ---
 
@@ -99,7 +99,5 @@ Files named `*agent-notes*` hold the detailed working notes behind the docs: eve
 ## Licence
 
 AGPL-3.0-or-later, for the whole repository. You can use, change and share it, including commercially, but if you distribute a modified version, or let people use one over a network, you have to publish your changes under the same licence. The full text is in [LICENSE](LICENSE).
-
-Copyright © 2026 Akshay Rao.
 
 Not affiliated with, endorsed by, or connected to any camera manufacturer. Vendor names are used only to identify the file formats this software reads.
