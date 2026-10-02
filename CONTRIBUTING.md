@@ -34,3 +34,7 @@ LLM-assisted contributions are fine; this project is fully vibe-coded anyway. [A
 ## Licence
 
 By contributing, you agree that your contribution is licensed under AGPL-3.0-or-later, like the rest of the repository.
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

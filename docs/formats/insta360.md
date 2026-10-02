@@ -57,3 +57,7 @@ exiftool -ee3 -G1 -s FILE       # an independent second opinion
 ```
 
 `probe` prints the camera's serial number, so remove that line before sharing the output.
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

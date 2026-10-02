@@ -32,3 +32,7 @@ It is a quick sanity check and not a quality score. Because it only compares the
 On the X5, both references move the lens picture by a different amount in every scene (from 0.1° to 2.9°), and they agree with each other scene by scene. They seem to adjust the stitch to each scene, so they can't pin down a fixed lens curve, and a correction fitted on half the photos made the other half no better. The X5 is left uncorrected.
 
 For the method behind each measurement, see the [research notes](formats/insta360-agent-notes.md).
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

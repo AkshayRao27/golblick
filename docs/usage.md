@@ -109,3 +109,7 @@ The file does not say what angle the rim of each fisheye circle corresponds to, 
 The geometry fields are written, including the cropped-area fields: a partial panorama without them gets stretched around the whole sphere, which looks plausible rather than broken.
 
 The pose fields are deliberately left out. `PoseHeadingDegrees` would state which compass direction the centre faces, and nothing in the file fixes that. `PosePitchDegrees` and `PoseRollDegrees` would assert the panorama is level, which is only as true as the levelling. A viewer that finds no pose fields assumes an unknown heading and a level horizon, which is the honest claim; a written `0.0` would look exactly like a measured one.
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

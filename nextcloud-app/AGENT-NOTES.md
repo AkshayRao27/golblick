@@ -97,3 +97,7 @@ The provider looks for a sibling frame only in the same folder. Without any leve
 ## Testing
 
 Use a throwaway Nextcloud in Docker, never an instance holding real photos. Previews are cached on the server, and the browser caches them under a URL keyed on the file's etag, so after changing the renderer: redeploy the app, clear previews with `occ preview:cleanup` (not by deleting files, which leaves the database rows behind), and make sure the browser fetches fresh copies before judging the result.
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

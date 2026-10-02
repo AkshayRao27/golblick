@@ -565,3 +565,7 @@ golblick preview FILE -o p.png  # record 0x0200, the camera's full-size preview
 golblick thumb FILE -o t.jpg    # the 320x160 EXIF thumbnail
 exiftool -ee3 -G1 -s FILE       # independent cross-check
 ```
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

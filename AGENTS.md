@@ -89,3 +89,7 @@ Each of these comes from a confident wrong answer in this project's history.
 - Running out of PHP memory is fatal, not catchable. Check dimensions before decoding, as `checkImageMemory()` does in core.
 - Mapping a type is a promise about the bytes. Anything downstream that serves originals will now treat the file as that type.
 - A standalone harness can't see the integration it was extracted from. Measure in isolation, then confirm on a running server.
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

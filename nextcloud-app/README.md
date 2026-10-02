@@ -84,3 +84,7 @@ Once `.insp` counts as JPEG, every app that works on photos treats these files a
 ## Licence
 
 AGPL-3.0-or-later, like the rest of the repository; the full text is in [COPYING](COPYING).
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

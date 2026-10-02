@@ -54,3 +54,7 @@ Measured facts about a container go in `docs/formats/<vendor>.md`. Values that a
 When changing the projection, change both, then compare their output on the same file. A port can be correct arithmetic and still behave differently: the first PHP reader read the trailer with a single `fread`, which works on a local file and fails through Nextcloud's stream wrappers, which return one 8 KiB chunk per read.
 
 Try it in a throwaway Nextcloud in Docker, never on an instance holding real photos. Installation and the `mimetypemapping.json` entry it needs are in [nextcloud-app/README.md](../nextcloud-app/README.md). Previews are cached on the server and in the browser, so after changing the renderer, clear them with `occ preview:cleanup` and make sure the browser fetches fresh copies before judging the result.
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
