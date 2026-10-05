@@ -15,9 +15,10 @@
  * for another app to add a button, so these find their place in the page by
  * class name and work out which file is open from what is on screen. If those
  * apps change their markup the button stops appearing; nothing else breaks.
- * Memories should get a sphere view of its own (an upstream pull request is
- * drafted), and once it shows its own "View as panorama" button this one
- * stays out of the way.
+ * Memories has a sphere view of its own after 9.1.0-alpha.2, and where it
+ * offers one for the open photo this button stays out of the way
+ * (memoriesHasOwnSphere). That view loads the original, which for a .insp is
+ * the lens pair; lib/Middleware/MemoriesZoom.php hands it the panorama instead.
  */
 import { mdiPanoramaSphereOutline } from '@mdi/js';
 import { registerFileAction } from '@nextcloud/files';
@@ -154,11 +155,26 @@ function memoriesFileId(): number | null {
   return match ? Number(match[1]) : null;
 }
 
+type MemoriesGlobal = { viewer?: { currentPhoto?: { fileid?: number; pano?: number } | null } };
+
+/**
+ * Whether Memories shows its own sphere for this photo. Releases after
+ * 9.1.0-alpha.2 classify photos into `pano` at index time, and anything above
+ * 0 gets a "View panorama" action. Read from Memories' global rather than the
+ * page: the label is translated, and on a phone the action sits in the "…"
+ * menu where the top bar can't see it. Older releases have no `pano`, and a
+ * .insp indexed before the upgrade has 0 until it is re-indexed, so both keep
+ * this button.
+ */
+function memoriesHasOwnSphere(fileId: number | null): boolean {
+  const photo = (globalThis as { _m?: MemoriesGlobal })._m?.viewer?.currentPhoto;
+  return fileId !== null && photo?.fileid === fileId && (photo.pano ?? 0) > 0;
+}
+
 function syncMemories() {
   const bar = document.querySelector('.memories-viewer .top-bar .action-items');
-  // Memories' own sphere viewer, once it has one, takes precedence.
-  if (bar?.querySelector('[aria-label="View as panorama"]')) {
-    bar.querySelector(`.${BUTTON_CLASS}`)?.remove();
+  if (memoriesHasOwnSphere(memoriesFileId())) {
+    bar?.querySelector(`.${BUTTON_CLASS}`)?.remove();
     return;
   }
   sync(bar, memoriesFileId(), memoriesFileId, () =>

@@ -53,7 +53,9 @@ The mapping also tells the rest of Nextcloud that the original file is an ordina
 
 ## Memories zoom (`lib/Middleware/MemoriesZoom.php`)
 
-Memories (9.0.1 and earlier) loads `/apps/memories/api/image/decodable/{id}` when the viewer zooms past the preview, controlled by its `high_res_cond` setting (`zoom` by default). For `image/jpeg` that endpoint returns the original bytes, so a `.insp` zoomed into the lens pair. The app registers a **global** middleware (`registerMiddleware(..., true)`, NC 26+) whose `afterController` matches `OCA\Memories\Controller\ImageController::decodable`, a 200 response and a `.insp` extension, and replaces the body with a panorama from the preview provider at `zoom_width` (app config, default 4096, clamped 1024–4096). Memories' controller still runs first and decides access, so nothing new is exposed. Renders are cached in app data as `zoom/{fileid}-{etag}-{width}.jpg`; a new etag replaces the old entry.
+Memories loads `/apps/memories/api/image/decodable/{id}` when the viewer zooms past the preview, controlled by its `high_res_cond` setting (`zoom` by default). For `image/jpeg` that endpoint returns the original bytes, so a `.insp` zoomed into the lens pair. The app registers a **global** middleware (`registerMiddleware(..., true)`, NC 26+) whose `afterController` matches `OCA\Memories\Controller\ImageController::decodable`, a 200 response and a `.insp` extension, and replaces the body with a panorama from the preview provider at `zoom_width` (app config, default 4096, clamped 1024–4096). Memories' controller still runs first and decides access, so nothing new is exposed. Renders are cached in app data as `zoom/{fileid}-{etag}-{width}.jpg`; a new etag replaces the old entry.
+
+Memories' own sphere view (after 9.1.0-alpha.2, upstream `b139f975`) loads the same endpoint, so this middleware is also what puts the stitched panorama on its sphere. Without it the sphere shows the lens pair on its side. Memories classifies a 2:1 `.insp` as `pano = 1` ("wide"): a "View panorama" button, not the automatic sphere that `pano = 2` (GPano) gets.
 
 | Measured on NC 35.0.0 / PHP 8.4.25 / Memories 9.0.1 | |
 |---|---|
@@ -65,7 +67,7 @@ What it doesn't cover, and why:
 
 - **WebDAV downloads are left alone.** files_photospheres builds its sphere from the WebDAV download (`node.encodedSource`), and its button depends on a DAV property computed from the file's XMP. Rewriting either would change what downloads and sync clients receive.
 - **The Viewer app** (Files, Photos) never loads the original for a JPEG that has a preview; it requests a screen-sized preview, capped by `preview_max_x`. Zoom there enlarges the preview.
-- **Class and method names are not API.** If Memories renames them, the middleware stops matching and zoom shows the lens pair again.
+- **Class and method names are not API.** If Memories renames them, the middleware stops matching and both zoom and Memories' sphere show the lens pair again.
 - ⚠️ When testing a redeploy, the official image runs `opcache.revalidate_freq=60`, and Apache's workers keep the old bootstrap: a newly registered middleware did nothing until `apachectl graceful`.
 
 ## Sphere viewer (`src/`, built into `js/`)
@@ -76,7 +78,7 @@ What it doesn't cover, and why:
 |---|---|---|---|
 | Files list | `registerFileAction` from `@nextcloud/files` ~4.0 (shared registry `window._nc_files_scope.v4_0`) | the node | public API; pin the major to what the server ships |
 | Viewer (Files, Photos) | button inserted into `#viewer .modal-header .header-actions` | `fileId=` or `/preview/{id}` in the active image's `src` | DOM, provisional |
-| Memories | button inserted into `.memories-viewer .top-bar .action-items`; skipped if a button labelled "View as panorama" exists | `#v/{day}/{id}` in the URL hash | DOM, provisional |
+| Memories | button inserted into `.memories-viewer .top-bar .action-items`; skipped when `_m.viewer.currentPhoto.pano > 0` for the open file, i.e. when Memories offers its own sphere (after 9.1.0-alpha.2; the label is translated and on phones sits in the "…" menu, so the page is not checked) | `#v/{day}/{id}` in the URL hash | DOM, provisional |
 
 - **Buttons are clones of a neighbouring button**, with the icon and label replaced. Copying class names alone showed the browser's default border: Nextcloud's buttons get their look from scoped styles keyed on `data-v-*` attributes, which a clone carries. Computed styles of the clone and its neighbour were compared in Chromium and matched in both places.
 - `GET /apps/golblick/sphere/{id}/info` (name check only, cheap) and `GET /apps/golblick/sphere/{id}` (the JPEG) are `NoCSRFRequired` read-only GETs, resolved inside the signed-in user's folder. Public shares get no button.

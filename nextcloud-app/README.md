@@ -27,7 +27,7 @@ A **View as sphere** button opens the photo full-window as a sphere you can drag
 
 It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
 
-The buttons in the image viewer and in Memories are a stopgap. Neither app lets another app add a button, so golblick adds them to the page from outside. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks. A sphere viewer for Memories itself is written and waiting to be offered upstream, and if Memories gets its own panorama button, golblick's steps aside. The button doesn't appear on public share links.
+The buttons in the image viewer and in Memories are a stopgap. Neither app lets another app add a button, so golblick adds them to the page from outside. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks. Memories releases after 9.1.0-alpha.2 have their own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama. The button doesn't appear on public share links.
 
 ## Requirements, and what's been tested
 
