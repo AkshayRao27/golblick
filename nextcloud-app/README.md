@@ -44,7 +44,7 @@ The buttons in the image viewer and in Memories are a stopgap. Neither app lets 
 
 AIO installs ImageMagick without RAW support, and that build crashes on DNG files instead of refusing them: the PHP process reading the file dies. In my testing, opening a DNG in the Memories viewer crashed it every time. This happens with or without golblick, but you'll notice it sooner with golblick installed: when an Insta360 camera shoots in RAW it saves a DNG next to each `.insp`, so browsing your 360 photos in Memories leads you straight to them.
 
-The fix is to add the `imagemagick-raw` package. In AIO that's the `NEXTCLOUD_ADDITIONAL_APKS` setting on the mastercontainer, as described in [AIO's documentation](https://github.com/nextcloud/all-in-one#how-to-add-os-packages-permanently-to-the-nextcloud-container). It defaults to `imagemagick`, so set it to `imagemagick imagemagick-raw`. With that package installed, ImageMagick hands DNG files to its RAW reader instead of crashing, and nothing crashed in testing.
+The fix is to add the `imagemagick-raw` package. In AIO that's the `NEXTCLOUD_ADDITIONAL_APKS` setting on the mastercontainer, as described in [AIO's documentation](https://github.com/nextcloud/all-in-one#how-to-add-os-packages-permanently-to-the-nextcloud-container). It defaults to `imagemagick`, so set it to `imagemagick imagemagick-raw`. With that package installed, DNG and NEF files open in Memories and get previews, and nothing has crashed since.
 
 ## What the previews look like
 

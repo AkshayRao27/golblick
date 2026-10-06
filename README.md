@@ -36,6 +36,7 @@ What I can say, however, is that
 
 - Of the 1,438 stills from three cameras (Insta360 OneR, X3 and X5) in my photo library, 1,432 render as level panoramas, both from the command line and as previews in Memories on throwaway Nextcloud 33 and 35 instances in Docker, running locally. The other six are empty, or had the camera's data stripped.
     - The Nextcloud app only reads files and generates previews, but it needs a line in Nextcloud's config, and that line has side effects worth reading about in [the app's README](nextcloud-app/README.md) before you add it.
+    - Since 0.1.0 I also run the Nextcloud app on my own production instance, a Nextcloud AIO install with Memories, where it previews the same library from a group folder. Getting it there turned up a problem with RAW files on AIO that has nothing to do with golblick; [the app's README](nextcloud-app/README.md#nextcloud-aio-and-raw-photos) explains it and the fix.
 - The code does not bork anything on my desktop running Kubuntu 26.04.
     - `probe`, `triage` and `vendors` only read files.
     - `thumb`, `preview` and `render` write one new file, next to the original unless you pass `-o`. They will overwrite an existing file with that name, but refuse to write over the file they are reading.
