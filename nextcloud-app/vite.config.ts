@@ -42,9 +42,11 @@ export default defineConfig({
     sourcemap: false,
     target: 'es2022',
     lib: {
-      entry: 'src/main.ts',
+      // main: the sphere view, on Files, Photos and Memories pages.
+      // admin: the settings page.
+      entry: { main: 'src/main.ts', admin: 'src/admin.ts' },
       formats: ['es'],
-      fileName: () => 'golblick-main.mjs',
+      fileName: (_format, name) => `golblick-${name}.mjs`,
     },
     rollupOptions: {
       output: { chunkFileNames: '[name]-[hash].chunk.mjs' },

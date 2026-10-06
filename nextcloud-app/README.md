@@ -14,7 +14,7 @@ The app reads the camera's data from the end of each `.insp` file and renders th
 
 The app needs one line added to Nextcloud's config, which tells Nextcloud that `.insp` files are JPEG images. That is what makes them show up, and it has side effects:
 
-- **Zooming in Memories needed a workaround.** When you zoom past the preview's size, Memories loads the original file, and for a `.insp` that is the two fisheye circles. The app swaps that one image for a full-size panorama, so zooming stays a panorama. It doesn't change the file or what you get when you download it. The first zoom on each photo makes the server render that panorama, which takes up to about 20 seconds on a OneR photo; Memories shows the preview meanwhile, and later zooms take under a second. To make it faster at the cost of detail, set a smaller width (1024 to 4096, default 4096): `occ config:app:set golblick zoom_width --value=2048`. X5 photos stop at 2560, the size of the panorama the camera stores.
+- **Zooming in Memories needed a workaround.** When you zoom past the preview's size, Memories loads the original file, and for a `.insp` that is the two fisheye circles. The app swaps that one image for a full-size panorama, so zooming stays a panorama. It doesn't change the file or what you get when you download it. The first zoom on each photo makes the server render that panorama, which takes up to about 20 seconds on a OneR photo; Memories shows the preview meanwhile, and later zooms take under a second. To make it faster at the cost of detail, pick a smaller panorama size on the app's settings page (1024 to 4096 pixels wide, default 4096), or have the panoramas rendered ahead of time there. X5 photos stop at 2560, the size of the panorama the camera stores.
 - **Files the app can't read go to Nextcloud's normal JPEG preview**, which shows the fisheye pair. On a large photo it may also run out of memory. In the test library this was 6 files out of 1,438, all damaged or exported without the camera's data.
 
 ## Viewing a photo as a sphere
@@ -27,7 +27,7 @@ A **View as sphere** button opens the photo full-window as a sphere you can drag
 
 It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
 
-The buttons in the image viewer and in Memories are a stopgap. Neither app lets another app add a button, so golblick adds them to the page from outside. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks. Memories releases after 9.1.0-alpha.2 have their own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama. The button doesn't appear on public share links.
+The buttons in the image viewer and in Memories are a stopgap. Neither app lets another app add a button, so golblick adds them to the page from outside. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and the buttons can be switched off on the settings page. Memories releases after 9.1.0-alpha.2 have their own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama. The button doesn't appear on public share links.
 
 ## Requirements, and what's been tested
 
@@ -64,7 +64,7 @@ Things close to the camera, within a metre or two, can show a visible break wher
    occ app:enable golblick
    ```
 
-2. Tell Nextcloud that `.insp` is a JPEG. Add this to `config/mimetypemapping.json`, creating the file if it doesn't exist, or merging it in if it does:
+2. Tell Nextcloud that `.insp` is a JPEG. The easiest way is **Administration settings → 360 photos (golblick) → Register .insp files**. It adds this to `config/mimetypemapping.json`, keeping anything else already in the file, and updates the `.insp` files Nextcloud already knows about:
 
    ```json
    {
@@ -72,19 +72,24 @@ Things close to the camera, within a metre or two, can show a visible break wher
    }
    ```
 
-   Without it, nothing changes. Some apps (Nextcloud's own Maps app, for example) write this file for you when they're installed. golblick doesn't, so that nothing in your config changes without you seeing it.
+   To do it by hand instead, add those lines to the file (create it if it doesn't exist), then run `occ maintenance:mimetype:update-db --repair-filecache`. That command goes through every file Nextcloud knows about, so on a large instance it can take a while.
 
-3. Update the file types of files Nextcloud already knows about:
+   Without the mapping, nothing changes. Some apps (Nextcloud's own Maps app, for example) write this file as soon as they're installed. golblick only writes it when you click the button, so nothing in your config changes without you seeing it.
 
-   ```sh
-   occ maintenance:mimetype:update-db --repair-filecache
-   occ files:scan --all          # only needed for files already indexed
-   ```
-   Both commands work through every file Nextcloud knows about, so on a large instance they can take a while.
+3. Check the rest of the setup on the same settings page. It lists anything that would stop the app working.
 
 4. If you use Memories, run `occ memories:index` so the photos appear in the timeline straight away, rather than at its next background run.
 
 Previews are generated the first time each photo is viewed, or ahead of time if you run Preview Generator. Each takes about half a second.
+
+## Settings
+
+**Administration settings → 360 photos (golblick)** has:
+
+- a setup check: whether `.insp` is registered, GD, PHP's memory limit, whether the Memories zoom fix can attach, and whether ImageMagick can read RAW files (see [Nextcloud AIO and RAW photos](#nextcloud-aio-and-raw-photos))
+- the size of the full-size panorama used for zooming and the sphere view, and a button to clear the ones already made
+- rendering those panoramas in the background, off by default because it costs about 19 seconds of CPU per OneR photo at full size
+- switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one
 
 Once `.insp` counts as JPEG, every app that works on photos treats these files as photos too. An app that reads the original file, such as one that runs face or object recognition, gets the two fisheye circles rather than a panorama.
 

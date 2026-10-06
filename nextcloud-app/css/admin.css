@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+#golblick-admin h3 { margin-top: 24px; font-weight: bold; }
+#golblick-admin .settings-hint { max-width: 760px; }
+#golblick-admin select { min-width: 200px; }
+
+#golblick-admin .golblick-checks { list-style: none; padding: 0; margin: 8px 0; max-width: 760px; }
+#golblick-admin .golblick-checks li { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--color-border); }
+#golblick-admin .golblick-checks p { color: var(--color-text-maxcontrast); margin: 2px 0 0; }
+#golblick-admin .golblick-icon {
+	flex: none; width: 22px; height: 22px; border-radius: 50%;
+	display: flex; align-items: center; justify-content: center;
+	font-weight: bold; font-size: 13px; color: #fff; background: var(--color-text-maxcontrast);
+}
+/* --color-success etc. are the pale tints in current themes; the element-* ones are solid. */
+#golblick-admin .level-ok .golblick-icon { background: var(--color-element-success, #099f05); }
+#golblick-admin .level-warn .golblick-icon { background: var(--color-element-warning, #bf7900); }
+#golblick-admin .level-error .golblick-icon { background: var(--color-element-error, #c90000); }
+
+#golblick-admin .golblick-actions { display: flex; gap: 8px; margin: 8px 0; }
+#golblick-admin .golblick-toggle { margin: 12px 0 0; }
+#golblick-admin .golblick-toggle label { display: flex; align-items: center; gap: 8px; }
+#golblick-admin .golblick-toggle input { accent-color: var(--color-primary-element); margin: 0; width: 16px; height: 16px; }
+#golblick-admin .golblick-toggle .settings-hint { margin: 2px 0 0 24px; }
+#golblick-admin .golblick-progress { margin: 8px 0 0 24px; }
+
+#golblick-admin .golblick-feedback:empty { display: none; }
+#golblick-admin .golblick-feedback[data-level="ok"] { color: var(--color-success-text, #005416); }
+#golblick-admin .golblick-feedback[data-level="error"] { color: var(--color-error-text, #c90000); }

@@ -19,9 +19,13 @@
  * offers one for the open photo this button stays out of the way
  * (memoriesHasOwnSphere). That view loads the original, which for a .insp is
  * the lens pair; lib/Middleware/MemoriesZoom.php hands it the panorama instead.
+ *
+ * Either part can be switched off on the admin page; the server passes the
+ * choice in as initial state, and loads nothing at all if both are off.
  */
 import { mdiPanoramaSphereOutline } from '@mdi/js';
 import { registerFileAction } from '@nextcloud/files';
+import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
 
 import { openSphere, svgIcon } from './overlay';
@@ -31,9 +35,11 @@ const BUTTON_CLASS = 'golblick-sphere-button';
 
 const isInsp = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insp');
 
+const config = loadState<{ files: boolean; buttons: boolean }>('golblick', 'config', { files: true, buttons: true });
+
 // ---- Files: a proper file action -------------------------------------------
 
-registerFileAction({
+if (config.files) registerFileAction({
   id: 'golblick-sphere',
   displayName: () => LABEL,
   iconSvgInline: () => svgIcon(mdiPanoramaSphereOutline),
@@ -194,10 +200,12 @@ function schedule() {
   });
 }
 
-new MutationObserver(schedule).observe(document.body, {
-  childList: true,
-  subtree: true,
-  attributes: true,
-  attributeFilter: ['src', 'class'],
-});
-window.addEventListener('hashchange', schedule);
+if (config.buttons) {
+  new MutationObserver(schedule).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['src', 'class'],
+  });
+  window.addEventListener('hashchange', schedule);
+}

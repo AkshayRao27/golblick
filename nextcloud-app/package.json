@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
+    "@nextcloud/auth": "^2.6.0",
     "@nextcloud/files": "~4.0.0",
+    "@nextcloud/initial-state": "^3.0.0",
     "@nextcloud/router": "^3.0.1",
     "three": "^0.186.1"
   },

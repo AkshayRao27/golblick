@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace OCA\Golblick\Middleware;
 
 use OCA\Golblick\Service\PanoramaStore;
+use OCA\Golblick\Service\Settings;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\DataDownloadResponse;
@@ -53,6 +54,7 @@ final class MemoriesZoom extends Middleware {
 		private IRootFolder $rootFolder,
 		private IUserSession $userSession,
 		private PanoramaStore $store,
+		private Settings $settings,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -60,7 +62,8 @@ final class MemoriesZoom extends Middleware {
 	public function afterController(Controller $controller, string $methodName, Response $response): Response {
 		if ($methodName !== self::METHOD
 			|| !is_a($controller, self::CONTROLLER)
-			|| $response->getStatus() !== Http::STATUS_OK) {
+			|| $response->getStatus() !== Http::STATUS_OK
+			|| !$this->settings->flag('memories_zoom')) {
 			return $response;
 		}
 

@@ -43,11 +43,11 @@ Nextcloud orders preview providers by the **length of their mimetype regex**, de
 
 That ordering is an implementation detail of Nextcloud, not published API. If it changes, the failure is mild: core renders the frame it finds, which is the unprojected lens pair.
 
-## Why `image/jpeg`, and why the mapping has to be added by hand
+## Why `image/jpeg`, and why the mapping is only added when the admin asks
 
 A `.insp` is a JPEG: everything in front of the trailer is a complete one, and PHP's `finfo` already reports `image/jpeg` for these files. Nextcloud disagrees only because its extension table has never heard of the format, so the mapping makes the extension agree with content detection. It's also the only option that works: Memories decides what to index from a hard-coded list of image mimetypes, so a bespoke `image/x-…` type would never be indexed.
 
-Nextcloud reads custom mimetype mappings only from `config/mimetypemapping.json`. An app *can* write that file itself: Nextcloud's Maps app does it in a repair step (`lib/Migration/RegisterMimeType.php`, merging into the file via `\OC::$configDir` and calling `IMimeTypeLoader::updateFilecache`), with a matching unregister step. golblick deliberately doesn't, so the admin sees the config change; it relies on private API (`\OC::$configDir`) and fails on a read-only config directory. The private `registerType()` on the mimetype detector looks like another route and is a trap: calling it before the defaults load makes the loader think mappings are already present, and it skips every built-in type.
+Nextcloud reads custom mimetype mappings only from `config/mimetypemapping.json`. An app *can* write that file itself: Nextcloud's Maps app does it in a repair step (`lib/Migration/RegisterMimeType.php`, merging into the file via `\OC::$configDir` and calling `IMimeTypeLoader::updateFilecache`), with a matching unregister step. golblick deliberately doesn't do it on install, so the admin sees the config change. Since 0.2.0 the settings page does the same thing when the admin clicks **Register .insp files** (`SetupCheck::register()`): it merges into the existing file, refuses to touch a file that isn't valid JSON or that already maps `insp` to something else, writes through a temporary file and a rename, and then calls `IMimeTypeLoader::updateFilecache('insp', …)`, which is the per-extension half of `occ maintenance:mimetype:update-db --repair-filecache` and needs no `files:scan`. It still relies on private API (`\OC::$configDir`, the directory `OC\Files\Type\Detection` reads), and on a read-only config directory it says so and leaves the step to the admin. The private `registerType()` on the mimetype detector looks like another route and is a trap: calling it before the defaults load makes the loader think mappings are already present, and it skips every built-in type.
 
 The mapping also tells the rest of Nextcloud that the original file is an ordinary photo, so anything that serves originals directly (Memories' zoom, for one) serves the lens pair.
 
@@ -85,6 +85,24 @@ What it doesn't cover, and why:
 - The sphere code is a cut-down port of `PsPanorama.ts` from the Memories branch: full spheres only, same mirror fix and drag scaling.
 - Build: `npm ci && npm run build` in `nextcloud-app/`, then commit `js/`. The app installs by copying the folder, so the built files have to be in the repository. `npm run typecheck` runs `tsc`. Vite doesn't strip whitespace in library ES builds, so the three.js chunk is about 850 KB (180 KB gzipped).
 - Test with a headless browser on a running server: the Files action is inside the row's "Actions" menu, not the sharing button next to it.
+
+## Admin settings (`lib/Settings/`, `lib/Service/Settings.php`, `src/admin.ts`)
+
+One page under Administration settings, own section. `src/admin.ts` renders it in plain DOM from `GET /apps/golblick/settings/status`; changes save immediately. `SettingsController` is admin-only and CSRF-checked because no method opts out.
+
+| App config key | Default | What reads it |
+|---|---|---|
+| `zoom_width` | 4096 | `PanoramaStore`. The page offers 1024/2048/3072/4096; any value set with `occ` is clamped to 1024–4096 |
+| `memories_zoom` | yes | `MemoriesZoom::afterController`. Off = Memories gets the original (the lens pair) |
+| `sphere_files` | yes | `LoadSphereViewer` → initial state `config.files` → the Files action |
+| `sphere_buttons` | yes | same, `config.buttons` → the Viewer and Memories buttons. With both off the script isn't loaded at all |
+| `prerender` | no | `BackgroundJob\Prerender` |
+
+- Each line of the setup check (`SetupCheck::run()`) covers a failure that has actually happened. The `.insp` counts query `filecache` by `name ILIKE '%.insp'` with `path LIKE 'files/%'` (user files, not trash or app data). That is a sequential scan, measured at 157 ms cold and 72 ms warm on a 308k-row PostgreSQL filecache, so the page fetches it after it renders rather than blocking on it.
+- ImageMagick isn't this app's dependency. Its line is there because on Nextcloud AIO a missing `imagemagick-raw` makes ImageMagick recurse on any DNG until php-fpm segfaults, and an Insta360 camera shooting RAW puts a DNG beside every `.insp`. `Imagick::queryFormats('DNG')` is safe to call without the coder (returns `[]`, measured on AIO's ImageMagick 7.1.2-30); reading the file is what crashes.
+- Pre-rendering is a `TimedJob` every 15 minutes that stops after 120 s. It keeps no state: it walks `.insp` file ids in order and skips any already cached at the current width, so each run continues where the last left off. A group folder file has no owner home to open it through, so it is opened via `IUserMountCache::getMountsForFileId()` and the folder of the first user who has it mounted; the cached panorama is the same whoever renders it and is only served through endpoints that check the viewer's own access. Measured on a 4-core AIO copy: one run took 129 s and rendered 6 OneR panoramas at 4096.
+- The cache figures count entries by name: `<fileid>-<etag>-<width>.jpg`. Entries at another width are left by a size change and replaced only when their file is rendered again, hence the clear button.
+- In current themes `--color-success` and its siblings are pale tints; the icons use the solid `--color-element-success` and so on.
 
 ## Levelling routes
 

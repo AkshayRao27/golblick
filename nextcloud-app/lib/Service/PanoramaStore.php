@@ -13,7 +13,6 @@ use OCP\Files\File;
 use OCP\Files\IAppData;
 use OCP\Files\NotFoundException;
 use OCP\Files\SimpleFS\ISimpleFolder;
-use OCP\IAppConfig;
 
 /**
  * Full-size panoramas, rendered once per file version and kept in app data.
@@ -30,12 +29,9 @@ use OCP\IAppConfig;
  * 2560, its own stitch.
  */
 final class PanoramaStore {
-	/** Set with `occ config:app:set golblick zoom_width`. */
-	private const DEFAULT_WIDTH = 4096;
-
 	public function __construct(
 		private IAppData $appData,
-		private IAppConfig $appConfig,
+		private Settings $settings,
 	) {
 	}
 
@@ -54,9 +50,9 @@ final class PanoramaStore {
 		}
 
 		$folder = $this->cacheFolder();
-		$width = $this->width();
+		$width = $this->settings->zoomWidth();
 		$prefix = $file->getId() . '-';
-		$name = $prefix . $file->getEtag() . '-' . $width . '.jpg';
+		$name = self::entryName($file, $width);
 
 		try {
 			return $folder->getFile($name)->getContent();
@@ -81,10 +77,45 @@ final class PanoramaStore {
 		return $jpeg;
 	}
 
-	private function width(): int {
-		$configured = (int)$this->appConfig->getValueString('golblick', 'zoom_width', (string)self::DEFAULT_WIDTH);
+	/** Whether this version of the file is already rendered at the current width. */
+	public function isCached(File $file): bool {
+		return $this->cacheFolder()->fileExists(self::entryName($file, $this->settings->zoomWidth()));
+	}
 
-		return max(1024, min(4096, $configured));
+	/**
+	 * What the cache holds: every entry, and those at the current width (the
+	 * rest are left behind by a width change until their file is rendered again
+	 * or the cache is cleared).
+	 *
+	 * @return array{files: int, bytes: int, current: int}
+	 */
+	public function stats(): array {
+		$suffix = '-' . $this->settings->zoomWidth() . '.jpg';
+		$files = $bytes = $current = 0;
+		foreach ($this->cacheFolder()->getDirectoryListing() as $entry) {
+			$files++;
+			$bytes += $entry->getSize();
+			if (str_ends_with($entry->getName(), $suffix)) {
+				$current++;
+			}
+		}
+
+		return ['files' => $files, 'bytes' => $bytes, 'current' => $current];
+	}
+
+	/** Drops every cached panorama; each is rendered again when next needed. */
+	public function clear(): int {
+		$removed = 0;
+		foreach ($this->cacheFolder()->getDirectoryListing() as $entry) {
+			$entry->delete();
+			$removed++;
+		}
+
+		return $removed;
+	}
+
+	private static function entryName(File $file, int $width): string {
+		return $file->getId() . '-' . $file->getEtag() . '-' . $width . '.jpg';
 	}
 
 	private function cacheFolder(): ISimpleFolder {
