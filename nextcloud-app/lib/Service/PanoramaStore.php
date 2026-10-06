@@ -83,6 +83,21 @@ final class PanoramaStore {
 	}
 
 	/**
+	 * Every entry's name, as a set, so a caller walking many files can skip
+	 * the cached ones without opening them.
+	 *
+	 * @return array<string, true>
+	 */
+	public function cachedNames(): array {
+		$names = [];
+		foreach ($this->cacheFolder()->getDirectoryListing() as $entry) {
+			$names[$entry->getName()] = true;
+		}
+
+		return $names;
+	}
+
+	/**
 	 * What the cache holds: every entry, and those at the current width (the
 	 * rest are left behind by a width change until their file is rendered again
 	 * or the cache is cleared).
@@ -115,7 +130,11 @@ final class PanoramaStore {
 	}
 
 	private static function entryName(File $file, int $width): string {
-		return $file->getId() . '-' . $file->getEtag() . '-' . $width . '.jpg';
+		return self::entryNameFor($file->getId(), $file->getEtag(), $width);
+	}
+
+	public static function entryNameFor(int $fileId, string $etag, int $width): string {
+		return $fileId . '-' . $etag . '-' . $width . '.jpg';
 	}
 
 	private function cacheFolder(): ISimpleFolder {

@@ -127,7 +127,7 @@ function P(t) {
     e("h3", {}, "Background rendering"),
     h(
       "Render full-size panoramas in the background",
-      "Pre-generates panoramas so that the first zoom or sphere view of a photo doesn't have waiting time. It runs in Nextcloud's background jobs, about two minutes at a time, and costs CPU time: at 4096 pixels, roughly 19 seconds per OneR photo.",
+      "Pre-generates panoramas so that the first zoom or sphere view of a photo doesn't have waiting time. It runs in Nextcloud's background jobs, about two minutes at a time, newest photos first, and costs CPU time: at 4096 pixels, roughly 19 seconds per OneR photo.",
       s.prerender,
       (o) => {
         d({ prerender: o }, y);

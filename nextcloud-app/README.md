@@ -88,7 +88,7 @@ Previews are generated the first time each photo is viewed, or ahead of time if 
 
 - a setup check: whether `.insp` is registered, GD, PHP's memory limit, whether the Memories zoom fix can attach, and whether ImageMagick can read RAW files (see [Nextcloud AIO and RAW photos](#nextcloud-aio-and-raw-photos))
 - the size of the full-size panorama used for zooming and the sphere view, and a button to clear the ones already made
-- rendering those panoramas in the background, off by default because it costs about 19 seconds of CPU per OneR photo at full size
+- rendering those panoramas in the background, newest photos first, off by default because it costs about 19 seconds of CPU per OneR photo at full size
 - switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one
 
 Once `.insp` counts as JPEG, every app that works on photos treats these files as photos too. An app that reads the original file, such as one that runs face or object recognition, gets the two fisheye circles rather than a panorama.

@@ -12,6 +12,7 @@ use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\Settings;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
+use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\Files\Config\IUserMountCache;
 use OCP\Files\File;
 use OCP\Files\IMimeTypeLoader;
@@ -25,9 +26,12 @@ use Psr\Log\LoggerInterface;
  * costs about 19 s of CPU, so a library of a couple of thousand photos is many
  * hours of work, spread over cron runs.
  *
- * Each run stops after RUN_SECONDS. Files are taken in id order and skipped
- * when already cached at the current width, so a run picks up where the last
- * one left off without keeping any state of its own.
+ * Each run stops after RUN_SECONDS. Files are taken newest first by
+ * modification time, which sync clients carry over from the camera, so recent
+ * photos are ready soonest. Files already cached at the current width are
+ * skipped by name before anything is opened, so a run gets back to where the
+ * last one stopped without keeping any state of its own, and a photo added
+ * later is picked up by the next run.
  *
  * A file is opened through the folder of a user who has it mounted, which is
  * what makes group folder files reachable at all; the cached panorama is the
@@ -36,7 +40,7 @@ use Psr\Log\LoggerInterface;
  */
 final class Prerender extends TimedJob {
 	private const RUN_SECONDS = 120;
-	private const BATCH = 200;
+	private const BATCH = 500;
 
 	public function __construct(
 		ITimeFactory $time,
@@ -58,20 +62,25 @@ final class Prerender extends TimedJob {
 			return;
 		}
 		$deadline = microtime(true) + self::RUN_SECONDS;
+		$cached = $this->store->cachedNames();
+		$width = $this->settings->zoomWidth();
 		$rendered = 0;
-		$after = 0;
+		$after = null;
 
 		while (microtime(true) < $deadline) {
-			$ids = $this->candidates($after);
-			if ($ids === []) {
+			$rows = $this->candidates($after);
+			if ($rows === []) {
 				break;
 			}
-			foreach ($ids as $id) {
-				$after = $id;
+			foreach ($rows as $row) {
+				$after = $row;
+				if (isset($cached[PanoramaStore::entryNameFor($row['fileid'], $row['etag'], $width)])) {
+					continue;
+				}
 				if (microtime(true) >= $deadline) {
 					break 2;
 				}
-				$file = $this->open($id);
+				$file = $this->open($row['fileid']);
 				if ($file === null || $this->store->isCached($file)) {
 					continue;
 				}
@@ -80,7 +89,7 @@ final class Prerender extends TimedJob {
 						$rendered++;
 					}
 				} catch (\Throwable $e) {
-					$this->logger->warning('golblick: pre-render failed for file ' . $id,
+					$this->logger->warning('golblick: pre-render failed for file ' . $row['fileid'],
 						['app' => 'golblick', 'exception' => $e]);
 				}
 			}
@@ -91,22 +100,44 @@ final class Prerender extends TimedJob {
 		}
 	}
 
-	/** @return list<int> */
-	private function candidates(int $after): array {
+	/**
+	 * The next batch after $after, newest first.
+	 *
+	 * Only paths under files/ count: the data directory's own storage can hold
+	 * a second, stale index of group folder files under __groupfolders/, which
+	 * no user mounts.
+	 *
+	 * @param array{fileid: int, etag: string, mtime: int}|null $after
+	 * @return list<array{fileid: int, etag: string, mtime: int}>
+	 */
+	private function candidates(?array $after): array {
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('fileid')
+		$qb->select('fileid', 'etag', 'mtime')
 			->from('filecache')
 			->where($qb->expr()->iLike('name', $qb->createNamedParameter('%.insp')))
 			->andWhere($qb->expr()->like('path', $qb->createNamedParameter('files/%')))
 			->andWhere($qb->expr()->eq('mimetype', $qb->createNamedParameter($this->mimeTypes->getId('image/jpeg'))))
-			->andWhere($qb->expr()->gt('fileid', $qb->createNamedParameter($after)))
-			->orderBy('fileid')
+			->orderBy('mtime', 'DESC')
+			->addOrderBy('fileid', 'DESC')
 			->setMaxResults(self::BATCH);
+		if ($after !== null) {
+			$mtime = $qb->createNamedParameter($after['mtime'], IQueryBuilder::PARAM_INT);
+			$qb->andWhere($qb->expr()->orX(
+				$qb->expr()->lt('mtime', $mtime),
+				$qb->expr()->andX(
+					$qb->expr()->eq('mtime', $mtime),
+					$qb->expr()->lt('fileid', $qb->createNamedParameter($after['fileid'], IQueryBuilder::PARAM_INT)),
+				),
+			));
+		}
 		$result = $qb->executeQuery();
-		$ids = array_map('intval', $result->fetchFirstColumn());
+		$rows = [];
+		while ($row = $result->fetch()) {
+			$rows[] = ['fileid' => (int)$row['fileid'], 'etag' => (string)$row['etag'], 'mtime' => (int)$row['mtime']];
+		}
 		$result->closeCursor();
 
-		return $ids;
+		return $rows;
 	}
 
 	private function open(int $id): ?File {
