@@ -37,7 +37,14 @@ The buttons in the image viewer and in Memories are a stopgap. Neither app lets 
 | Nextcloud | 33 to 35. Tested on 33 and 35.0.0; 34 is assumed to work |
 | Memories | Tested with 9.0.1 |
 | PHP | Tested on 8.4 and 8.5 |
+| Server setups | Tested on the official `nextcloud` Docker image (Debian, Apache with PHP built in) and on a local copy of Nextcloud AIO v14.2.0 (Alpine, PHP-FPM) running the same images as a real AIO install. On AIO, read the note below if you keep RAW photos |
 | Server requirements | none beyond what Nextcloud already needs (PHP with GD) |
+
+### Nextcloud AIO and RAW photos
+
+AIO installs ImageMagick without RAW support, and that build crashes on DNG files instead of refusing them: the PHP process reading the file dies. In my testing, opening a DNG in the Memories viewer crashed it every time. This happens with or without golblick, but you'll notice it sooner with golblick installed: when an Insta360 camera shoots in RAW it saves a DNG next to each `.insp`, so browsing your 360 photos in Memories leads you straight to them.
+
+The fix is to add the `imagemagick-raw` package. In AIO that's the `NEXTCLOUD_ADDITIONAL_APKS` setting on the mastercontainer, as described in [AIO's documentation](https://github.com/nextcloud/all-in-one#how-to-add-os-packages-permanently-to-the-nextcloud-container). It defaults to `imagemagick`, so set it to `imagemagick imagemagick-raw`. With that package installed, ImageMagick hands DNG files to its RAW reader instead of crashing, and nothing crashed in testing.
 
 ## What the previews look like
 
