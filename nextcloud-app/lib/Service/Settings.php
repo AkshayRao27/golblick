@@ -27,7 +27,8 @@ final class Settings {
 	private const FLAGS = [
 		'memories_zoom' => true,
 		'sphere_files' => true,
-		'sphere_buttons' => true,
+		'sphere_viewer' => true,
+		'sphere_memories' => true,
 		'prerender' => false,
 	];
 

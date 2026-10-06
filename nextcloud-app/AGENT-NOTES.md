@@ -95,7 +95,8 @@ One page under Administration settings, own section. `src/admin.ts` renders it i
 | `zoom_width` | 4096 | `PanoramaStore`. The page offers 1024/2048/3072/4096; any value set with `occ` is clamped to 1024–4096 |
 | `memories_zoom` | yes | `MemoriesZoom::afterController`. Off = Memories gets the original (the lens pair) |
 | `sphere_files` | yes | `LoadSphereViewer` → initial state `config.files` → the Files action |
-| `sphere_buttons` | yes | same, `config.buttons` → the Viewer and Memories buttons. With both off the script isn't loaded at all |
+| `sphere_viewer` | yes | same, `config.viewer` → the button in the Viewer (Files and Photos) |
+| `sphere_memories` | yes | same, `config.memories` → the button in Memories' viewer. With all three `sphere_*` off the script isn't loaded at all |
 | `prerender` | no | `BackgroundJob\Prerender` |
 
 - Each line of the setup check (`SetupCheck::run()`) covers a failure that has actually happened. The `.insp` counts query `filecache` by `name ILIKE '%.insp'` with `path LIKE 'files/%'` (user files, not trash or app data). That is a sequential scan, measured at 157 ms cold and 72 ms warm on a 308k-row PostgreSQL filecache, so the page fetches it after it renders rather than blocking on it.

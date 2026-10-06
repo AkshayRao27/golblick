@@ -35,7 +35,7 @@ const BUTTON_CLASS = 'golblick-sphere-button';
 
 const isInsp = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insp');
 
-const config = loadState<{ files: boolean; buttons: boolean }>('golblick', 'config', { files: true, buttons: true });
+const config = loadState<{ files: boolean; viewer: boolean; memories: boolean }>('golblick', 'config', { files: true, viewer: true, memories: true });
 
 // ---- Files: a proper file action -------------------------------------------
 
@@ -195,12 +195,12 @@ function schedule() {
   scheduled = true;
   requestAnimationFrame(() => {
     scheduled = false;
-    syncViewer();
-    syncMemories();
+    if (config.viewer) syncViewer();
+    if (config.memories) syncMemories();
   });
 }
 
-if (config.buttons) {
+if (config.viewer || config.memories) {
   new MutationObserver(schedule).observe(document.body, {
     childList: true,
     subtree: true,

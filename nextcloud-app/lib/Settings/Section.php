@@ -23,7 +23,7 @@ final class Section implements IIconSection {
 	}
 
 	public function getName(): string {
-		return '360 photos (golblick)';
+		return 'Golblick (360° Photos)';
 	}
 
 	public function getPriority(): int {

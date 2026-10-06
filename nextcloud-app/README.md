@@ -27,7 +27,7 @@ A **View as sphere** button opens the photo full-window as a sphere you can drag
 
 It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
 
-The buttons in the image viewer and in Memories are a stopgap. Neither app lets another app add a button, so golblick adds them to the page from outside. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and the buttons can be switched off on the settings page. Memories releases after 9.1.0-alpha.2 have their own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama. The button doesn't appear on public share links.
+The buttons in the image viewer and in Memories are a stopgap. Neither app has a way for other apps to add buttons, so golblick inserts them into the page itself. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and each app's button can be switched off on the settings page. Memories releases after 9.1.0-alpha.2 have their own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama. The button doesn't appear on public share links.
 
 ## Requirements, and what's been tested
 
@@ -64,7 +64,7 @@ Things close to the camera, within a metre or two, can show a visible break wher
    occ app:enable golblick
    ```
 
-2. Tell Nextcloud that `.insp` is a JPEG. The easiest way is **Administration settings → 360 photos (golblick) → Register .insp files**. It adds this to `config/mimetypemapping.json`, keeping anything else already in the file, and updates the `.insp` files Nextcloud already knows about:
+2. Tell Nextcloud that `.insp` is a JPEG. The easiest way is **Administration settings → Golblick (360° Photos) → Register .insp files**. It adds this to `config/mimetypemapping.json`, keeping anything else already in the file, and updates the `.insp` files Nextcloud already knows about:
 
    ```json
    {
@@ -72,7 +72,7 @@ Things close to the camera, within a metre or two, can show a visible break wher
    }
    ```
 
-   To do it by hand instead, add those lines to the file (create it if it doesn't exist), then run `occ maintenance:mimetype:update-db --repair-filecache`. That command goes through every file Nextcloud knows about, so on a large instance it can take a while.
+   To do it manually instead, add those lines to the file (create it if it doesn't exist), then run `occ maintenance:mimetype:update-db --repair-filecache`. That command goes through every file Nextcloud knows about, so on a large instance it can take a while.
 
    Without the mapping, nothing changes. Some apps (Nextcloud's own Maps app, for example) write this file as soon as they're installed. golblick only writes it when you click the button, so nothing in your config changes without you seeing it.
 
@@ -84,7 +84,7 @@ Previews are generated the first time each photo is viewed, or ahead of time if 
 
 ## Settings
 
-**Administration settings → 360 photos (golblick)** has:
+**Administration settings → Golblick (360° Photos)** has:
 
 - a setup check: whether `.insp` is registered, GD, PHP's memory limit, whether the Memories zoom fix can attach, and whether ImageMagick can read RAW files (see [Nextcloud AIO and RAW photos](#nextcloud-aio-and-raw-photos))
 - the size of the full-size panorama used for zooming and the sphere view, and a button to clear the ones already made

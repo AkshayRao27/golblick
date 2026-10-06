@@ -44,13 +44,13 @@ final class SettingsController extends Controller {
 
 	#[FrontpageRoute(verb: 'PUT', url: '/settings')]
 	public function save(?int $zoom_width = null, ?bool $memories_zoom = null, ?bool $sphere_files = null,
-		?bool $sphere_buttons = null, ?bool $prerender = null): JSONResponse {
+		?bool $sphere_viewer = null, ?bool $sphere_memories = null, ?bool $prerender = null): JSONResponse {
 		try {
 			if ($zoom_width !== null) {
 				$this->settings->setZoomWidth($zoom_width);
 			}
 			foreach (['memories_zoom' => $memories_zoom, 'sphere_files' => $sphere_files,
-				'sphere_buttons' => $sphere_buttons, 'prerender' => $prerender] as $name => $value) {
+				'sphere_viewer' => $sphere_viewer, 'sphere_memories' => $sphere_memories, 'prerender' => $prerender] as $name => $value) {
 				if ($value !== null) {
 					$this->settings->setFlag($name, $value);
 				}

@@ -14,7 +14,8 @@ type SettingsState = {
   zoom_width: number;
   memories_zoom: boolean;
   sphere_files: boolean;
-  sphere_buttons: boolean;
+  sphere_viewer: boolean;
+  sphere_memories: boolean;
   prerender: boolean;
 };
 type Status = {
@@ -47,35 +48,78 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
 }
 
 const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-const ICON: Record<Level, string> = { ok: '✓', warn: '!', error: '✕', info: 'i' };
+/** The Material Design icons the overview page's "Security & setup warnings" list uses, plus its check mark. */
+const ICON: Record<Level, string> = {
+  ok: 'M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z',
+  warn: 'M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z',
+  error: 'M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z',
+  info: 'M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z',
+};
+
+function icon(level: Level) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', ICON[level]);
+  svg.append(path);
+  return el('span', { className: 'golblick-icon', ariaHidden: 'true' }, svg);
+}
+
+type Note = { text: string; level: 'ok' | 'error' | 'pending'; until?: number };
 
 /**
  * Messages that must outlive a redraw: actions that change the numbers on the
  * page reload the status, which rebuilds every section.
  */
-const carried = new Map<string, { text: string; level: 'ok' | 'error' }>();
+const carried = new Map<string, Note>();
 
-/** A note under a control that says whether the last action worked. */
+/** How long "Saved." stays up. It only confirms the last change, so it must not outlive it. */
+const SAVED_FOR_MS = 3000;
+
+/**
+ * A note under a control that says whether the last action worked. Results
+ * that carry information (rows updated, panoramas removed) and errors stay
+ * until the next action; a bare "Saved." fades, so a second change never sits
+ * under the first one's confirmation.
+ */
 function feedback(key: string) {
   const node = el('p', { className: 'golblick-feedback', role: 'status' });
-  const set = (text: string, level: 'ok' | 'error') => {
-    node.textContent = text;
-    node.dataset.level = level;
-    carried.set(key, { text, level });
+  let timer: number | undefined;
+  const show = (note: Note | null) => {
+    window.clearTimeout(timer);
+    node.textContent = note?.text ?? '';
+    if (!note) return;
+    node.dataset.level = note.level;
+    carried.set(key, note);
+    if (note.until !== undefined) {
+      timer = window.setTimeout(() => {
+        show(null);
+        // A redraw may have handed this key to a newer note; leave that one alone.
+        if (carried.get(key) === note) carried.delete(key);
+      }, note.until - Date.now());
+    }
   };
   const kept = carried.get(key);
-  if (kept) {
-    node.textContent = kept.text;
-    node.dataset.level = kept.level;
-    carried.delete(key);
+  carried.delete(key);
+  if (kept && (kept.until === undefined || kept.until > Date.now())) {
+    show(kept);
+    if (kept.until === undefined) carried.delete(key);
   }
-  return { node, ok: (text: string) => set(text, 'ok'), fail: (text: string) => set(text, 'error') };
+  return {
+    node,
+    pending: (text: string) => show({ text, level: 'pending' }),
+    saved: () => show({ text: 'Saved.', level: 'ok', until: Date.now() + SAVED_FOR_MS }),
+    ok: (text: string) => show({ text, level: 'ok' }),
+    fail: (text: string) => show({ text, level: 'error' }),
+  };
 }
 
 async function save(change: Partial<SettingsState>, note: ReturnType<typeof feedback>) {
+  note.pending('Saving…');
   try {
     await api('PUT', '/settings', change);
-    note.ok('Saved.');
+    note.saved();
   } catch (e) {
     note.fail(`Not saved: ${(e as Error).message}`);
   }
@@ -96,8 +140,10 @@ function render(status: Status) {
   // ---- Setup
   const checks = el('ul', { className: 'golblick-checks' }, ...status.checks.map((c) =>
     el('li', { className: `level-${c.level}` },
-      el('span', { className: 'golblick-icon', ariaHidden: 'true' }, ICON[c.level]),
-      el('div', {}, el('strong', {}, c.title), el('p', {}, c.detail)))));
+      icon(c.level),
+      el('div', { className: 'golblick-check' },
+        el('div', { className: 'golblick-check-name' }, c.title),
+        el('div', { className: 'golblick-check-detail' }, c.detail)))));
   const setupNote = feedback('setup');
   const recheck = el('button', { type: 'button', textContent: 'Check again' });
   recheck.addEventListener('click', () => void load());
@@ -110,7 +156,7 @@ function render(status: Status) {
       try {
         const r = await api<{ written: boolean; rows: number }>('POST', '/settings/register');
         setupNote.ok(`${r.written ? 'Added the mapping to config/mimetypemapping.json. ' : ''}Updated ${r.rows} files. `
-          + 'Memories adds them to the timeline at its next background run, or straight away with occ memories:index.');
+          + 'Memories adds them to the timeline at its next background run. You can also run "occ memories:index" to index them immediately.');
         await load(false);
       } catch (e) {
         setupNote.fail((e as Error).message);
@@ -145,19 +191,22 @@ function render(status: Status) {
 
   // ---- Pre-render
   const prerenderNote = feedback('prerender');
-  const switchesNote = feedback('switches');
+
+  // ---- Integrations
+  const zoomNote = feedback('memories_zoom');
+  const filesNote = feedback('sphere_files');
+  const memoriesButtonNote = feedback('sphere_memories');
+  const viewerNote = feedback('sphere_viewer');
 
   root.replaceChildren(
-    el('h2', {}, '360 photos (golblick)'),
+    el('h2', {}, 'Golblick (360° Photos)'),
 
     el('h3', {}, 'Setup'),
     checks, actions, setupNote.node,
 
     el('h3', {}, 'Zooming and the sphere view'),
     el('p', { className: 'settings-hint' },
-      'Zooming in Memories and the sphere view use a full-size panorama, rendered the first time someone needs it and then kept. '
-      + 'A larger one is sharper and takes longer the first time: on a OneR photo, about 6 seconds at 2048 and 19 at 4096. '
-      + 'X5 photos stop at 2560, the size of the panorama the camera stores.'),
+      'Zooming in Memories and the sphere view use a full-size panorama. It is rendered the first time someone needs it and then retained. A larger one is sharper but takes longer the first time: for example, about 6 seconds at 2048 and 19 seconds at 4096 for a OneR photo. X5 photos stop at 2560, the size of the panorama the camera stores.'),
     el('label', {}, 'Panorama size ', width), widthNote.node,
 
     el('h3', {}, 'Panorama cache'),
@@ -166,28 +215,39 @@ function render(status: Status) {
         : stale > 1 ? ` ${stale} of them were made at a different size; each is replaced when its photo is viewed again, or all are removed now by clearing the cache.` : '')),
     clear, cacheNote.node,
 
-    el('h3', {}, 'Rendering ahead of time'),
+    el('h3', {}, 'Background rendering'),
     toggle('Render full-size panoramas in the background',
-      'So the first zoom or sphere view of a photo doesn\'t wait. It runs in Nextcloud\'s background jobs, about two minutes at a time, '
-      + 'and costs real CPU time: at 4096 pixels, roughly 19 seconds per OneR photo.',
+      'Pre-generates panoramas so that the first zoom or sphere view of a photo doesn\'t have waiting time. It runs in Nextcloud\'s background jobs, about two minutes at a time, and costs CPU time: at 4096 pixels, roughly 19 seconds per OneR photo.',
       s.prerender, (on) => void save({ prerender: on }, prerenderNote)),
     el('p', { className: 'golblick-progress' }, `${status.cache.current} of ${status.insp} .insp files have a panorama at the current size.`),
     prerenderNote.node,
 
     el('h3', {}, 'Integrations'),
     el('p', { className: 'settings-hint' },
-      'These rely on details of other apps that can change in an update. If one stops working, it can be turned off here without affecting the previews. '
-      + 'Changes apply when a page is next loaded.'),
-    toggle('Show the panorama when zooming in Memories',
-      'Without this, zooming into a .insp in Memories shows the two fisheye circles, and so does Memories\' own sphere view in releases that have one.',
-      s.memories_zoom, (on) => void save({ memories_zoom: on }, switchesNote)),
-    toggle('"View as sphere" in the Files actions menu',
-      'Uses the Files app\'s own interface for this.',
-      s.sphere_files, (on) => void save({ sphere_files: on }, switchesNote)),
-    toggle('"View as sphere" buttons in the image viewer and in Memories',
-      'Added to those apps\' pages from outside, because neither lets another app add a button. If a later version of either moves things around, the button may not appear.',
-      s.sphere_buttons, (on) => void save({ sphere_buttons: on }, switchesNote)),
-    switchesNote.node,
+      'These rely on details of other apps that can change in an update. If one stops working, it can be turned off here without affecting previews. '
+      + 'Each switch is saved as soon as you change it; pages that are already open pick up the change when they are reloaded.'),
+
+    el('h4', {}, 'Memories'),
+    toggle('Show panorama when zooming',
+      'Without this, zooming into a .insp in Memories shows two fisheye circles, and so does Memories\' own sphere view in releases that have one.',
+      s.memories_zoom, (on) => void save({ memories_zoom: on }, zoomNote)),
+    zoomNote.node,
+    toggle('Add "View as sphere" button',
+      'Memories has no way for other apps to add buttons, so golblick inserts this one into the viewer\'s top bar itself. Memories releases that have their own sphere view show their own button instead.',
+      s.sphere_memories, (on) => void save({ sphere_memories: on }, memoriesButtonNote)),
+    memoriesButtonNote.node,
+
+    el('h4', {}, 'Files'),
+    toggle('Add "View as sphere" button',
+      'Adds it to a .insp file\'s actions menu, through the Files app\'s own interface for this.',
+      s.sphere_files, (on) => void save({ sphere_files: on }, filesNote)),
+    filesNote.node,
+
+    el('h4', {}, 'Photos'),
+    toggle('Add "View as sphere" button',
+      'In the image viewer that Files and Photos open. The viewer has no way for other apps to add buttons, so golblick inserts this one into its top bar itself.',
+      s.sphere_viewer, (on) => void save({ sphere_viewer: on }, viewerNote)),
+    viewerNote.node,
   );
 }
 
@@ -197,7 +257,7 @@ async function load(showLoading = true) {
   try {
     render(await api<Status>('GET', '/settings/status'));
   } catch (e) {
-    root.replaceChildren(el('h2', {}, '360 photos (golblick)'),
+    root.replaceChildren(el('h2', {}, 'Golblick (360° Photos)'),
       el('p', { className: 'golblick-feedback', role: 'status' }, `Could not load the settings: ${(e as Error).message}`));
   }
 }

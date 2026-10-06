@@ -43,12 +43,15 @@ final class LoadSphereViewer implements IEventListener {
 			return;
 		}
 
-		$files = $this->settings->flag('sphere_files');
-		$buttons = $this->settings->flag('sphere_buttons');
-		if (!$files && !$buttons) {
+		$config = [
+			'files' => $this->settings->flag('sphere_files'),
+			'viewer' => $this->settings->flag('sphere_viewer'),
+			'memories' => $this->settings->flag('sphere_memories'),
+		];
+		if (!in_array(true, $config, true)) {
 			return;
 		}
-		$this->initialState->provideInitialState('config', ['files' => $files, 'buttons' => $buttons]);
+		$this->initialState->provideInitialState('config', $config);
 		Util::addScript(Application::APP_ID, 'golblick-main');
 	}
 }

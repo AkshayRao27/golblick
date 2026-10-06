@@ -1,156 +1,198 @@
-import { g as z, a as C } from "./index-CVEG_reJ.chunk.mjs";
-const h = document.getElementById("golblick-admin");
-async function u(t, n, i) {
-  const o = await fetch(z(`/apps/golblick${n}`), {
+import { g as $, a as _ } from "./index-CVEG_reJ.chunk.mjs";
+const m = document.getElementById("golblick-admin");
+async function f(t, s, a) {
+  const n = await fetch($(`/apps/golblick${s}`), {
     method: t,
     credentials: "same-origin",
-    headers: { requesttoken: C() ?? "", "Content-Type": "application/json" },
-    body: i === void 0 ? void 0 : JSON.stringify(i)
-  }), s = await o.json().catch(() => ({}));
-  if (!o.ok) throw new Error(s.error ?? `${o.status} ${o.statusText}`);
-  return s;
+    headers: { requesttoken: _() ?? "", "Content-Type": "application/json" },
+    body: a === void 0 ? void 0 : JSON.stringify(a)
+  }), r = await n.json().catch(() => ({}));
+  if (!n.ok) throw new Error(r.error ?? `${n.status} ${n.statusText}`);
+  return r;
 }
-function e(t, n = {}, ...i) {
-  const o = document.createElement(t);
-  return Object.assign(o, n), o.append(...i), o;
+function e(t, s = {}, ...a) {
+  const n = document.createElement(t);
+  return Object.assign(n, s), n.append(...a), n;
 }
-const x = (t) => `${(t / 1024 / 1024).toFixed(t < 10 * 1024 * 1024 ? 1 : 0)} MB`, E = { ok: "✓", warn: "!", error: "✕", info: "i" }, k = /* @__PURE__ */ new Map();
+const C = (t) => `${(t / 1024 / 1024).toFixed(t < 10 * 1024 * 1024 ? 1 : 0)} MB`, E = {
+  ok: "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z",
+  warn: "M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z",
+  error: "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z",
+  info: "M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
+};
+function A(t) {
+  const s = "http://www.w3.org/2000/svg", a = document.createElementNS(s, "svg");
+  a.setAttribute("viewBox", "0 0 24 24");
+  const n = document.createElementNS(s, "path");
+  return n.setAttribute("d", E[t]), a.append(n), e("span", { className: "golblick-icon", ariaHidden: "true" }, a);
+}
+const l = /* @__PURE__ */ new Map(), S = 3e3;
 function c(t) {
-  const n = e("p", { className: "golblick-feedback", role: "status" }), i = (s, r) => {
-    n.textContent = s, n.dataset.level = r, k.set(t, { text: s, level: r });
-  }, o = k.get(t);
-  return o && (n.textContent = o.text, n.dataset.level = o.level, k.delete(t)), { node: n, ok: (s) => i(s, "ok"), fail: (s) => i(s, "error") };
+  const s = e("p", { className: "golblick-feedback", role: "status" });
+  let a;
+  const n = (i) => {
+    window.clearTimeout(a), s.textContent = i?.text ?? "", i && (s.dataset.level = i.level, l.set(t, i), i.until !== void 0 && (a = window.setTimeout(() => {
+      n(null), l.get(t) === i && l.delete(t);
+    }, i.until - Date.now())));
+  }, r = l.get(t);
+  return l.delete(t), r && (r.until === void 0 || r.until > Date.now()) && (n(r), r.until === void 0 && l.delete(t)), {
+    node: s,
+    pending: (i) => n({ text: i, level: "pending" }),
+    saved: () => n({ text: "Saved.", level: "ok", until: Date.now() + S }),
+    ok: (i) => n({ text: i, level: "ok" }),
+    fail: (i) => n({ text: i, level: "error" })
+  };
 }
-async function d(t, n) {
+async function d(t, s) {
+  s.pending("Saving…");
   try {
-    await u("PUT", "/settings", t), n.ok("Saved.");
-  } catch (i) {
-    n.fail(`Not saved: ${i.message}`);
+    await f("PUT", "/settings", t), s.saved();
+  } catch (a) {
+    s.fail(`Not saved: ${a.message}`);
   }
 }
-function f(t, n, i, o) {
-  const s = e("input", { type: "checkbox", checked: i });
-  return s.addEventListener("change", () => o(s.checked)), e(
+function h(t, s, a, n) {
+  const r = e("input", { type: "checkbox", checked: a });
+  return r.addEventListener("change", () => n(r.checked)), e(
     "div",
     { className: "golblick-toggle" },
-    e("label", {}, s, ` ${t}`),
-    e("p", { className: "settings-hint" }, n)
+    e("label", {}, r, ` ${t}`),
+    e("p", { className: "settings-hint" }, s)
   );
 }
-function S(t) {
-  if (!h) return;
-  const n = t.settings, i = e("ul", { className: "golblick-checks" }, ...t.checks.map((a) => e(
+function P(t) {
+  if (!m) return;
+  const s = t.settings, a = e("ul", { className: "golblick-checks" }, ...t.checks.map((o) => e(
     "li",
-    { className: `level-${a.level}` },
-    e("span", { className: "golblick-icon", ariaHidden: "true" }, E[a.level]),
-    e("div", {}, e("strong", {}, a.title), e("p", {}, a.detail))
-  ))), o = c("setup"), s = e("button", { type: "button", textContent: "Check again" });
-  s.addEventListener("click", () => {
-    l();
+    { className: `level-${o.level}` },
+    A(o.level),
+    e(
+      "div",
+      { className: "golblick-check" },
+      e("div", { className: "golblick-check-name" }, o.title),
+      e("div", { className: "golblick-check-detail" }, o.detail)
+    )
+  ))), n = c("setup"), r = e("button", { type: "button", textContent: "Check again" });
+  r.addEventListener("click", () => {
+    p();
   });
-  const r = e("div", { className: "golblick-actions" }, s), y = t.checks.find((a) => a.id === "mapping");
-  if (y && y.level !== "ok") {
-    const a = e("button", { type: "button", className: "primary", textContent: "Register .insp files" });
-    a.addEventListener("click", async () => {
-      a.disabled = !0;
+  const i = e("div", { className: "golblick-actions" }, r), k = t.checks.find((o) => o.id === "mapping");
+  if (k && k.level !== "ok") {
+    const o = e("button", { type: "button", className: "primary", textContent: "Register .insp files" });
+    o.addEventListener("click", async () => {
+      o.disabled = !0;
       try {
-        const g = await u("POST", "/settings/register");
-        o.ok(`${g.written ? "Added the mapping to config/mimetypemapping.json. " : ""}Updated ${g.rows} files. Memories adds them to the timeline at its next background run, or straight away with occ memories:index.`), await l(!1);
-      } catch (g) {
-        o.fail(g.message), a.disabled = !1;
+        const u = await f("POST", "/settings/register");
+        n.ok(`${u.written ? "Added the mapping to config/mimetypemapping.json. " : ""}Updated ${u.rows} files. Memories adds them to the timeline at its next background run. You can also run "occ memories:index" to index them immediately.`), await p(!1);
+      } catch (u) {
+        n.fail(u.message), o.disabled = !1;
       }
-    }), r.prepend(a);
+    }), i.prepend(o);
   }
-  const N = c("width"), w = e("select", {}, ...[1024, 2048, 3072, 4096].map((a) => e("option", { value: String(a), selected: a === n.zoom_width }, `${a} pixels wide`)));
+  const N = c("width"), w = e("select", {}, ...[1024, 2048, 3072, 4096].map((o) => e("option", { value: String(o), selected: o === s.zoom_width }, `${o} pixels wide`)));
   w.addEventListener("change", () => {
-    d({ zoom_width: Number(w.value) }, N).then(() => l(!1));
+    d({ zoom_width: Number(w.value) }, N).then(() => p(!1));
   });
-  const b = c("cache"), p = e("button", { type: "button", textContent: "Clear cache", disabled: t.cache.files === 0 });
-  p.addEventListener("click", async () => {
+  const v = c("cache"), g = e("button", { type: "button", textContent: "Clear cache", disabled: t.cache.files === 0 });
+  g.addEventListener("click", async () => {
     if (window.confirm("Delete every cached full-size panorama? Each is rendered again the next time someone zooms or opens the sphere view.")) {
-      p.disabled = !0;
+      g.disabled = !0;
       try {
-        const a = await u("POST", "/settings/cache/clear");
-        b.ok(`Removed ${a.removed} panoramas.`), await l(!1);
-      } catch (a) {
-        b.fail(a.message), p.disabled = !1;
+        const o = await f("POST", "/settings/cache/clear");
+        v.ok(`Removed ${o.removed} panoramas.`), await p(!1);
+      } catch (o) {
+        v.fail(o.message), g.disabled = !1;
       }
     }
   });
-  const v = t.cache.files - t.cache.current, $ = c("prerender"), m = c("switches");
-  h.replaceChildren(
-    e("h2", {}, "360 photos (golblick)"),
+  const b = t.cache.files - t.cache.current, y = c("prerender"), L = c("memories_zoom"), x = c("sphere_files"), z = c("sphere_memories"), M = c("sphere_viewer");
+  m.replaceChildren(
+    e("h2", {}, "Golblick (360° Photos)"),
     e("h3", {}, "Setup"),
+    a,
     i,
-    r,
-    o.node,
+    n.node,
     e("h3", {}, "Zooming and the sphere view"),
     e(
       "p",
       { className: "settings-hint" },
-      "Zooming in Memories and the sphere view use a full-size panorama, rendered the first time someone needs it and then kept. A larger one is sharper and takes longer the first time: on a OneR photo, about 6 seconds at 2048 and 19 at 4096. X5 photos stop at 2560, the size of the panorama the camera stores."
+      "Zooming in Memories and the sphere view use a full-size panorama. It is rendered the first time someone needs it and then retained. A larger one is sharper but takes longer the first time: for example, about 6 seconds at 2048 and 19 seconds at 4096 for a OneR photo. X5 photos stop at 2560, the size of the panorama the camera stores."
     ),
     e("label", {}, "Panorama size ", w),
     N.node,
     e("h3", {}, "Panorama cache"),
-    e("p", {}, `${t.cache.files} panoramas, ${x(t.cache.bytes)}.` + (v === 1 ? " One of them was made at a different size; it is replaced when that photo is viewed again, or removed now by clearing the cache." : v > 1 ? ` ${v} of them were made at a different size; each is replaced when its photo is viewed again, or all are removed now by clearing the cache.` : "")),
-    p,
-    b.node,
-    e("h3", {}, "Rendering ahead of time"),
-    f(
+    e("p", {}, `${t.cache.files} panoramas, ${C(t.cache.bytes)}.` + (b === 1 ? " One of them was made at a different size; it is replaced when that photo is viewed again, or removed now by clearing the cache." : b > 1 ? ` ${b} of them were made at a different size; each is replaced when its photo is viewed again, or all are removed now by clearing the cache.` : "")),
+    g,
+    v.node,
+    e("h3", {}, "Background rendering"),
+    h(
       "Render full-size panoramas in the background",
-      "So the first zoom or sphere view of a photo doesn't wait. It runs in Nextcloud's background jobs, about two minutes at a time, and costs real CPU time: at 4096 pixels, roughly 19 seconds per OneR photo.",
-      n.prerender,
-      (a) => {
-        d({ prerender: a }, $);
+      "Pre-generates panoramas so that the first zoom or sphere view of a photo doesn't have waiting time. It runs in Nextcloud's background jobs, about two minutes at a time, and costs CPU time: at 4096 pixels, roughly 19 seconds per OneR photo.",
+      s.prerender,
+      (o) => {
+        d({ prerender: o }, y);
       }
     ),
     e("p", { className: "golblick-progress" }, `${t.cache.current} of ${t.insp} .insp files have a panorama at the current size.`),
-    $.node,
+    y.node,
     e("h3", {}, "Integrations"),
     e(
       "p",
       { className: "settings-hint" },
-      "These rely on details of other apps that can change in an update. If one stops working, it can be turned off here without affecting the previews. Changes apply when a page is next loaded."
+      "These rely on details of other apps that can change in an update. If one stops working, it can be turned off here without affecting previews. Each switch is saved as soon as you change it; pages that are already open pick up the change when they are reloaded."
     ),
-    f(
-      "Show the panorama when zooming in Memories",
-      "Without this, zooming into a .insp in Memories shows the two fisheye circles, and so does Memories' own sphere view in releases that have one.",
-      n.memories_zoom,
-      (a) => {
-        d({ memories_zoom: a }, m);
+    e("h4", {}, "Memories"),
+    h(
+      "Show panorama when zooming",
+      "Without this, zooming into a .insp in Memories shows two fisheye circles, and so does Memories' own sphere view in releases that have one.",
+      s.memories_zoom,
+      (o) => {
+        d({ memories_zoom: o }, L);
       }
     ),
-    f(
-      '"View as sphere" in the Files actions menu',
-      "Uses the Files app's own interface for this.",
-      n.sphere_files,
-      (a) => {
-        d({ sphere_files: a }, m);
+    L.node,
+    h(
+      'Add "View as sphere" button',
+      "Memories has no way for other apps to add buttons, so golblick inserts this one into the viewer's top bar itself. Memories releases that have their own sphere view show their own button instead.",
+      s.sphere_memories,
+      (o) => {
+        d({ sphere_memories: o }, z);
       }
     ),
-    f(
-      '"View as sphere" buttons in the image viewer and in Memories',
-      "Added to those apps' pages from outside, because neither lets another app add a button. If a later version of either moves things around, the button may not appear.",
-      n.sphere_buttons,
-      (a) => {
-        d({ sphere_buttons: a }, m);
+    z.node,
+    e("h4", {}, "Files"),
+    h(
+      'Add "View as sphere" button',
+      "Adds it to a .insp file's actions menu, through the Files app's own interface for this.",
+      s.sphere_files,
+      (o) => {
+        d({ sphere_files: o }, x);
       }
     ),
-    m.node
+    x.node,
+    e("h4", {}, "Photos"),
+    h(
+      'Add "View as sphere" button',
+      "In the image viewer that Files and Photos open. The viewer has no way for other apps to add buttons, so golblick inserts this one into its top bar itself.",
+      s.sphere_viewer,
+      (o) => {
+        d({ sphere_viewer: o }, M);
+      }
+    ),
+    M.node
   );
 }
-async function l(t = !0) {
-  if (h) {
-    t && h.querySelector(".settings-hint")?.replaceChildren("Checking…");
+async function p(t = !0) {
+  if (m) {
+    t && m.querySelector(".settings-hint")?.replaceChildren("Checking…");
     try {
-      S(await u("GET", "/settings/status"));
-    } catch (n) {
-      h.replaceChildren(
-        e("h2", {}, "360 photos (golblick)"),
-        e("p", { className: "golblick-feedback", role: "status" }, `Could not load the settings: ${n.message}`)
+      P(await f("GET", "/settings/status"));
+    } catch (s) {
+      m.replaceChildren(
+        e("h2", {}, "Golblick (360° Photos)"),
+        e("p", { className: "golblick-feedback", role: "status" }, `Could not load the settings: ${s.message}`)
       );
     }
   }
 }
-l();
+p();

@@ -58,15 +58,15 @@ final class SetupCheck {
 
 		$gd = function_exists('gd_info') ? gd_info() : [];
 		$checks[] = ($gd['JPEG Support'] ?? false)
-			? $this->item('gd', 'ok', 'PHP has GD with JPEG support', (string)($gd['GD Version'] ?? ''))
-			: $this->item('gd', 'error', 'PHP has no GD with JPEG support', 'The app renders every preview with GD, which Nextcloud itself requires. Without it nothing is rendered.');
+			? $this->item('gd', 'ok', 'PHP has GD (Graphics Draw) with JPEG support', (string)($gd['GD Version'] ?? ''))
+			: $this->item('gd', 'error', 'PHP has no GD (Graphics Draw) with JPEG support', 'The app requires GD for rendering JPEG previews.');
 
 		$limit = Util::computerFileSize((string)ini_get('memory_limit'));
 		if ($limit === false || $limit < 0 || $limit >= self::COMFORTABLE_MEMORY) {
-			$checks[] = $this->item('memory', 'ok', 'PHP memory limit: ' . ini_get('memory_limit'), 'Measured for the web server, which is where previews are rendered.');
+			$checks[] = $this->item('memory', 'ok', 'PHP memory limit: ' . ini_get('memory_limit'), 'Measured for the web server where previews are rendered.');
 		} else {
 			$checks[] = $this->item('memory', 'warn', 'PHP memory limit: ' . ini_get('memory_limit'),
-				'Most previews need little memory, but a photo that has to be rendered from its full-resolution frame needs up to about 300 MB on a 72-megapixel camera. Those are refused rather than crashing, and fall back to the fisheye pair. 512M or more avoids that.');
+				'Most previews need little memory, but a photo that has to be rendered from its full-resolution frame needs up to about 300 MB on a 72-megapixel camera. 512M or more avoids such files being refused and falling back to displaying a fisheye pair (rather than crashing).');
 		}
 
 		$checks[] = $this->memoriesCheck();
@@ -76,15 +76,15 @@ final class SetupCheck {
 			// returns nothing); reading a DNG is what crashes. Measured.
 			$raw = count(\Imagick::queryFormats('DNG')) > 0;
 			$checks[] = $raw
-				? $this->item('imagick_raw', 'ok', 'ImageMagick can read RAW files', 'Not used by this app; checked because a missing RAW coder crashes PHP on DNG files.')
+				? $this->item('imagick_raw', 'ok', 'ImageMagick can read RAW files', 'golblick doesn\'t use ImageMagick itself, but an Insta360 camera shooting RAW, for example, saves a DNG next to each .insp, and Memories and Camera RAW Previews open those with ImageMagick. Without its RAW coder, ImageMagick crashes the PHP process on a DNG.')
 				: $this->item('imagick_raw', 'warn', 'ImageMagick cannot read RAW files',
-					'Not used by this app, but an Insta360 camera shooting RAW saves a DNG next to each .insp. On some systems, including Nextcloud AIO, ImageMagick without its RAW coder crashes the PHP process on a DNG when Memories or Camera RAW Previews open one. On AIO, set NEXTCLOUD_ADDITIONAL_APKS to "imagemagick imagemagick-raw". Ignore this if you keep no RAW files.');
+					'golblick doesn\'t use ImageMagick itself, but an Insta360 camera shooting RAW, for example, saves a DNG next to each .insp, and Memories and Camera RAW Previews open those with ImageMagick. On some systems, including Nextcloud AIO, ImageMagick without its RAW coder crashes the PHP process on a DNG. On AIO, set NEXTCLOUD_ADDITIONAL_APKS to "imagemagick imagemagick-raw". You can ignore this if you keep no RAW files.');
 		}
 
 		$x = $this->config->getSystemValueInt('preview_max_x', 4096);
 		$y = $this->config->getSystemValueInt('preview_max_y', 4096);
 		$checks[] = $this->item('preview_max', 'info', "Nextcloud's preview size limit: {$x} × {$y}",
-			'Set in config.php (preview_max_x, preview_max_y), not here. Thumbnails and the Files viewer are limited to it. Zooming in Memories and the sphere view use the full-size panorama below instead.');
+			'Thumbnails and the Files viewer are limited to the size set in config.php (preview_max_x, preview_max_y). Zooming in Memories and the sphere view use the full-size panorama below instead.');
 
 		return $checks;
 	}
@@ -107,18 +107,18 @@ final class SetupCheck {
 		if (file_exists($path)) {
 			$map = json_decode((string)file_get_contents($path), true);
 			if (!is_array($map)) {
-				throw new \RuntimeException("config/" . self::MAPPING_FILE . " exists but is not valid JSON. Fix it by hand; it was left untouched.");
+				throw new \RuntimeException("config/" . self::MAPPING_FILE . " exists but is not valid JSON. Fix it manually; it was left untouched.");
 			}
 		}
 
 		$written = false;
 		if (isset($map['insp'])) {
 			if (($map['insp'][0] ?? null) !== 'image/jpeg') {
-				throw new \RuntimeException('config/' . self::MAPPING_FILE . ' already maps .insp to ' . json_encode($map['insp'], JSON_UNESCAPED_SLASHES) . '. Change it by hand if you want this app to handle them; it was left untouched.');
+				throw new \RuntimeException('config/' . self::MAPPING_FILE . ' already maps .insp to ' . json_encode($map['insp'], JSON_UNESCAPED_SLASHES) . '. Change it manually if you want this app to handle them; it was left untouched.');
 			}
 		} else {
 			if (!is_writable(file_exists($path) ? $path : $dir)) {
-				throw new \RuntimeException("The web server cannot write to config/" . self::MAPPING_FILE . '. Add "insp": ["image/jpeg"] to it by hand.');
+				throw new \RuntimeException("The web server cannot write to config/" . self::MAPPING_FILE . '. Add "insp": ["image/jpeg"] to it manually.');
 			}
 			$map['insp'] = ['image/jpeg'];
 			$tmp = $path . '.golblick-' . bin2hex(random_bytes(4));

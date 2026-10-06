@@ -4,6 +4,6 @@
  */
 ?>
 <div id="golblick-admin" class="section">
-	<h2>360 photos (golblick)</h2>
+	<h2>Golblick (360° Photos)</h2>
 	<p class="settings-hint">Loading…</p>
 </div>
