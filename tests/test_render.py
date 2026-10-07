@@ -445,6 +445,34 @@ def test_fit_orientation_recovers_a_known_rotation():
     assert error < 3.0, f"recovered rotation is {error:.1f} degrees off"
 
 
+def test_levelling_to_a_reference_recovers_the_reference_orientation():
+    """The correction composes on the left of the starting orientation.
+
+    Getting that order wrong renders a panorama that is neither the start nor
+    the reference, so check the matrix that comes back, from a start that is
+    itself tilted, against the one the reference was rendered with.
+    """
+    image, lenses = synthetic_pair()
+    truth = render.rotation(30.0, 20.0, -35.0)
+    reference, _ = render.equirectangular(image, lenses, (128, 64), 194.0, orientation=truth)
+    start = render.rotation(0.0, -10.0, 15.0)
+
+    orientation, score = render.orientation_from_reference(image, lenses, 194.0, reference, start=start)
+
+    assert score > 0.9
+    error = numpy.degrees(numpy.arccos(numpy.clip((numpy.trace(orientation.T @ truth) - 1) / 2, -1, 1)))
+    assert error < 3.0, f"levelled orientation is {error:.1f} degrees off the reference"
+
+
+def test_levelling_to_a_reference_declines_an_unrelated_scene():
+    """The decline has to be reachable, or a bad fit is used as if it were good."""
+    image, lenses = synthetic_pair()
+    noise = numpy.random.default_rng(7).uniform(0, 255, (64, 128, 3)).astype(numpy.float32)
+
+    with pytest.raises(ValueError, match="agrees with the reference only"):
+        render.orientation_from_reference(image, lenses, 194.0, noise)
+
+
 def test_fit_orientation_refuses_a_blank_frame():
     """One X5 still in the library is an all-black exposure.
 

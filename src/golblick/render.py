@@ -730,6 +730,59 @@ def fit_orientation(image, reference, coarse_degrees=10.0, seed=None):
     return (yaw, pitch, roll), score
 
 
+#: Below this, an alignment to a reference is declined rather than used.  Real
+#: X5 renders against their own stitch score 0.78 to 0.86; a frame aligned to
+#: an unrelated scene scores near 0.  ``test_render`` checks the decline fires.
+REFERENCE_MIN_SCORE = 0.5
+
+
+def orientation_from_reference(image, lenses, field_of_view, reference, start=None):
+    """Level a render by aligning it to a panorama that is already level.
+
+    On an X5 the reference is the camera's own stitch, which the camera
+    levelled itself.  That is ground truth, so it beats the inertial record,
+    which on a long record can be badly wrong: one X5 still logged 13 seconds
+    of the camera being turned over, and the median of that rendered it
+    upside down.  It also fixes which way the panorama faces, which gravity
+    cannot.
+
+    ``reference`` is an equirectangular frame, any even 2:1 size; 512x256 is
+    plenty, as the result is a rotation, not pixels.  ``start`` is the
+    orientation to render from before aligning (a gravity or calibration
+    guess); the search is global, so it only has to be a rotation.
+
+    Returns ``(orientation, score)``.  Raises ``ValueError`` if the frames
+    cannot be aligned or agree less than :data:`REFERENCE_MIN_SCORE`, so the
+    caller falls back to another route rather than trusting a bad fit.
+
+    The correction composes on the LEFT, ``rotation(...) @ start``.  Measured
+    on the upside-down X5 by trying all four products: only this one leaves
+    the result aligned (score 0.81, about 1 degree off); the other three
+    scored 0.27 or less.
+    """
+    numpy = _numpy()
+    reference = numpy.asarray(reference, numpy.float32)
+    height, width = reference.shape[:2]
+    if width != 2 * height or height % 2:
+        raise ValueError(f"reference must be an even 2:1 frame, not {width}x{height}")
+    start = numpy.eye(3) if start is None else numpy.asarray(start, numpy.float64)
+
+    pixels, _ = equirectangular(image, lenses, (width, height), field_of_view, orientation=start)
+
+    # The global search runs on frames halved again, which is where its cost
+    # is; the full-size pass only refines around the answer.
+    def halve(frame):
+        frame = numpy.asarray(frame, numpy.float32)
+        return frame.reshape(height // 2, 2, width // 2, 2, -1).mean(axis=(1, 3))
+
+    angles, _ = fit_orientation(halve(pixels), halve(reference))
+    angles, score = fit_orientation(pixels, reference, seed=angles)
+    if score < REFERENCE_MIN_SCORE:
+        raise ValueError(f"the render agrees with the reference only {score:.2f}, "
+                         f"below {REFERENCE_MIN_SCORE}")
+    return rotation(*angles) @ start, score
+
+
 def body_orientation(calibration):
     """Rotation putting a render into the camera-body frame, from the calibration.
 

@@ -55,7 +55,17 @@ _LAYOUTS = {
 
 @dataclass(frozen=True)
 class Sample:
-    """One inertial sample.  ``time`` is seconds; ``acceleration`` is in g."""
+    """One inertial sample.  ``acceleration`` is in g.
+
+    ⚠️ ``time`` is the raw timecode over 1000, and its unit depends on the
+    encoding.  On the 56-byte form it reads as seconds: OneR records of 1.2 to
+    1.4 at about 500 samples a second.  On the 20-byte form (the X5, and some
+    OneR files) it reads 1000 times larger, one unit per sample: an X5 record
+    of 13,056 samples spans 13,062.  That fits a microsecond timecode sampled
+    at 1 kHz, but the rate has not been checked against anything independent,
+    so it is not converted.  Nothing in the package uses ``time`` yet; measure
+    before relying on it.
+    """
 
     time: float
     acceleration: tuple[float, float, float]

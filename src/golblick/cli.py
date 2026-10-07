@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 from pathlib import Path
@@ -210,7 +211,17 @@ def cmd_render(args: argparse.Namespace) -> int:
 
     width = args.width
     height = width // 2
-    orientation, levelling = _levelling(render, vendor, args.file, model, args.level)
+    orientation, levelling = _levelling(render, vendor, args.file, model,
+                                        "auto" if args.level == "stitch" else args.level)
+    if args.level in ("auto", "stitch"):
+        try:
+            orientation, levelling = _level_to_stitch(
+                render, vendor, args.file, image, lenses, field_of_view, orientation)
+        except (GolblickError, ValueError) as exc:
+            if args.level == "stitch":
+                raise GolblickError(f"cannot level against the camera's stitch: {exc}") from exc
+            levelling += f" (the camera's own stitch was not usable: {exc})" \
+                if not isinstance(exc, _NoStitch) else ""
 
     pixels, hemispheres = render.equirectangular(
         image, lenses, (width, height), field_of_view, orientation=orientation
@@ -477,6 +488,41 @@ def _print_report(lines: list[str], info: dict | None, recognised: bool, tested:
     return 0
 
 
+class _NoStitch(GolblickError):
+    """The file carries no stitched panorama to level against; not worth a remark."""
+
+
+def _level_to_stitch(render, vendor, path: str, image, lenses, field_of_view, start):
+    """Level against the panorama the camera stitched and levelled itself, where there is one.
+
+    🔴 Preferred over the inertial record whenever it exists, because it is
+    ground truth and the record is not: an X5 that logged 13 seconds of being
+    turned over rendered upside down from the record's median.  It also makes
+    the result face the way the camera's own panorama does.  On the cameras
+    measured so far only the X5 embeds a stitch.
+    """
+    extract = getattr(vendor, "extract_preview", None)
+    if extract is None:
+        raise _NoStitch("no preview reader")
+    preview = extract(path)
+    if preview.layout != "equirectangular":
+        raise _NoStitch("the preview is not a stitched panorama")
+
+    from PIL import Image
+
+    if preview.encoding == "nv12":
+        frame = Image.frombytes("RGB", (preview.width, preview.height),
+                                imaging.nv12_to_rgb(preview.data, preview.width, preview.height))
+    else:
+        frame = Image.open(io.BytesIO(preview.data)).convert("RGB")
+    import numpy
+
+    reference = numpy.asarray(frame.resize((512, 256), Image.LANCZOS), numpy.float32)
+    orientation, score = render.orientation_from_reference(
+        image, lenses, field_of_view, reference, start=start)
+    return orientation, f"aligned to the camera's own levelled stitch (agreement {score:.2f})"
+
+
 def _require_render_extra() -> None:
     """Fail with an instruction, not an ImportError from three frames down."""
     missing = []
@@ -587,11 +633,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="full angle each lens sees, in degrees. Not carried in the file; "
                            "defaults to the camera's measured value (194 on a OneR and X5, "
                            "192 on an X3), or 194 for a camera nobody has measured")
-    pano.add_argument("--level", choices=("auto", "imu", "calibration", "none"),
+    pano.add_argument("--level", choices=("auto", "stitch", "imu", "calibration", "none"),
                       default="auto",
-                      help="auto prefers the inertial record and falls back to the "
-                           "calibration; imu and calibration force one and fail rather "
-                           "than fall back (default: %(default)s)")
+                      help="auto aligns to the camera's own levelled stitch where the file "
+                           "has one (X5), else uses the inertial record, else the "
+                           "calibration; stitch, imu and calibration force one and fail "
+                           "rather than fall back (default: %(default)s)")
     pano.set_defaults(func=cmd_render)
 
     report = sub.add_parser(

@@ -62,10 +62,7 @@ Add `-v` to print the calibration parameters themselves. The full output also in
 
 ## Report a problem, or a camera golblick hasn't been tested with
 
-There are two kinds of report, and `report` works out which one applies:
-
-- **A problem with a photo**, from a camera golblick has been tested with (the Insta360 OneR, X3 and X5): it renders wrongly, or doesn't open.
-- **An untested camera**: any other model. This is worth reporting whether the result looks right or not, because nobody has checked it yet.
+There are two kinds of report, and `report` works out which one applies. For the Insta360 OneR, X3 and X5, which golblick has been tested with, it's a problem with a photo: it renders wrongly, or doesn't open. Any other model is an untested camera, which is worth reporting whether the result looks right or not, because nobody has checked it yet.
 
 `report` prints a summary of the file. It leaves out the file's name (Insta360 names carry the date and time), its folder and the camera's serial number, so you can paste it as it is:
 
@@ -127,9 +124,12 @@ It projects from the full-resolution frame, not the embedded preview: on a OneR 
 Two lines in that output are worth reading:
 
 - **Lens agreement** scores the render against itself, by correlating the two lenses where they overlap. Around +0.7 to +0.9 is a correct projection, and +0.02 means something is wrong. It cannot see everything; [accuracy.md](accuracy.md) says what it misses.
-- **Levelling** says which of two routes was used. *From gravity* means the file, or another frame from the same shutter press, carried an inertial record, so pitch and roll are both corrected. *From the calibration* is the fallback: it corrects the sensor's mounting angle, which is 91° on a OneR, but not how the camera was held, so a tilted shot stays tilted.
+- **Levelling** says which route was used, best first:
+  - *Aligned to the camera's own levelled stitch*: the file carries a panorama the camera stitched and levelled itself (on the cameras tested, only the X5 does), and the render is turned to match it. It also faces the same way as the camera's panorama.
+  - *From gravity*: the file, or another frame from the same shutter press, carried an inertial record, so pitch and roll are both corrected. On an X5 this is only used if aligning to the stitch fails: some X5 records cover several seconds of the camera being moved, and one of those rendered upside down from gravity alone.
+  - *From the calibration* is the fallback: it corrects the sensor's mounting angle, which is 91° on a OneR, but not how the camera was held, so a tilted shot stays tilted.
 
-`--level` forces the choice. `imu` and `calibration` fail rather than quietly falling back, which is what you want when comparing the two.
+`--level` forces the choice. `stitch`, `imu` and `calibration` fail rather than quietly falling back, which is what you want when comparing them.
 
 The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR and an X5, 192° for an X3, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the first. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
 

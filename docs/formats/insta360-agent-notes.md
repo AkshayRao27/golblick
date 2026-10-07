@@ -418,6 +418,19 @@ Over the 25 X5 stills in one library: **24 aligned, 1 refused**. The refusal is 
 
 ⚠️ This route is ground truth for **25 files in 1,415**. A OneR or X3 embeds the fisheye pair rather than a stitch, so there is nothing to solve against.
 
+✅ **Since 2026-10-07 `golblick render` levels by this route whenever the file has a stitch** (`render.orientation_from_reference`, `--level auto` or `stitch`), and uses gravity only when it cannot. The reason is route 2's failure on long inertial records, below. The alignment runs on a 512×256 render (a global search at 256×128, then a refinement), takes about 8 seconds, composes the correction on the left of the starting orientation (measured: the other three products scored 0.27 or less), and declines below an agreement of 0.5. Over all 48 X5 stills in one library: 47 aligned (agreement 0.68–0.99, median 0.86), leaving a median 0.44° that a second alignment still wants to correct (p90 1.2°, worst 3.0°); the 48th is the all-black exposure, which is refused and falls back to gravity. The same 47 from gravity alone: median 1.9°, p90 3.1°, and three over 5°, the worst 104°. It also fixes the 180° yaw, so the render faces the way the camera's own panorama does.
+
+🔴 **Gravity from a long X5 record can be badly wrong.** Most X5 records are 100 samples; five in one library run 7.7 to 13 seconds, during which the camera was moved, and the median of the whole record is not the attitude at the shutter. Leftover tilt against the stitch, for the four worst:
+
+| Still | Whole record | First 100 samples | Last 100 samples |
+|---|---|---|---|
+| A, 8.1 s | 9.1° | 3.5° | 33.9° |
+| B, 7.8 s | 10.0° | 3.0° | 22.3° |
+| C, 7.7 s | 4.8° | 3.3° | 25.2° |
+| D, 13.1 s | **103.7°** (rendered upside down) | 46.3° | 129.7° |
+
+No window rescues them: the end of the record, where the camera settles, is the worst, and the start, the best of the three, is still 46° off on D. Where in the record the shutter fired is **not measured**. OneR and X3 records are not affected in practice (longest about 2.8 s, worst median stray 9.5°, and both of the two worst still render upright), and their whole-record median is what was validated against Studio, so it stays: an end-of-record window would move some OneR files by up to 20°.
+
 ### Route 2 — the gravity vector from the IMU
 
 The accelerometer says which way is down, on any camera that records one. The axis mapping between the IMU and the render was measured by fitting the 24 solved rotations above; a least-squares fit over all of them landed within 3° of an exact signed permutation, and **the exact permutation scored better than the fit**, with 2.3° median error against the camera's own levelling versus 4.0°:
