@@ -86,6 +86,20 @@ After the report it prints a link to the right issue form on GitHub, with the re
 
 If golblick can't read part of the file, that line says what failed and the rest of the report carries on. For a file it doesn't recognise at all, it says what the file looks like instead, for example a plain JPEG with none of the camera's data, or a copy whose end is all zeros.
 
+## Send photos to someone without your location
+
+An original `.insp` holds where the photo was taken (twice: in the EXIF, and again in the camera's own data), when, and the camera's serial number. `share` writes copies without them:
+
+```sh
+$ golblick share IMG_20260314_090809_00_007.insp IMG_20260314_091102_00_008.insp
+golblick-share/IMG_00000000_000000_00_001.insp  from IMG_20260314_090809_00_007.insp
+  cleared: serial number, capture time, location (camera metadata), file name in camera metadata, description, date 0x0132, date 0x9003, date 0x9004, GPS (7 entries)
+golblick-share/IMG_00000000_000000_00_002.insp  from IMG_20260314_091102_00_008.insp
+  ...
+```
+
+Everything else stays exactly as the camera wrote it, so the copies render the same as the originals. Before writing each copy, `share` searches all of it for the serial number, the coordinates and the date, and refuses if any of them is still there. It can't change what's in the picture, so look at the photos before you send them. `-o` picks the folder; it won't overwrite a copy that's already there.
+
 ## Get the camera's own preview
 
 Insta360 stills carry the camera's own preview, which is larger and more useful than the 320×160 EXIF thumbnail:

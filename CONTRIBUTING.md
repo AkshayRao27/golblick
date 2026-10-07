@@ -13,7 +13,9 @@ If you have a different 360 camera, please try this:
 3. Run `golblick render <file> -o test.jpg` and look at the result in a 360 viewer, or as a flat image. Check that it is upright and not mirrored (text in the scene is the easiest tell), that horizons and straight lines continue across the seam where the two lenses meet, and what the *lens agreement* line says. Around +0.7 to +0.9 is a correct projection, and near +0.02 means the geometry is wrong.
 4. If `golblick preview <file>` reports an equirectangular preview, your camera embeds its own stitch, and comparing the two is very helpful.
 
-Then [open an untested-camera issue](https://github.com/AkshayRao27/golblick/issues/new?template=untested-camera.yml) with the reports and what you saw; the link `report` prints opens it already filled in. Please do this even if everything looks right. A crop of the seam is enough; you don't need to share whole photos.
+Then [open an untested-camera issue](https://github.com/AkshayRao27/golblick/issues/new?template=untested-camera.yml) with the reports and what you saw; the link `report` prints opens it already filled in. Please do this even if everything looks right.
+
+The report shows whether golblick can read the camera's files. Supporting it properly (the lens's field of view and correction, and which way its motion sensor faces) is measured from a few original photos, so if you can, say in the issue that you can share some. You'll get a private upload link in a reply. Don't attach photos to the issue or post links to them: issues are public, and an original `.insp` holds where the photo was taken, when, and the camera's serial number. Run `golblick share <files>` first, which writes copies without those and changes nothing else. The pictures themselves are unchanged, so choose ones you're happy to send: outdoors with a level horizon and some text in view is ideal, because text is the easiest way to spot a mirrored render.
 
 For a problem with a photo from one of the three tested cameras, use the [photo problem form](https://github.com/AkshayRao27/golblick/issues/new?template=photo-problem.yml) instead. `report` picks the right one for you.
 

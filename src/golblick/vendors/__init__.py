@@ -47,6 +47,12 @@ organised per vendor behind a small contract.  A vendor module provides:
     ``extract_preview`` on purpose: a preview is what the camera chose to show,
     and is typically a small fraction of the pixels.
 
+``shareable(path) -> (bytes, cleared)``
+    Optional.  A copy of the file that is safe to send to someone else: no
+    location, no dates, no serial number, everything else unchanged.  Must
+    check its own result and raise rather than return a copy that still
+    carries any of them.
+
 Adding a vendor means writing a module with those names and listing it in
 ``VENDORS`` -- nothing else in the package needs to change.
 """

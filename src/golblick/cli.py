@@ -583,6 +583,30 @@ def _write_image(output: Path, pixels, xmp: bytes, quality: int) -> None:
     output.write_bytes(gpano.embed_jpeg(buffer.getvalue(), xmp))
 
 
+def cmd_share(args: argparse.Namespace) -> int:
+    """Write copies that are safe to send: no location, dates or serial number."""
+    out = Path(args.output)
+    out.mkdir(parents=True, exist_ok=True)
+    sources = [Path(name) for name in args.files]
+    for index, source in enumerate(sources, 1):
+        vendor = _require_vendor(str(source))
+        clean = getattr(vendor, "shareable", None)
+        if clean is None:
+            raise UnsupportedFile(f"{source}: {vendor.NAME} cannot make a shareable copy yet")
+        data, cleared = clean(source)
+        # Insta360's own naming, with the date zeroed: the name carries the
+        # date and time otherwise.
+        target = out / f"IMG_00000000_000000_00_{index:03d}{source.suffix.lower()}"
+        if target.exists():
+            raise GolblickError(f"{target}: already exists; choose another folder with -o")
+        target.write_bytes(data)
+        print(f"{target}  from {source.name}")
+        print(f"  cleared: {', '.join(dict.fromkeys(cleared)) or 'nothing to clear'}")
+    print("\nThe pictures themselves are unchanged: check that nothing in them is private.",
+          file=sys.stderr)
+    return 0
+
+
 def cmd_vendors(args: argparse.Namespace) -> int:
     for vendor in VENDORS:
         extensions = " ".join(sorted(f".{e}" for e in vendor.EXTENSIONS))
@@ -648,6 +672,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument("file")
     report.set_defaults(func=cmd_report)
+
+    share = sub.add_parser(
+        "share",
+        help="copy files for sending to someone else, without location, dates or serial number",
+    )
+    share.add_argument("files", nargs="+")
+    share.add_argument("-o", "--output", default="golblick-share",
+                       help="folder for the copies (default: %(default)s)")
+    share.set_defaults(func=cmd_share)
 
     listing = sub.add_parser("vendors", help="list supported formats")
     listing.set_defaults(func=cmd_vendors)

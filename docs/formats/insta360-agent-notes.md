@@ -122,6 +122,24 @@ Standard protobuf wire format. No schema is published, so this project reads fie
 | 53 | Calibration, polynomial model |
 | 54 | Calibration, MEI model |
 | 111 | Calibration, extended MEI model |
+| 7 | Capture time, `YYYYMMDDhhmmss` as a varint (X5; absent from the OneR file checked) |
+| 11 | Location: three doubles, latitude, longitude and a third value (zero or absent without a GPS fix) |
+| 26 | On the X5, a submessage holding the file's path on the SD card, e.g. `./DCIM/Camera01/IMG_…insp` |
+
+### What in a still identifies a person
+
+Measured 2026-10-07 on stills from all three cameras, for `golblick share` (`vendors/insta360/share.py`), which clears all of it in place.
+
+| Where | What | How it was found |
+|---|---|---|
+| EXIF GPS IFD | latitude, longitude, altitude | exiftool; 1,151 of 1,434 readable stills in one library carry a real fix (OneR 1,083/1,346, X3 36/40, X5 32/48) |
+| Metadata field 11 | the same latitude and longitude, as doubles | searching every record for the EXIF coordinates as doubles, floats, degrees×10⁷ integers and text: found only here, on all three cameras |
+| Metadata field 1 | serial number | its only occurrence in the file, on all three |
+| EXIF `DateTime`, `DateTimeOriginal`, `DateTimeDigitized`; field 7 | date and time taken | |
+| EXIF `ImageDescription`; field 26 | the file name or SD-card path, which carry the date | |
+| Records `0x0900`, `0x0b00` | not decoded | ⚠️ neither the serial nor the coordinates were found in them; nothing more is known |
+
+No XMP in any of them. The OneR and X3 also split a second JFIF image across their APP2 segments; JFIF carries no EXIF.
 
 ## Calibration
 

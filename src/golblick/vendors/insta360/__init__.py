@@ -14,6 +14,7 @@ from .lens import LensProfile, lens_profile
 from .naming import EXTENSIONS, classify
 from .preview import Preview
 from .preview import extract as extract_preview
+from .share import shareable
 from .source import Source
 from .source import extract as extract_source
 from .thumbnail import extract as extract_thumbnail
@@ -43,6 +44,7 @@ __all__ = [
     "lens_profile",
     "matches",
     "read_trailer",
+    "shareable",
 ]
 
 

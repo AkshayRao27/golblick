@@ -120,6 +120,36 @@ def parse(buf: bytes) -> list[Field]:
     return fields
 
 
+def spans(buf: bytes) -> list[tuple[int, int, int, int]]:
+    """``(number, wire, start, end)`` for each top-level field's value bytes.
+
+    For a varint that is the varint itself; for a length-delimited field, its
+    payload.  What :func:`parse` decodes, located, so a field can be
+    overwritten in place.
+    """
+    out = []
+    pos = 0
+    while pos < len(buf):
+        key, pos = _varint(buf, pos)
+        number, wire = key >> 3, key & 7
+        start = pos
+        if wire == WIRE_VARINT:
+            _, pos = _varint(buf, pos)
+        elif wire == WIRE_LEN:
+            length, start = _varint(buf, pos)
+            pos = start + length
+        elif wire == WIRE_F32:
+            pos += 4
+        elif wire == WIRE_F64:
+            pos += 8
+        else:
+            raise ProtobufError(f"unsupported wire type {wire}")
+        if pos > len(buf):
+            raise ProtobufError("field runs past the buffer")
+        out.append((number, wire, start, pos))
+    return out
+
+
 def by_number(buf: bytes) -> dict[int, list[Field]]:
     """Group ``parse`` output by field number, preserving order within a number."""
     grouped: dict[int, list[Field]] = {}

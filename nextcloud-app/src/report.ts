@@ -89,7 +89,8 @@ export async function openReport(fileId: number): Promise<void> {
         + 'report filled in, and you add what\'s wrong.';
       issue.textContent = 'Report the problem on GitHub';
     }
-    note.textContent += ' You need a GitHub account.';
+    note.textContent += ' You need a GitHub account. If you can send a few original photos, say so in the issue and you\'ll '
+      + 'get a private upload link; don\'t attach them to the issue, which is public.';
     // Fenced, so it stays a block when pasted into a GitHub issue by hand.
     report = '```\n' + data.report + '\n```';
     copy.disabled = issue.disabled = false;

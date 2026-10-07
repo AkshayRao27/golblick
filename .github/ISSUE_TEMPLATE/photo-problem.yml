@@ -32,6 +32,16 @@ body:
     validations:
       required: true
   - type: dropdown
+    id: photos
+    attributes:
+      label: Can you share a few original photos privately?
+      description: Original files help most. **Don't attach them here or post links to them**, because issues are public. If you choose yes, you'll get a private upload link in a reply. First run `golblick share <files>` on them, which makes copies without the location, the dates or the camera's serial number. The pictures themselves are unchanged, so pick ones you're happy for the maintainer to see.
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+  - type: dropdown
     id: where
     attributes:
       label: Where

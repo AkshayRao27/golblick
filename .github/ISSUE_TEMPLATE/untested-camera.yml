@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        golblick has only been tested on the Insta360 OneR, X3 and X5. Other cameras may store things differently, so a report on any other model helps, even if everything looks right. [CONTRIBUTING.md](https://github.com/AkshayRao27/golblick/blob/main/CONTRIBUTING.md#testing-a-camera-i-dont-have) lists what to try.
+        golblick has only been tested on the Insta360 OneR, X3 and X5. Other cameras may store things differently, so a report on any other model helps, even if everything looks right. The report shows whether golblick can read the camera's files; supporting the camera properly needs a few original photos as well, which you can send privately (see below). [CONTRIBUTING.md](https://github.com/AkshayRao27/golblick/blob/main/CONTRIBUTING.md#testing-a-camera-i-dont-have) lists what to try.
 
         The report from golblick leaves out the file's name, its folder and the camera's serial number, so it's safe to paste here. Please don't attach whole photos unless you're happy for them to be public; a crop is usually enough.
   - type: input
@@ -29,6 +29,16 @@ body:
     attributes:
       label: How it looks
       description: Does the panorama look right? Check that it's upright and not mirrored (text in the scene is the easiest tell), and that lines continue across the seam where the two lenses meet. If it didn't render at all, say what happened.
+    validations:
+      required: true
+  - type: dropdown
+    id: photos
+    attributes:
+      label: Can you share a few original photos privately?
+      description: Original files help most. **Don't attach them here or post links to them**, because issues are public. If you choose yes, you'll get a private upload link in a reply. First run `golblick share <files>` on them, which makes copies without the location, the dates or the camera's serial number. The pictures themselves are unchanged, so pick ones you're happy for the maintainer to see.
+      options:
+        - "No"
+        - "Yes"
     validations:
       required: true
   - type: dropdown

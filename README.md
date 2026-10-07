@@ -58,6 +58,7 @@ What I can say, however, is that
 |---|---|
 | 🧭 **Triage** | Pairs each video with its low-resolution copy (`.lrv`) and lists the clips whose full-quality video is gone, so you know what exists only in low resolution before you delete anything. Goes by filename, so it takes seconds on a whole library |
 | 🔍 **Probe** | Shows what the camera stored in a file: model, firmware, lens calibration, and which data blocks are present |
+| 🔒 **Share** | Copies photos for sending to someone else, without the location, the dates or the camera's serial number, and otherwise unchanged |
 | 📝 **Report** | Summarises a file for an issue on GitHub, without its name, folder or the camera's serial number, and links to the right form: a problem with a photo, or a camera golblick hasn't been tested with |
 | 🖼️ **Previews** | Extracts the camera's own preview, if available (e.g. the Insta360 X5 already has a stitched pano) |
 | 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled against the camera's own stitch where the file has one (X5), otherwise from its motion sensor where possible. The seam between the lenses is placed per photo, where the two lenses agree best |
