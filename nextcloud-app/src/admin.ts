@@ -238,8 +238,8 @@ function render(status: Status) {
     memoriesButtonNote.node,
 
     el('h4', {}, 'Files'),
-    toggle('Add "View as sphere" button',
-      'Adds it to a .insp file\'s actions menu, through the Files app\'s own interface for this.',
+    toggle('Add "View as sphere" and "Camera report"',
+      'Adds both to a .insp file\'s actions menu, through the Files app\'s own interface for this. "Camera report" shows a summary of the file to paste into a bug report on GitHub, without the file\'s name, its folder or the camera\'s serial number.',
       s.sphere_files, (on) => void save({ sphere_files: on }, filesNote)),
     filesNote.node,
 

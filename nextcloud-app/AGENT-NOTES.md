@@ -83,8 +83,9 @@ What it doesn't cover, and why:
 - **Buttons are clones of a neighbouring button**, with the icon and label replaced. Copying class names alone showed the browser's default border: Nextcloud's buttons get their look from scoped styles keyed on `data-v-*` attributes, which a clone carries. Computed styles of the clone and its neighbour were compared in Chromium and matched in both places.
 - `GET /apps/golblick/sphere/{id}/info` (name check only, cheap) and `GET /apps/golblick/sphere/{id}` (the JPEG) are `NoCSRFRequired` read-only GETs, resolved inside the signed-in user's folder. Public shares get no button.
 - The sphere code is a cut-down port of `PsPanorama.ts` from the Memories branch: full spheres only, same mirror fix and drag scaling.
-- Build: `npm ci && npm run build` in `nextcloud-app/`, then commit `js/`. The app installs by copying the folder, so the built files have to be in the repository. `npm run typecheck` runs `tsc`. Vite doesn't strip whitespace in library ES builds, so the three.js chunk is about 850 KB (180 KB gzipped).
+- Build: `npm ci && npm run build` in `nextcloud-app/`, then commit `js/`. The app installs by copying the folder, so the built files have to be in the repository. `npm run typecheck` runs `tsc`. Vite doesn't strip whitespace in library ES builds, so `vite.config.ts` sets `minify: 'terser'`: the three.js chunk went from 849 KB (180 KB gzipped) to 531 KB (129 KB). There is no downstream bundler to tree-shake for.
 - Test with a headless browser on a running server: the Files action is inside the row's "Actions" menu, not the sharing button next to it.
+- **Camera report** (`src/report.ts`, `lib/Service/CameraReport.php`, `GET /apps/golblick/report/{id}`, CSRF-checked, same user-folder resolution as the sphere endpoints). The app's counterpart of the CLI's `golblick report`, in the same layout, with records sorted by id in both so they line up. It says what *this app* does, which differs from the CLI: an X5 is shown from the camera's stitch, so it has no levelling line. The levelling line comes from `Preview\Insta360::levelling()`, the provider's own decision, not a copy of it. It leaves out the name (Insta360 names carry the date and time), the folder and the serial; PHP's `FormatError` messages carry no path, so nothing needs scrubbing here, unlike the CLI. A native `<dialog>`, not `@nextcloud/dialogs`: Files cancels the default on Escape, so the dialog closes itself on keydown, and Nextcloud's reset removes the `margin:auto` that centres it. ⚠️ A burst split across folders reports "no inertial record here or in the rest of the burst" for the frames away from the donor: `burstImu()` searches the file's own folder only, by design.
 
 ## Admin settings (`lib/Settings/`, `lib/Service/Settings.php`, `src/admin.ts`)
 
@@ -94,7 +95,7 @@ One page under Administration settings, own section. `src/admin.ts` renders it i
 |---|---|---|
 | `zoom_width` | 4096 | `PanoramaStore`. The page offers 1024/2048/3072/4096; any value set with `occ` is clamped to 1024–4096 |
 | `memories_zoom` | yes | `MemoriesZoom::afterController`. Off = Memories gets the original (the lens pair) |
-| `sphere_files` | yes | `LoadSphereViewer` → initial state `config.files` → the Files action |
+| `sphere_files` | yes | `LoadSphereViewer` → initial state `config.files` → both Files actions, "View as sphere" and "Camera report" |
 | `sphere_viewer` | yes | same, `config.viewer` → the button in the Viewer (Files and Photos) |
 | `sphere_memories` | yes | same, `config.memories` → the button in Memories' viewer. With all three `sphere_*` off the script isn't loaded at all |
 | `prerender` | no | `BackgroundJob\Prerender` |

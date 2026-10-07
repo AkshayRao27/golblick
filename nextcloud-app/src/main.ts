@@ -8,6 +8,7 @@
  * | Where              | How                                               |
  * |--------------------|---------------------------------------------------|
  * | Files list         | a file action, through @nextcloud/files: real API |
+ * |                    | (also "Camera report", for bug reports)           |
  * | Viewer (Files, Photos) | a button added to the open viewer's header    |
  * | Memories           | a button added to its viewer's top bar            |
  *
@@ -23,7 +24,7 @@
  * Either part can be switched off on the admin page; the server passes the
  * choice in as initial state, and loads nothing at all if both are off.
  */
-import { mdiPanoramaSphereOutline } from '@mdi/js';
+import { mdiClipboardTextOutline, mdiPanoramaSphereOutline } from '@mdi/js';
 import { registerFileAction } from '@nextcloud/files';
 import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
@@ -50,6 +51,20 @@ if (config.files) registerFileAction({
     return null;
   },
   order: 50,
+});
+
+// Under the same switch: it lives in the same menu, through the same API.
+if (config.files) registerFileAction({
+  id: 'golblick-report',
+  displayName: () => 'Camera report',
+  iconSvgInline: () => svgIcon(mdiClipboardTextOutline),
+  enabled: ({ nodes }) => nodes.length === 1 && isInsp(nodes[0].basename) && nodes[0].fileid !== undefined,
+  exec: async ({ nodes }) => {
+    const { openReport } = await import('./report');
+    void openReport(Number(nodes[0].fileid));
+    return null;
+  },
+  order: 51,
 });
 
 // ---- Shared: ask the server whether an open file is one of ours ------------

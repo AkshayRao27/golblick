@@ -274,33 +274,47 @@ final class Insta360 implements IProviderV2 {
 	 * stills: gravity lands the horizon within 1.2 degrees (p90 3.8), where
 	 * the calibration route alone leaves a median of 9.7 and a p90 of 46.9.
 	 *
-	 * 🔴 It reaches a minority of files, and that limit is real rather than a
-	 * gap waiting to be filled. 965 of 1,415 stills in one library carry no
-	 * inertial record at all, and on those Studio's export agrees with this
-	 * code's calibration-only render to 0.8 degrees -- so Studio is not
-	 * levelling them either, and there is nothing further in the file to
-	 * recover. The X3's axis mapping is still refused rather than guessed.
-	 * Falling back is the normal case, not the exception.
+	 * ✅ Superseded: this used to say gravity reaches only a minority of files
+	 * and that falling back is the normal case, because 965 of 1,415 stills
+	 * carry no inertial record and the X3's axis mapping was refused. Both
+	 * changed. A still without a record borrows the identical one from another
+	 * frame of the same shutter press ({@see burstImu}), which Studio's exports
+	 * confirm to 1.09 degrees median where the fallback scores 10.43, and the
+	 * X3's mapping has been measured. The fallback is now for a file whose
+	 * whole burst carries no record, or a camera nobody has measured.
 	 */
 	private function orientationFor(File $file, Trailer $trailer, array $fields, Calibration $calibration): array {
+		return $this->levelling($file, $trailer, $fields, $calibration)[0];
+	}
+
+	/**
+	 * The orientation, and in words which route produced it. Public so the
+	 * camera report can say what this provider actually does with a file
+	 * rather than repeat the decision and risk drifting from it.
+	 *
+	 * @return array{array, string}
+	 */
+	public function levelling(File $file, Trailer $trailer, array $fields, Calibration $calibration): array {
 		$fallback = Orientation::fromRoll($calibration->bodyRoll());
 		$model = Protobuf::firstText($fields, Protobuf::MODEL);
+		$route = 'gravity, from this file\'s inertial record';
 		$record = $trailer->get(Trailer::IMU);
 		if ($record === null && $model !== null) {
 			$record = $this->burstImu($file);
+			$route = 'gravity, from another frame of the same shutter press';
 		}
-		if ($record !== null && $model !== null) {
-			try {
-				return Orientation::level(Imu::gravityUp($record, $model));
-			} catch (FormatError $e) {
-				// An unmeasured camera, an unreadable record or a reading too
-				// small to be gravity. None of those is a reason to refuse the
-				// file: the calibration route still corrects the mounting
-				// angle, which is most of the correction on most cameras.
-			}
+		if ($record === null || $model === null) {
+			return [$fallback, 'calibration only: no inertial record here or in the rest of the burst'];
 		}
-
-		return $fallback;
+		try {
+			return [Orientation::level(Imu::gravityUp($record, $model)), $route];
+		} catch (FormatError $e) {
+			// An unmeasured camera, an unreadable record or a reading too
+			// small to be gravity. None of those is a reason to refuse the
+			// file: the calibration route still corrects the mounting
+			// angle, which is most of the correction on most cameras.
+			return [$fallback, 'calibration only: ' . $e->getMessage()];
+		}
 	}
 
 	/**

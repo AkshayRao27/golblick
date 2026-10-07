@@ -19,6 +19,7 @@ namespace OCA\Golblick\Insta360;
 final class Protobuf {
 	public const SERIAL = 1;
 	public const MODEL = 2;
+	public const FIRMWARE = 3;
 	public const CALIBRATION_EQUIDISTANT = 5;
 
 	/**

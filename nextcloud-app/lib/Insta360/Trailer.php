@@ -54,6 +54,11 @@ final class Trailer {
 		return isset($this->records[$recordId]);
 	}
 
+	/** @return array<int, int> record id => payload size in bytes, in file order */
+	public function recordSizes(): array {
+		return array_map('strlen', $this->records);
+	}
+
 	/**
 	 * Cheap test for "is this one of ours", without parsing anything.
 	 *

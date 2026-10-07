@@ -93,6 +93,10 @@ Previews are generated the first time each photo is viewed, or ahead of time if 
 
 Once `.insp` counts as JPEG, every app that works on photos treats these files as photos too. An app that reads the original file, such as one that runs face or object recognition, gets the two fisheye circles rather than a panorama.
 
+## Reporting a problem
+
+In Files, a `.insp` file's actions menu has **Camera report**. It shows a summary of the file and what the app does with it, with a button to copy it, ready to paste into a [camera report on GitHub](https://github.com/AkshayRao27/golblick/issues/new?template=camera.yml). It leaves out the file's name, its folder and the camera's serial number. It's switched on and off together with the Files "View as sphere" entry on the settings page.
+
 ## Licence
 
 AGPL-3.0-or-later, like the rest of the repository; the full text is in [COPYING](COPYING).

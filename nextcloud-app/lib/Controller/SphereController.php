@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace OCA\Golblick\Controller;
 
+use OCA\Golblick\Service\CameraReport;
 use OCA\Golblick\Service\PanoramaStore;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
@@ -23,7 +24,7 @@ use OCP\IRequest;
 use OCP\IUserSession;
 
 /**
- * What the sphere viewer in `src/` asks the server for.
+ * What the sphere viewer and the camera report in `src/` ask the server for.
  *
  * Only for a signed-in user's own files and files shared with them: the id is
  * resolved inside the user's folder, so an id from anywhere else is a 404.
@@ -36,6 +37,7 @@ final class SphereController extends Controller {
 		private IRootFolder $rootFolder,
 		private IUserSession $userSession,
 		private PanoramaStore $store,
+		private CameraReport $report,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -72,6 +74,21 @@ final class SphereController extends Controller {
 		$response->cacheFor(3600 * 24, false, false);
 
 		return $response;
+	}
+
+	/**
+	 * The camera report for the Files action: the same summary as the CLI's
+	 * `golblick report`, without the file's name, folder or serial number.
+	 */
+	#[NoAdminRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/report/{fileId}', requirements: ['fileId' => '\d+'])]
+	public function report(int $fileId): JSONResponse {
+		$file = $this->file($fileId);
+		if ($file === null) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+
+		return new JSONResponse(['report' => $this->report->build($file)]);
 	}
 
 	private function file(int $id): ?File {

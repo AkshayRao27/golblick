@@ -43,6 +43,11 @@ final class LensProfile {
 		'Insta360 X5' => [194.0, []],
 	];
 
+	/** Whether $model has measured values, rather than the default every other camera gets. */
+	public static function isMeasured(?string $model): bool {
+		return isset(self::PROFILES[$model ?? '']);
+	}
+
 	/** @return array{float, float[]} field of view in degrees, radial correction in degrees */
 	public static function for(?string $model): array {
 		return self::PROFILES[$model ?? ''] ?? [self::DEFAULT_FIELD_OF_VIEW, []];
