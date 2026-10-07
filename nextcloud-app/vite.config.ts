@@ -41,6 +41,9 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     target: 'es2022',
+    // Library mode leaves whitespace in ES output to keep it tree-shakable for
+    // downstream bundlers. Nextcloud loads these files directly, so there are none.
+    minify: 'terser',
     lib: {
       // main: the sphere view, on Files, Photos and Memories pages.
       // admin: the settings page.
