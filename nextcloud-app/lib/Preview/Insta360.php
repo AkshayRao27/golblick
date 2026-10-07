@@ -289,7 +289,7 @@ final class Insta360 implements IProviderV2 {
 
 	/**
 	 * The orientation, and in words which route produced it. Public so the
-	 * camera report can say what this provider actually does with a file
+	 * report for GitHub issues can say what this provider actually does with a file
 	 * rather than repeat the decision and risk drifting from it.
 	 *
 	 * @return array{array, string}

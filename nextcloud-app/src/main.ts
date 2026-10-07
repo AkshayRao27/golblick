@@ -8,7 +8,7 @@
  * | Where              | How                                               |
  * |--------------------|---------------------------------------------------|
  * | Files list         | a file action, through @nextcloud/files: real API |
- * |                    | (also "Camera report", for bug reports)           |
+ * |                    | (also "Report to golblick", for GitHub issues)    |
  * | Viewer (Files, Photos) | a button added to the open viewer's header    |
  * | Memories           | a button added to its viewer's top bar            |
  *
@@ -56,7 +56,7 @@ if (config.files) registerFileAction({
 // Under the same switch: it lives in the same menu, through the same API.
 if (config.files) registerFileAction({
   id: 'golblick-report',
-  displayName: () => 'Camera report',
+  displayName: () => 'Report to golblick',
   iconSvgInline: () => svgIcon(mdiClipboardTextOutline),
   enabled: ({ nodes }) => nodes.length === 1 && isInsp(nodes[0].basename) && nodes[0].fileid !== undefined,
   exec: async ({ nodes }) => {

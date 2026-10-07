@@ -93,9 +93,14 @@ Previews are generated the first time each photo is viewed, or ahead of time if 
 
 Once `.insp` counts as JPEG, every app that works on photos treats these files as photos too. An app that reads the original file, such as one that runs face or object recognition, gets the two fisheye circles rather than a panorama.
 
-## Reporting a problem
+## Reporting a problem, or an untested camera
 
-In Files, a `.insp` file's actions menu has **Camera report**. It shows a summary of the file and what the app does with it, and a button that opens a [camera report on GitHub](https://github.com/AkshayRao27/golblick/issues/new?template=camera.yml) with the summary already filled in, so you only add what you saw. It leaves out the file's name, its folder and the camera's serial number. It's switched on and off together with the Files "View as sphere" entry on the settings page.
+In Files, a `.insp` file's actions menu has **Report to golblick**. It shows a summary of the file and what the app does with it, without the file's name, its folder or the camera's serial number, and a button that opens an issue on GitHub with the summary filled in, so you only add what you saw. Which issue depends on the camera:
+
+- For the Insta360 OneR, X3 and X5, which golblick has been tested with, it's a [photo problem](https://github.com/AkshayRao27/golblick/issues/new?template=photo-problem.yml): the photo looks wrong or won't open.
+- For any other camera, it's an [untested camera](https://github.com/AkshayRao27/golblick/issues/new?template=untested-camera.yml), which is worth reporting whether the photo looks right or not.
+
+The entry is switched on and off together with the Files "View as sphere" entry on the settings page.
 
 ## Licence
 

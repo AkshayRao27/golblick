@@ -1,0 +1,43 @@
+name: A photo looks wrong or won't open
+description: For the cameras golblick has been tested with (Insta360 OneR, X3 and X5)
+title: "Photo problem: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a camera golblick hasn't been tested with, use the "Trying a camera golblick hasn't been tested with" form instead.
+
+        The report from golblick leaves out the file's name, its folder and the camera's serial number, so it's safe to paste here. Please don't attach whole photos unless you're happy for them to be public; a crop showing the problem is usually enough.
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model and firmware
+      placeholder: Insta360 OneR, v1.2.66_build1
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report from golblick
+      description: From `golblick report <file>`, or "Report to golblick" in a `.insp` file's actions menu in Nextcloud Files. Both fill this in for you if you use the link they give.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What's wrong
+      description: What you did, what you expected and what you got. For a panorama, say whether it's upside down, tilted, mirrored, or broken where the two lenses meet.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Command-line tool
+        - Nextcloud app
+        - Both
+    validations:
+      required: true

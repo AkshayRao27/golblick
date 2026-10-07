@@ -6,14 +6,16 @@ Issues and pull requests are welcome. This is a hobby project that is almost ent
 
 This is the most useful contribution right now. Everything has been tested on stills from three cameras: the Insta360 OneR, X3 and X5. I can't test anything else, and other models may well store things differently: each of those three differs from the other two in some way the reader has to handle.
 
-If you have a different 360 camera, or one of those three with different firmware, please try this:
+If you have a different 360 camera, please try this:
 
 1. Install with rendering support: `uv tool install 'golblick[render]'` (or `pipx install 'golblick[render]'`).
 2. Run `golblick report <file>` on a few stills. It prints a summary that is safe to paste into an issue: it leaves out the file's name, its folder and the camera's serial number. If something fails, the report says where, and carries on. It also prints a link that opens the issue with the report filled in.
 3. Run `golblick render <file> -o test.jpg` and look at the result in a 360 viewer, or as a flat image. Check that it is upright and not mirrored (text in the scene is the easiest tell), that horizons and straight lines continue across the seam where the two lenses meet, and what the *lens agreement* line says. Around +0.7 to +0.9 is a correct projection, and near +0.02 means the geometry is wrong.
 4. If `golblick preview <file>` reports an equirectangular preview, your camera embeds its own stitch, and comparing the two is very helpful.
 
-Then [open a camera report](https://github.com/AkshayRao27/golblick/issues/new?template=camera.yml) with the reports and what you saw. A crop of the seam is enough; you don't need to share whole photos.
+Then [open an untested-camera issue](https://github.com/AkshayRao27/golblick/issues/new?template=untested-camera.yml) with the reports and what you saw; the link `report` prints opens it already filled in. Please do this even if everything looks right. A crop of the seam is enough; you don't need to share whole photos.
+
+For a problem with a photo from one of the three tested cameras, use the [photo problem form](https://github.com/AkshayRao27/golblick/issues/new?template=photo-problem.yml) instead. `report` picks the right one for you.
 
 `golblick probe -v` also prints the calibration values, which are specific to your camera body. They are very useful for working out how a new model stores its lenses, so share them if you're comfortable with that, but it's your call. `probe` prints the camera's serial number too, so delete that line before posting its output.
 

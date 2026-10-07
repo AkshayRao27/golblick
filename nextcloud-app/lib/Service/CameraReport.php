@@ -19,8 +19,10 @@ use OCP\Files\File;
 use OCP\ServerVersion;
 
 /**
- * A summary of one file that is safe to paste into a public bug report: the
- * app's counterpart of `golblick report`, in the same layout.
+ * A summary of one file that is safe to paste into a public GitHub issue: the
+ * app's counterpart of `golblick report`, in the same layout. Two kinds of
+ * issue use it: a problem with a photo from a camera golblick has been tested
+ * with, and a camera it has not been tested with.
  *
  * It leaves out the file's name (Insta360 names carry the date and time), its
  * folder and the camera's serial number. Where the CLI says what a render
@@ -41,11 +43,13 @@ final class CameraReport {
 	}
 
 	/**
-	 * @return array{report: string, model: ?string, firmware: ?string} the
-	 *         report, and the two values an issue title is made from
+	 * @return array{report: string, model: ?string, firmware: ?string, tested: ?bool}
+	 *         the report; the values an issue title is made from; and whether
+	 *         golblick has been tested with this camera (null when the file was
+	 *         not readable as one), which picks the issue form
 	 */
 	public function build(File $file): array {
-		$model = $firmware = null;
+		$model = $firmware = $tested = null;
 		$lines = [sprintf('golblick app %s, Nextcloud %s, PHP %s',
 			$this->appManager->getAppVersion('golblick'), $this->serverVersion->getVersionString(), PHP_VERSION)];
 		$add = static function (string $label, string $text) use (&$lines): void {
@@ -64,7 +68,7 @@ final class CameraReport {
 		} catch (\Throwable $e) {
 			$failed('file', $e);
 
-			return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
+			return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware, 'tested' => $tested];
 		}
 
 		try {
@@ -72,7 +76,7 @@ final class CameraReport {
 				$add('vendor', 'none recognises this file');
 				$add('content', self::sniff($handle, (int)$file->getSize()));
 
-				return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
+				return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware, 'tested' => $tested];
 			}
 			$add('vendor', 'insta360');
 			try {
@@ -80,7 +84,7 @@ final class CameraReport {
 			} catch (\Throwable $e) {
 				$failed('trailer', $e);
 
-				return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
+				return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware, 'tested' => $tested];
 			}
 		} finally {
 			fclose($handle);
@@ -99,6 +103,9 @@ final class CameraReport {
 		$add('model', $model ?? '-');
 		$firmware = Protobuf::firstText($fields, Protobuf::FIRMWARE);
 		$add('firmware', $firmware ?? '-');
+		// "Tested" means a measured lens profile, the same test the CLI makes.
+		$tested = LensProfile::isMeasured($model);
+		$add('tested', $tested ? 'yes' : 'no: golblick has not been tested with this camera');
 
 		// By id, not file order, so this and the CLI's report line up.
 		$sizes = $trailer->recordSizes();
@@ -158,7 +165,7 @@ final class CameraReport {
 
 		$add('memory', 'PHP limit ' . ini_get('memory_limit'));
 
-		return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
+		return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware, 'tested' => $tested];
 	}
 
 	/**

@@ -57,7 +57,8 @@ What I can say, however, is that
 | | |
 |---|---|
 | 🧭 **Triage** | Pairs each video with its low-resolution copy (`.lrv`) and lists the clips whose full-quality video is gone, so you know what exists only in low resolution before you delete anything. Goes by filename, so it takes seconds on a whole library |
-| 🔍 **Probe** | Shows what the camera stored in a file: model, firmware, lens calibration, and which data blocks are present. Mainly useful for bug reports and for trying a new camera |
+| 🔍 **Probe** | Shows what the camera stored in a file: model, firmware, lens calibration, and which data blocks are present |
+| 📝 **Report** | Summarises a file for an issue on GitHub, without its name, folder or the camera's serial number, and links to the right form: a problem with a photo, or a camera golblick hasn't been tested with |
 | 🖼️ **Previews** | Extracts the camera's own preview, if available (e.g. the Insta360 X5 already has a stitched pano) |
 | 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled from the camera's motion sensor where possible. The seam between the lenses is placed per photo, where the two lenses agree best |
 | ☁️ **Nextcloud** | A preview app, so `.insp` stills show up as panoramas in Files, Photos and Memories, zoom included, and open as a sphere from a button. No extra server dependencies. Works alongside [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) |

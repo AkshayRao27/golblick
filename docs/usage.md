@@ -60,9 +60,14 @@ $ golblick probe IMG_20260314_090809_00_007.insp
 
 Add `-v` to print the calibration parameters themselves. The full output also includes the camera's serial number, so leave it out of anything you post publicly.
 
-## Report a problem
+## Report a problem, or a camera golblick hasn't been tested with
 
-`report` prints a summary of a file for a bug report. It leaves out the file's name (Insta360 names carry the date and time), its folder and the camera's serial number, so you can paste it as it is:
+There are two kinds of report, and `report` works out which one applies:
+
+- **A problem with a photo**, from a camera golblick has been tested with (the Insta360 OneR, X3 and X5): it renders wrongly, or doesn't open.
+- **An untested camera**: any other model. This is worth reporting whether the result looks right or not, because nobody has checked it yet.
+
+`report` prints a summary of the file. It leaves out the file's name (Insta360 names carry the date and time), its folder and the camera's serial number, so you can paste it as it is:
 
 ```sh
 $ golblick report IMG_20260314_090809_00_007.insp
@@ -73,13 +78,14 @@ file         .insp, 26.8 MiB
 vendor       insta360
 model        Insta360 X5
 firmware     v1.11.10_build1
+tested       yes
 ...
 preview      2560x1280 nv12 equirectangular
 source       11904x5952 jpeg dual-fisheye
 levelling    gravity, from this file's inertial record
 ```
 
-After the report it prints a link that opens a GitHub issue with the report already filled in; you add what you saw.
+After the report it prints a link to the right issue form on GitHub, with the report already filled in, so you only add what you saw. The `tested` line says which kind it is.
 
 If golblick can't read part of the file, that line says what failed and the rest of the report carries on. For a file it doesn't recognise at all, it says what the file looks like instead, for example a plain JPEG with none of the camera's data, or a copy whose end is all zeros.
 

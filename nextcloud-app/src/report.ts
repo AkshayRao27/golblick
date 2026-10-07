@@ -1,16 +1,22 @@
 /**
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * "Camera report" in a .insp file's actions menu: the summary the CLI prints
- * with `golblick report`, for a bug report. The server builds it
+ * "Report to golblick" in a .insp file's actions menu: the summary the CLI
+ * prints with `golblick report`. The server builds it
  * (lib/Service/CameraReport.php) and leaves out the file's name, folder and
  * the camera's serial number.
  *
- * The main button opens the camera issue form on GitHub already filled in,
- * so the person only has to say what went wrong. Issue forms take a query
- * parameter per field id (.github/ISSUE_TEMPLATE/camera.yml). The title has
- * one fixed shape, "Camera report: <model>, <firmware> (Nextcloud app)", so
- * reports can be sorted by camera at a glance.
+ * Two kinds of issue use it, and the server's `tested` flag picks one:
+ *
+ * | tested | heading                          | form                | title prefix    |
+ * |--------|----------------------------------|---------------------|-----------------|
+ * | yes    | Report a problem with this photo | photo-problem.yml   | Photo problem   |
+ * | no     | Report an untested camera        | untested-camera.yml | Untested camera |
+ *
+ * An unreadable .insp (tested is null) is a problem with a photo. The main
+ * button opens the form on GitHub already filled in; issue forms take a query
+ * parameter per field id (.github/ISSUE_TEMPLATE/). Titles have one fixed
+ * shape, "<prefix>: <model>, <firmware> (Nextcloud app)", shared with the CLI.
  *
  * A native <dialog> rather than Nextcloud's Vue dialogs: it brings focus
  * handling, Escape and the top layer with it, and costs no dependency.
@@ -22,19 +28,18 @@ export async function openReport(fileId: number): Promise<void> {
   addStyle();
   const dialog = document.createElement('dialog');
   dialog.className = 'golblick-report';
-  dialog.setAttribute('aria-label', 'Report camera');
+  dialog.setAttribute('aria-label', 'Report to golblick');
   // margin:auto is what centres a modal dialog; Nextcloud's reset removes it.
   dialog.style.cssText = 'margin:auto;max-width:min(720px,calc(100vw - 32px));width:100%;padding:20px;border:0;'
     + 'border-radius:var(--border-radius-large,16px);background:var(--color-main-background,#fff);'
     + 'color:var(--color-main-text,#222);box-shadow:0 0 40px rgba(0,0,0,.3);';
 
   const title = document.createElement('h2');
-  title.textContent = 'Report camera details to Golblick';
+  title.textContent = 'Report to golblick';
   title.style.cssText = 'margin:0 0 8px;font-size:20px;';
 
   const note = document.createElement('p');
-  note.textContent = 'Something wrong with how this photo looks or loads? Open an issue on GitHub: the button below fills in '
-    + 'the camera and this report for you, and you add what you saw. You need a GitHub account.';
+  note.textContent = '';
   note.style.cssText = 'margin:0 0 12px;color:var(--color-text-maxcontrast,#6b6b6b);';
 
   const text = document.createElement('pre');
@@ -46,7 +51,7 @@ export async function openReport(fileId: number): Promise<void> {
   const buttons = document.createElement('div');
   buttons.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:16px;';
   const copy = button('Copy', false);
-  const issue = button('Open an issue on GitHub', true);
+  const issue = button('Report on GitHub', true);
   const close = button('Close', false);
   copy.disabled = issue.disabled = true;
   buttons.append(copy, issue, close);
@@ -70,8 +75,21 @@ export async function openReport(fileId: number): Promise<void> {
       headers: { requesttoken: getRequestToken() ?? '', Accept: 'application/json' },
     });
     if (!response.ok) throw new Error(String(response.status));
-    const data: { report: string; model: string | null; firmware: string | null } = await response.json();
+    const data: Report = await response.json();
     text.textContent = data.report;
+    const untested = data.tested === false;
+    if (untested) {
+      title.textContent = 'Report an untested camera';
+      note.textContent = `golblick hasn't been tested with the ${data.model} yet. A report helps whether this photo looks `
+        + 'right or not: the button below opens an issue on GitHub with this report filled in, and you add how it looks.';
+      issue.textContent = 'Report the camera on GitHub';
+    } else {
+      title.textContent = 'Report a problem with this photo';
+      note.textContent = 'If this photo looks wrong or won\'t open, the button below opens an issue on GitHub with this '
+        + 'report filled in, and you add what\'s wrong.';
+      issue.textContent = 'Report the problem on GitHub';
+    }
+    note.textContent += ' You need a GitHub account.';
     // Fenced, so it stays a block when pasted into a GitHub issue by hand.
     report = '```\n' + data.report + '\n```';
     copy.disabled = issue.disabled = false;
@@ -97,12 +115,17 @@ export async function openReport(fileId: number): Promise<void> {
   });
 }
 
-/** The camera issue form, filled in. The report field renders as code, so it goes in unfenced. */
-function issueUrl(data: { report: string; model: string | null; firmware: string | null }): string {
+type Report = { report: string; model: string | null; firmware: string | null; tested: boolean | null };
+
+/** The right issue form, filled in. The report field renders as code, so it goes in unfenced. */
+function issueUrl(data: Report): string {
   const camera = [data.model ?? 'unrecognised file', data.firmware].filter(Boolean).join(', ');
+  const [template, prefix] = data.tested === false
+    ? ['untested-camera.yml', 'Untested camera']
+    : ['photo-problem.yml', 'Photo problem'];
   const query = new URLSearchParams({
-    template: 'camera.yml',
-    title: `Camera report: ${camera} (Nextcloud app)`,
+    template,
+    title: `${prefix}: ${camera} (Nextcloud app)`,
     camera,
     report: data.report,
     where: 'Nextcloud app',

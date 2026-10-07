@@ -275,7 +275,12 @@ def _levelling(render, vendor, path: str, calibration, mode: str):
 
 
 def cmd_report(args: argparse.Namespace) -> int:
-    """A summary of a file that is safe to paste into a public bug report.
+    """A summary of a file that is safe to paste into a public issue.
+
+    Two kinds of issue use it, and the report picks the form: a problem with
+    a photo from a camera golblick has been tested with, or a camera it has
+    not been tested with, which is worth reporting whether it works or not.
+    "Tested" means the camera has a measured lens profile.
 
     It leaves out what could identify a person: the file's name (Insta360
     names carry the date and time), the folder (people name folders after
@@ -301,6 +306,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         return text
 
     info: dict | None = None
+    recognised = False
+    tested: bool | None = None
     lines = [f"golblick {_version()}, Python {sys.version.split()[0]}"]
     add = lines.append
 
@@ -313,23 +320,34 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     size = step("file", lambda: path.stat().st_size)
     if size is None:
-        return _print_report(lines, info)
+        return _print_report(lines, info, recognised, tested, path)
     add(f"{'file':<12} {path.suffix.lower() or '(no extension)'}, {_human(size)}")
 
     vendor = detect(path)
     if vendor is None:
         add(f"{'vendor':<12} none recognises this file")
         add(f"{'content':<12} {step('content', lambda: _sniff(path)) or '-'}")
-        return _print_report(lines, info)
+        return _print_report(lines, info, recognised, tested, path)
     add(f"{'vendor':<12} {vendor.NAME}")
+    recognised = True
 
     info = step("metadata", lambda: vendor.describe(path))
     if info is None:
-        return _print_report(lines, info)
+        return _print_report(lines, info, recognised, tested, path)
     for key in ("model", "firmware"):
         add(f"{key:<12} {info.get(key) or '-'}")
     if info.get("dimensions"):
         add(f"{'dimensions':<12} {info['dimensions'][0]}x{info['dimensions'][1]}")
+
+    profile, profile_error = None, None
+    reader = getattr(vendor, "lens_profile", None)
+    if reader is not None:
+        try:
+            profile = reader(path)
+        except Exception as exc:  # noqa: BLE001
+            profile_error = exc
+    tested = profile is not None
+    add(f"{'tested':<12} {'yes' if tested else 'no: golblick has not been tested with this camera'}")
 
     trailer = info.get("trailer")
     if trailer is not None:
@@ -349,18 +367,13 @@ def cmd_report(args: argparse.Namespace) -> int:
         add(f"{label:<12} field {number} {model.kind}, {model.lens_count} lenses x "
             f"{len(model.lenses[0])} params, reference {reference[0]}x{reference[1]}")
 
-    reader = getattr(vendor, "lens_profile", None)
-    if reader is not None:
-        try:
-            profile = reader(path)
-        except Exception as exc:  # noqa: BLE001
-            add(f"{'lens':<12} failed: {type(exc).__name__}: {clean(exc)}")
-        else:
-            if profile is None:
-                add(f"{'lens':<12} not measured for this camera")
-            else:
-                correction = f", radial correction ({len(profile.radial)} terms)" if profile.radial else ""
-                add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees{correction}")
+    if profile_error is not None:
+        add(f"{'lens':<12} failed: {type(profile_error).__name__}: {clean(profile_error)}")
+    elif profile is None:
+        add(f"{'lens':<12} not measured for this camera")
+    else:
+        correction = f", radial correction ({len(profile.radial)} terms)" if profile.radial else ""
+        add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees{correction}")
 
     for label, name in (("preview", "extract_preview"), ("source", "extract_source")):
         extract = getattr(vendor, name, None)
@@ -389,7 +402,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             levelling = description
             break
     add(f"{'levelling':<12} {levelling or 'calibration only: ' + reason}")
-    return _print_report(lines, info)
+    return _print_report(lines, info, recognised, tested, path)
 
 
 def _sniff(path: Path) -> str:
@@ -416,33 +429,51 @@ def _sniff(path: Path) -> str:
     return f"begins with {head.hex()}, not a JPEG"
 
 
-#: The camera issue form; it takes a query parameter per field id.
+#: The new-issue page; each issue form takes a query parameter per field id.
 _ISSUE_FORM = "https://github.com/AkshayRao27/golblick/issues/new"
 
 
-def _print_report(lines: list[str], info: dict | None) -> int:
-    """The report on stdout, and on stderr a link that opens the issue form filled in.
+def _print_report(lines: list[str], info: dict | None, recognised: bool, tested: bool | None,
+                  path: Path) -> int:
+    """The report on stdout, and on stderr a link that opens the right issue form filled in.
 
-    The title has one fixed shape, shared with the Nextcloud app's report, so
-    reports can be sorted by camera at a glance.
+    A camera golblick has been tested with gets the photo-problem form; any
+    other camera gets the untested-camera form.  A file no vendor reads is a
+    problem if it has one of a vendor's own extensions (a damaged .insp, say)
+    and possibly a new camera otherwise.  The titles have one fixed shape each,
+    shared with the Nextcloud app, so issues can be sorted at a glance.
     """
     from urllib.parse import urlencode
+
+    from .vendors import owned_extensions
 
     report = "\n".join(lines)
     print("```")
     print(report)
     print("```")
+    if recognised:
+        problem = tested is not False
+    else:
+        problem = path.suffix.lower().lstrip(".") in owned_extensions()
     camera = ", ".join(value for value in (
         (info or {}).get("model") or "unrecognised file", (info or {}).get("firmware")) if value)
+    template, prefix = (("photo-problem.yml", "Photo problem") if problem
+                        else ("untested-camera.yml", "Untested camera"))
     query = urlencode({
-        "template": "camera.yml",
-        "title": f"Camera report: {camera} (command line)",
+        "template": template,
+        "title": f"{prefix}: {camera} (command line)",
         "camera": camera,
         "report": report,
         "where": "Command-line tool",
     })
-    print(f"\nTo report a problem, open this link, which fills in a GitHub issue with the report, "
-          f"and add what you saw:\n{_ISSUE_FORM}?{query}", file=sys.stderr)
+    if problem:
+        intro = ("If something is wrong with this photo, open this link to report it. It fills in "
+                 "a GitHub issue with the report; you add what's wrong.")
+    else:
+        intro = ("golblick hasn't been tested with this camera. A report helps whether the result "
+                 "looks right or not: open this link, which fills in a GitHub issue with the report, "
+                 "and add how it looks.")
+    print(f"\n{intro}\n{_ISSUE_FORM}?{query}", file=sys.stderr)
     return 0
 
 
@@ -565,7 +596,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = sub.add_parser(
         "report",
-        help="summarise a file for a bug report, without its name, folder or serial number",
+        help="summarise a file for a GitHub issue (a problem with a photo, or an untested "
+             "camera), without its name, folder or serial number",
     )
     report.add_argument("file")
     report.set_defaults(func=cmd_report)

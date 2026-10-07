@@ -1,0 +1,43 @@
+name: Trying a camera golblick hasn't been tested with
+description: Any 360 camera other than the Insta360 OneR, X3 and X5. Useful whether it works or not
+title: "Untested camera: "
+labels: ["untested camera"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        golblick has only been tested on the Insta360 OneR, X3 and X5. Other cameras may store things differently, so a report on any other model helps, even if everything looks right. [CONTRIBUTING.md](https://github.com/AkshayRao27/golblick/blob/main/CONTRIBUTING.md#testing-a-camera-i-dont-have) lists what to try.
+
+        The report from golblick leaves out the file's name, its folder and the camera's serial number, so it's safe to paste here. Please don't attach whole photos unless you're happy for them to be public; a crop is usually enough.
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model and firmware
+      placeholder: Insta360 X4, v1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report from golblick
+      description: From `golblick report <file>`, or "Report to golblick" in a `.insp` file's actions menu in Nextcloud Files. Both fill this in for you if you use the link they give. Reports on a few photos are better than one.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: How it looks
+      description: Does the panorama look right? Check that it's upright and not mirrored (text in the scene is the easiest tell), and that lines continue across the seam where the two lenses meet. If it didn't render at all, say what happened.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Command-line tool
+        - Nextcloud app
+        - Both
+    validations:
+      required: true

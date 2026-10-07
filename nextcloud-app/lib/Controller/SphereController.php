@@ -24,7 +24,7 @@ use OCP\IRequest;
 use OCP\IUserSession;
 
 /**
- * What the sphere viewer and the camera report in `src/` ask the server for.
+ * What the sphere viewer and the report dialog in `src/` ask the server for.
  *
  * Only for a signed-in user's own files and files shared with them: the id is
  * resolved inside the user's folder, so an id from anywhere else is a 404.
@@ -77,7 +77,7 @@ final class SphereController extends Controller {
 	}
 
 	/**
-	 * The camera report for the Files action: the same summary as the CLI's
+	 * The report for the Files action "Report to golblick": the same summary as the CLI's
 	 * `golblick report`, without the file's name, folder or serial number.
 	 */
 	#[NoAdminRequired]

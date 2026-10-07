@@ -238,8 +238,8 @@ function render(status: Status) {
     memoriesButtonNote.node,
 
     el('h4', {}, 'Files'),
-    toggle('Add "View as sphere" and "Camera report"',
-      'Adds both to a .insp file\'s actions menu, through the Files app\'s own interface for this. "Camera report" shows a summary of the file to paste into a bug report on GitHub, without the file\'s name, its folder or the camera\'s serial number.',
+    toggle('Add "View as sphere" and "Report to golblick"',
+      'Adds both to a .insp file\'s actions menu, through the Files app\'s own interface for this. "Report to golblick" opens an issue on GitHub with a summary of the file filled in: a problem with a photo, or a camera golblick hasn\'t been tested with. The summary leaves out the file\'s name, its folder and the camera\'s serial number.',
       s.sphere_files, (on) => void save({ sphere_files: on }, filesNote)),
     filesNote.node,
 

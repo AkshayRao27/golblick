@@ -46,7 +46,10 @@ def test_report_leaves_out_the_name_folder_and_serial(tmp_path, capsys):
     link = unquote_plus(captured.err)
 
     assert "Insta360 OneR" in out and "v1.1.43_build1" in out
-    assert "title=Camera report: Insta360 OneR, v1.1.43_build1 (command line)" in link
+    # A OneR has a measured lens profile, so this is a photo problem, not an untested camera.
+    assert "tested       yes" in out
+    assert "template=photo-problem.yml" in link
+    assert "title=Photo problem: Insta360 OneR, v1.1.43_build1 (command line)" in link
     for private in ("IXSE42SERIAL7", "Summer holiday", "20240513", "192749", str(tmp_path)):
         assert private not in out and private not in link
 
@@ -77,3 +80,17 @@ def test_report_says_what_an_unrecognised_file_looks_like(tmp_path, capsys):
     assert "a complete JPEG with no camera data after it" in capsys.readouterr().out
     cli.main(["report", str(damaged)])
     assert "the last 4.0 KiB are zeros" in capsys.readouterr().out
+
+
+def test_report_sends_an_unmeasured_camera_to_the_untested_camera_form(tmp_path, capsys):
+    from golblick.vendors.insta360 import METADATA
+
+    source = write_file(tmp_path / "a.insp", [(METADATA, _text_field(2, "Insta360 X4"))])
+
+    assert cli.main(["report", str(source)]) == 0
+    captured = capsys.readouterr()
+    link = unquote_plus(captured.err)
+
+    assert "tested       no" in captured.out
+    assert "template=untested-camera.yml" in link
+    assert "title=Untested camera: Insta360 X4 (command line)" in link
