@@ -1,6 +1,7 @@
 """The vendor registry: detection is by content, not by file extension."""
 
 from conftest import write_file
+
 from golblick import detect
 from golblick.vendors import VENDORS, owned_extensions
 from golblick.vendors.insta360 import METADATA

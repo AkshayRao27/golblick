@@ -1,4 +1,5 @@
 from conftest import build_exif_jpeg, write_file
+
 from golblick import cli
 
 FAKE_THUMBNAIL = b"\xff\xd8\xff\xdbthumbnail bytes\xff\xd9"

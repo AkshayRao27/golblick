@@ -254,7 +254,7 @@ def test_the_tilt_is_applied_in_the_lens_own_frame():
     """
     tilts = ((0.0, 0.0), (numpy.deg2rad(3.0), 0.0))
     image, lenses = synthetic_pair(size=512, tilts=tilts)
-    untilted = tuple(render.Lens(l.radius, l.centre_x, l.centre_y) for l in lenses)
+    untilted = tuple(render.Lens(lens.radius, lens.centre_x, lens.centre_y) for lens in lenses)
     wrong_frame = (lenses[0], render.Lens(lenses[1].radius, lenses[1].centre_x,
                                           lenses[1].centre_y, tilt=(-tilts[1][0], 0.0)))
 
@@ -279,9 +279,9 @@ def test_a_radial_correction_is_applied_where_the_lens_recorded_it():
     curve = 2.5 * numpy.sin(numpy.pi * grid / 120.0) ** 2 * numpy.exp(-((grid - 60) / 40) ** 2)
     curve = tuple(float(v) for v in curve)
     image, lenses = synthetic_pair(size=512, radial=curve)
-    plain = tuple(render.Lens(l.radius, l.centre_x, l.centre_y) for l in lenses)
-    reversed_ = tuple(render.Lens(l.radius, l.centre_x, l.centre_y,
-                                  radial=tuple(-v for v in curve)) for l in lenses)
+    plain = tuple(render.Lens(lens.radius, lens.centre_x, lens.centre_y) for lens in lenses)
+    reversed_ = tuple(render.Lens(lens.radius, lens.centre_x, lens.centre_y,
+                                  radial=tuple(-v for v in curve)) for lens in lenses)
 
     def score(pair):
         _, hemispheres = render.equirectangular(image, pair, (512, 256), 194.0)
@@ -350,8 +350,8 @@ def test_spinning_both_lenses_the_same_way_is_not_a_rotation():
     """
     image, lenses = synthetic_pair()
     both = tuple(
-        render.Lens(l.radius, l.centre_x, l.centre_y, spin=l.spin + numpy.deg2rad(30))
-        for l in lenses
+        render.Lens(lens.radius, lens.centre_x, lens.centre_y, spin=lens.spin + numpy.deg2rad(30))
+        for lens in lenses
     )
 
     _, plain = render.equirectangular(image, lenses, (256, 128), 194.0)
@@ -615,7 +615,9 @@ def test_routing_declines_when_there_is_nothing_to_route_around():
     for index, lens in enumerate(lenses):
         u, v, theta = render._project(rays, lens, index, theta_max)
         sampled.append((render._sample(image, u, v, theta <= theta_max), theta <= theta_max))
-    grey = lambda p: p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114
+    def grey(p):
+        return p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114
+
     z = numpy.clip(rays[..., 2], -1, 1)
 
     offset = render._seam_offset(

@@ -5,6 +5,7 @@
 ```sh
 uv sync --group dev && uv run pytest -q                    # without numpy: rendering tests skip
 uv sync --group dev --extra render && uv run pytest -q     # with the render extra
+uv run ruff check src tests                                # lint
 ```
 
 Run it both ways. The library and CLI promise to run with no dependencies, and that promise is only real if the suite also passes without numpy installed. With numpy present, a test that should have been skipped looks the same as one that passed.

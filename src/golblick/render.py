@@ -474,7 +474,9 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     # bisector.  Below this the seam is not visible anyway.
     offset = None
     if len(lenses) == 2 and width >= _SEAM_MIN_WIDTH:
-        grey = lambda p: p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114
+        def grey(p):
+            return p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114
+
         both = sampled[0][1] & sampled[1][1]
         z = numpy.clip(rays[..., 2], -1, 1)
         offset = _seam_offset(
@@ -490,7 +492,7 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
         share = numpy.clip(
             (feather - ((2 * numpy.arccos(numpy.clip(rays[..., 2], -1, 1)) - numpy.pi)
                         - offset)) / (2 * feather), 0, 1)
-        for index, ((pixels, valid), theta) in enumerate(zip(sampled, thetas)):
+        for index, ((pixels, valid), theta) in enumerate(zip(sampled, thetas, strict=True)):
             weight = (share if index == 0 else 1.0 - share)
             weight = weight * numpy.clip((theta_max - theta) / feather, 0, 1) * valid
             total += pixels * weight[..., None]
@@ -499,7 +501,7 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
         return blended.astype(numpy.float32), hemispheres
 
     closest = numpy.minimum.reduce(thetas)
-    for (pixels, valid), theta in zip(sampled, thetas):
+    for (pixels, valid), theta in zip(sampled, thetas, strict=True):
         weight = numpy.clip((closest + feather - theta) / feather, 0, 1)
         # Keep the rim taper as well.  Inside the overlap it is already 1
         # wherever the cross-fade is non-zero, so it changes nothing there; it

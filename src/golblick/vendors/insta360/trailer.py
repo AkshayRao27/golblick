@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
 from ...errors import FormatError, UnsupportedFile
@@ -159,7 +160,7 @@ def _read_index(blob: bytes, end: int) -> list[Record] | None:
         records.append(Record(entry_id, offset, entry_size, blob[offset:footer]))
 
     records.sort(key=lambda record: record.offset)
-    for before, after in zip(records, records[1:]):
+    for before, after in pairwise(records):
         if before.offset + before.size + _REC_FOOTER.size > after.offset:
             return None
     if not records or records[-1].offset + records[-1].size + _REC_FOOTER.size != index_start:

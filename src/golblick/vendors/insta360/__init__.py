@@ -25,6 +25,7 @@ DESCRIPTION = "Insta360 .insp / .insv / .lrv"
 __all__ = [
     "DESCRIPTION",
     "EXTENSIONS",
+    "LensProfile",
     "MAGIC",
     "METADATA",
     "NAME",
@@ -39,6 +40,7 @@ __all__ = [
     "extract_thumbnail",
     "gravity_up",
     "gravity_up_nearby",
+    "lens_profile",
     "matches",
     "read_trailer",
 ]

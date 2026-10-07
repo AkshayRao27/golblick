@@ -160,4 +160,4 @@ def test_body_roll_refuses_a_model_whose_interior_is_unknown():
     model = parse(POLYNOMIAL, metadata.CALIBRATION_POLY)
 
     with pytest.raises(CalibrationError):
-        model.body_roll
+        model.body_roll  # noqa: B018 -- the access is what raises

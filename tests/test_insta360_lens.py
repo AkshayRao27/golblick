@@ -1,11 +1,12 @@
 """Per-model lens profiles: read from the right camera, sane, and identical in the port."""
 
 import re
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
-
 from conftest import write_file
+
 from golblick.vendors.insta360 import lens
 from golblick.vendors.insta360.trailer import METADATA
 
@@ -39,7 +40,7 @@ def test_a_radial_correction_keeps_the_lens_monotone(model):
         pytest.skip(f"{model} has no measured correction")
     assert table[0] == 0.0
     mapped = [i * STEP + e for i, e in enumerate(table)]
-    assert all(b > a for a, b in zip(mapped, mapped[1:]))
+    assert all(b > a for a, b in pairwise(mapped))
 
 
 def test_the_preview_provider_carries_the_same_table():

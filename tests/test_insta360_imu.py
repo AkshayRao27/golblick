@@ -7,8 +7,8 @@ chosen so that a wrong stride cannot accidentally produce a valid-looking read.
 import struct
 
 import pytest
-
 from conftest import write_file
+
 from golblick.errors import FormatError
 from golblick.vendors.insta360 import imu
 from golblick.vendors.insta360.trailer import IMU, METADATA
@@ -159,7 +159,7 @@ def test_the_two_measured_cameras_read_the_same_thing_differently(tmp_path):
         ])
         ups.append(imu.gravity_up(path))
 
-    agreement = sum(a * b for a, b in zip(*ups))
+    agreement = sum(a * b for a, b in zip(*ups, strict=True))
     assert abs(agreement) < 0.01, (
         f"the two mappings should send the same reading somewhere different, got {ups}"
     )

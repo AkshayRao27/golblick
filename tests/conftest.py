@@ -54,7 +54,7 @@ def build_indexed_trailer(records, *, gaps=(), version=3, pad=32):
     """
     body = b""
     entries = {}
-    for (record_id, data), gap in zip(records, list(gaps) + [b""] * len(records)):
+    for (record_id, data), gap in zip(records, list(gaps) + [b""] * len(records), strict=False):
         body += gap
         entries[record_id >> 8] = struct.pack(">H", record_id) + struct.pack("<II", len(data), len(body))
         body += data + struct.pack("<HI", record_id, len(data))

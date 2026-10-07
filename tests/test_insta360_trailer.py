@@ -1,8 +1,8 @@
 import struct
 
 import pytest
+from conftest import write_file
 
-from conftest import build_trailer, write_file
 from golblick.errors import FormatError, UnsupportedFile
 from golblick.vendors.insta360.trailer import METADATA, read_trailer
 

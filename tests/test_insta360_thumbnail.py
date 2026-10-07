@@ -1,6 +1,6 @@
 import pytest
-
 from conftest import build_exif_jpeg
+
 from golblick.vendors.insta360.thumbnail import ThumbnailError, extract
 
 FAKE_THUMBNAIL = b"\xff\xd8\xff\xdbthumbnail bytes\xff\xd9"

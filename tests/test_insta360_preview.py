@@ -1,8 +1,8 @@
 import struct
 
 import pytest
-
 from conftest import write_file
+
 from golblick.errors import FormatError, ThumbnailError
 from golblick.vendors.insta360 import preview
 from golblick.vendors.insta360.trailer import METADATA

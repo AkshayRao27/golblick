@@ -32,6 +32,7 @@ When a measurement overturns something in a notes file, record the correction ne
 ```sh
 uv sync --group dev && uv run pytest -q                    # without numpy
 uv sync --group dev --extra render && uv run pytest -q     # with the render extra
+uv run ruff check src tests                                # lint
 uv run golblick --help
 find nextcloud-app/lib -name '*.php' -exec php -l {} \;     # the PHP has no test suite; lint it
 (cd nextcloud-app && npm ci && npm run typecheck && npm run build)   # the sphere viewer; commit js/
