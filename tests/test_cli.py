@@ -1,3 +1,5 @@
+from urllib.parse import unquote_plus
+
 from conftest import build_exif_jpeg, write_file
 
 from golblick import cli
@@ -38,11 +40,15 @@ def test_report_leaves_out_the_name_folder_and_serial(tmp_path, capsys):
     source = write_file(folder / "IMG_20240513_192749_00_004.insp", [(METADATA, metadata)])
 
     assert cli.main(["report", str(source)]) == 0
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    out = captured.out
+    # The issue link on stderr carries the report too, URL-encoded.
+    link = unquote_plus(captured.err)
 
     assert "Insta360 OneR" in out and "v1.1.43_build1" in out
+    assert "title=Camera report: Insta360 OneR, v1.1.43_build1 (command line)" in link
     for private in ("IXSE42SERIAL7", "Summer holiday", "20240513", "192749", str(tmp_path)):
-        assert private not in out
+        assert private not in out and private not in link
 
 
 def test_report_carries_on_past_a_failure_and_hides_the_path(tmp_path, capsys):

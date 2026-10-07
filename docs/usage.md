@@ -79,6 +79,8 @@ source       11904x5952 jpeg dual-fisheye
 levelling    gravity, from this file's inertial record
 ```
 
+After the report it prints a link that opens a GitHub issue with the report already filled in; you add what you saw.
+
 If golblick can't read part of the file, that line says what failed and the rest of the report carries on. For a file it doesn't recognise at all, it says what the file looks like instead, for example a plain JPEG with none of the camera's data, or a copy whose end is all zeros.
 
 ## Get the camera's own preview

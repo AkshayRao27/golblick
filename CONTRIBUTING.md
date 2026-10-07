@@ -9,7 +9,7 @@ This is the most useful contribution right now. Everything has been tested on st
 If you have a different 360 camera, or one of those three with different firmware, please try this:
 
 1. Install with rendering support: `uv tool install 'golblick[render]'` (or `pipx install 'golblick[render]'`).
-2. Run `golblick report <file>` on a few stills. It prints a summary that is safe to paste into an issue: it leaves out the file's name, its folder and the camera's serial number. If something fails, the report says where, and carries on.
+2. Run `golblick report <file>` on a few stills. It prints a summary that is safe to paste into an issue: it leaves out the file's name, its folder and the camera's serial number. If something fails, the report says where, and carries on. It also prints a link that opens the issue with the report filled in.
 3. Run `golblick render <file> -o test.jpg` and look at the result in a 360 viewer, or as a flat image. Check that it is upright and not mirrored (text in the scene is the easiest tell), that horizons and straight lines continue across the seam where the two lenses meet, and what the *lens agreement* line says. Around +0.7 to +0.9 is a correct projection, and near +0.02 means the geometry is wrong.
 4. If `golblick preview <file>` reports an equirectangular preview, your camera embeds its own stitch, and comparing the two is very helpful.
 

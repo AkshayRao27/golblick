@@ -40,7 +40,12 @@ final class CameraReport {
 	) {
 	}
 
-	public function build(File $file): string {
+	/**
+	 * @return array{report: string, model: ?string, firmware: ?string} the
+	 *         report, and the two values an issue title is made from
+	 */
+	public function build(File $file): array {
+		$model = $firmware = null;
 		$lines = [sprintf('golblick app %s, Nextcloud %s, PHP %s',
 			$this->appManager->getAppVersion('golblick'), $this->serverVersion->getVersionString(), PHP_VERSION)];
 		$add = static function (string $label, string $text) use (&$lines): void {
@@ -59,7 +64,7 @@ final class CameraReport {
 		} catch (\Throwable $e) {
 			$failed('file', $e);
 
-			return implode("\n", $lines);
+			return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
 		}
 
 		try {
@@ -67,7 +72,7 @@ final class CameraReport {
 				$add('vendor', 'none recognises this file');
 				$add('content', self::sniff($handle, (int)$file->getSize()));
 
-				return implode("\n", $lines);
+				return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
 			}
 			$add('vendor', 'insta360');
 			try {
@@ -75,7 +80,7 @@ final class CameraReport {
 			} catch (\Throwable $e) {
 				$failed('trailer', $e);
 
-				return implode("\n", $lines);
+				return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
 			}
 		} finally {
 			fclose($handle);
@@ -92,7 +97,8 @@ final class CameraReport {
 		}
 		$model = Protobuf::firstText($fields, Protobuf::MODEL);
 		$add('model', $model ?? '-');
-		$add('firmware', Protobuf::firstText($fields, Protobuf::FIRMWARE) ?? '-');
+		$firmware = Protobuf::firstText($fields, Protobuf::FIRMWARE);
+		$add('firmware', $firmware ?? '-');
 
 		// By id, not file order, so this and the CLI's report line up.
 		$sizes = $trailer->recordSizes();
@@ -152,7 +158,7 @@ final class CameraReport {
 
 		$add('memory', 'PHP limit ' . ini_get('memory_limit'));
 
-		return implode("\n", $lines);
+		return ['report' => implode("\n", $lines), 'model' => $model, 'firmware' => $firmware];
 	}
 
 	/**

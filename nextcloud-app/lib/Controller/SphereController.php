@@ -88,7 +88,7 @@ final class SphereController extends Controller {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
 		}
 
-		return new JSONResponse(['report' => $this->report->build($file)]);
+		return new JSONResponse($this->report->build($file));
 	}
 
 	private function file(int $id): ?File {

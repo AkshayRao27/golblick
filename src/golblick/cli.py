@@ -300,6 +300,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             text = text.replace(value, replacement)
         return text
 
+    info: dict | None = None
     lines = [f"golblick {_version()}, Python {sys.version.split()[0]}"]
     add = lines.append
 
@@ -312,19 +313,19 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     size = step("file", lambda: path.stat().st_size)
     if size is None:
-        return _print_report(lines)
+        return _print_report(lines, info)
     add(f"{'file':<12} {path.suffix.lower() or '(no extension)'}, {_human(size)}")
 
     vendor = detect(path)
     if vendor is None:
         add(f"{'vendor':<12} none recognises this file")
         add(f"{'content':<12} {step('content', lambda: _sniff(path)) or '-'}")
-        return _print_report(lines)
+        return _print_report(lines, info)
     add(f"{'vendor':<12} {vendor.NAME}")
 
     info = step("metadata", lambda: vendor.describe(path))
     if info is None:
-        return _print_report(lines)
+        return _print_report(lines, info)
     for key in ("model", "firmware"):
         add(f"{key:<12} {info.get(key) or '-'}")
     if info.get("dimensions"):
@@ -388,7 +389,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             levelling = description
             break
     add(f"{'levelling':<12} {levelling or 'calibration only: ' + reason}")
-    return _print_report(lines)
+    return _print_report(lines, info)
 
 
 def _sniff(path: Path) -> str:
@@ -415,12 +416,33 @@ def _sniff(path: Path) -> str:
     return f"begins with {head.hex()}, not a JPEG"
 
 
-def _print_report(lines: list[str]) -> int:
+#: The camera issue form; it takes a query parameter per field id.
+_ISSUE_FORM = "https://github.com/AkshayRao27/golblick/issues/new"
+
+
+def _print_report(lines: list[str], info: dict | None) -> int:
+    """The report on stdout, and on stderr a link that opens the issue form filled in.
+
+    The title has one fixed shape, shared with the Nextcloud app's report, so
+    reports can be sorted by camera at a glance.
+    """
+    from urllib.parse import urlencode
+
+    report = "\n".join(lines)
     print("```")
-    print("\n".join(lines))
+    print(report)
     print("```")
-    print("This leaves out the file's name, its folder and the camera's serial number.",
-          file=sys.stderr)
+    camera = ", ".join(value for value in (
+        (info or {}).get("model") or "unrecognised file", (info or {}).get("firmware")) if value)
+    query = urlencode({
+        "template": "camera.yml",
+        "title": f"Camera report: {camera} (command line)",
+        "camera": camera,
+        "report": report,
+        "where": "Command-line tool",
+    })
+    print(f"\nTo report a problem, open this link, which fills in a GitHub issue with the report, "
+          f"and add what you saw:\n{_ISSUE_FORM}?{query}", file=sys.stderr)
     return 0
 
 

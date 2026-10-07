@@ -95,7 +95,7 @@ Once `.insp` counts as JPEG, every app that works on photos treats these files a
 
 ## Reporting a problem
 
-In Files, a `.insp` file's actions menu has **Camera report**. It shows a summary of the file and what the app does with it, with a button to copy it, ready to paste into a [camera report on GitHub](https://github.com/AkshayRao27/golblick/issues/new?template=camera.yml). It leaves out the file's name, its folder and the camera's serial number. It's switched on and off together with the Files "View as sphere" entry on the settings page.
+In Files, a `.insp` file's actions menu has **Camera report**. It shows a summary of the file and what the app does with it, and a button that opens a [camera report on GitHub](https://github.com/AkshayRao27/golblick/issues/new?template=camera.yml) with the summary already filled in, so you only add what you saw. It leaves out the file's name, its folder and the camera's serial number. It's switched on and off together with the Files "View as sphere" entry on the settings page.
 
 ## Licence
 
