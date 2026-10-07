@@ -274,6 +274,156 @@ def _levelling(render, vendor, path: str, calibration, mode: str):
     )
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    """A summary of a file that is safe to paste into a public bug report.
+
+    It leaves out what could identify a person: the file's name (Insta360
+    names carry the date and time), the folder (people name folders after
+    places and trips) and the camera's serial number.  What is left is the
+    structure of the file and what golblick made of it.
+
+    Every step reports its own failure and the report carries on, because the
+    files people report are the ones that fail somewhere, and where it stops
+    is the useful part.
+    """
+    path = Path(args.file)
+    # Longest first, so a full path is replaced whole before its folder is.
+    hide = sorted(
+        {(str(path), "<file>"), (str(path.resolve()), "<file>"), (path.name, "<file>"),
+         (str(path.resolve().parent), "<folder>")} - {("", "<file>"), (".", "<folder>")},
+        key=lambda pair: len(pair[0]), reverse=True,
+    )
+
+    def clean(exc: BaseException) -> str:
+        text = str(exc)
+        for value, replacement in hide:
+            text = text.replace(value, replacement)
+        return text
+
+    lines = [f"golblick {_version()}, Python {sys.version.split()[0]}"]
+    add = lines.append
+
+    def step(label: str, read):
+        try:
+            return read()
+        except Exception as exc:  # noqa: BLE001 -- every failure is part of the report
+            add(f"{label:<12} failed: {type(exc).__name__}: {clean(exc)}")
+            return None
+
+    size = step("file", lambda: path.stat().st_size)
+    if size is None:
+        return _print_report(lines)
+    add(f"{'file':<12} {path.suffix.lower() or '(no extension)'}, {_human(size)}")
+
+    vendor = detect(path)
+    if vendor is None:
+        add(f"{'vendor':<12} none recognises this file")
+        add(f"{'content':<12} {step('content', lambda: _sniff(path)) or '-'}")
+        return _print_report(lines)
+    add(f"{'vendor':<12} {vendor.NAME}")
+
+    info = step("metadata", lambda: vendor.describe(path))
+    if info is None:
+        return _print_report(lines)
+    for key in ("model", "firmware"):
+        add(f"{key:<12} {info.get(key) or '-'}")
+    if info.get("dimensions"):
+        add(f"{'dimensions':<12} {info['dimensions'][0]}x{info['dimensions'][1]}")
+
+    trailer = info.get("trailer")
+    if trailer is not None:
+        add(f"{'trailer':<12} version {trailer.version}, {_human(trailer.size)}, pad {trailer.pad}")
+        # By id, not file order, so this and the Nextcloud app's report line up.
+        for index, record in enumerate(sorted(trailer.records, key=lambda record: record.id)):
+            label = "records" if index == 0 else ""
+            add(f"{label:<12} 0x{record.id:04x} {record.name:<16} {record.size:>9} bytes")
+
+    calibrations = info.get("calibrations") or {}
+    if not calibrations:
+        add(f"{'calibration':<12} none")
+    for index, number in enumerate(sorted(calibrations)):
+        model = calibrations[number]
+        reference = model.reference_frame
+        label = "calibration" if index == 0 else ""
+        add(f"{label:<12} field {number} {model.kind}, {model.lens_count} lenses x "
+            f"{len(model.lenses[0])} params, reference {reference[0]}x{reference[1]}")
+
+    reader = getattr(vendor, "lens_profile", None)
+    if reader is not None:
+        try:
+            profile = reader(path)
+        except Exception as exc:  # noqa: BLE001
+            add(f"{'lens':<12} failed: {type(exc).__name__}: {clean(exc)}")
+        else:
+            if profile is None:
+                add(f"{'lens':<12} not measured for this camera")
+            else:
+                correction = f", radial correction ({len(profile.radial)} terms)" if profile.radial else ""
+                add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees{correction}")
+
+    for label, name in (("preview", "extract_preview"), ("source", "extract_source")):
+        extract = getattr(vendor, name, None)
+        if extract is not None:
+            image = step(label, lambda extract=extract: extract(path))
+            if image is not None:
+                add(f"{label:<12} {image.width}x{image.height} {image.encoding} {image.layout}")
+
+    # The same order the renderer tries, so the report says what a render
+    # would actually do.
+    routes = (
+        (getattr(vendor, "gravity_up", None), "gravity, from this file's inertial record"),
+        (getattr(vendor, "gravity_up_nearby", None),
+         "gravity, from another frame of the same shutter press"),
+    )
+    levelling = None
+    reason = "no inertial reader for this vendor"
+    for reader, description in routes:
+        if reader is None:
+            continue
+        try:
+            reader(path)
+        except Exception as exc:  # noqa: BLE001
+            reason = clean(exc)
+        else:
+            levelling = description
+            break
+    add(f"{'levelling':<12} {levelling or 'calibration only: ' + reason}")
+    return _print_report(lines)
+
+
+def _sniff(path: Path) -> str:
+    """What an unrecognised file looks like, from its first and last bytes.
+
+    Two kinds of file turned up in practice: a plain JPEG with none of the
+    camera's data (an export, or an edit saved over the original), and a copy
+    whose end is zeros, which is damage rather than a format.
+    """
+    with path.open("rb") as handle:
+        head = handle.read(3)
+        handle.seek(0, 2)
+        size = handle.tell()
+        handle.seek(max(0, size - 65536))
+        tail = handle.read()
+    zeros = len(tail) - len(tail.rstrip(b"\0"))
+    if zeros >= 1024:
+        amount = f"at least {_human(zeros)}" if zeros == len(tail) else _human(zeros)
+        return f"the last {amount} are zeros: damaged or incompletely copied"
+    if head == b"\xff\xd8\xff":
+        if tail.endswith(b"\xff\xd9"):
+            return "a complete JPEG with no camera data after it"
+        return "begins like a JPEG, but does not end like one"
+    return f"begins with {head.hex()}, not a JPEG"
+
+
+def _print_report(lines: list[str]) -> int:
+    print("```")
+    print("\n".join(lines))
+    print("```")
+    print("This leaves out the file's name, its folder and the camera's serial number.",
+          file=sys.stderr)
+    return 0
+
+
 def _require_render_extra() -> None:
     """Fail with an instruction, not an ImportError from three frames down."""
     missing = []
@@ -390,6 +540,13 @@ def build_parser() -> argparse.ArgumentParser:
                            "calibration; imu and calibration force one and fail rather "
                            "than fall back (default: %(default)s)")
     pano.set_defaults(func=cmd_render)
+
+    report = sub.add_parser(
+        "report",
+        help="summarise a file for a bug report, without its name, folder or serial number",
+    )
+    report.add_argument("file")
+    report.set_defaults(func=cmd_report)
 
     listing = sub.add_parser("vendors", help="list supported formats")
     listing.set_defaults(func=cmd_vendors)

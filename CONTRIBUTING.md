@@ -9,15 +9,15 @@ This is the most useful contribution right now. Everything has been tested on st
 If you have a different 360 camera, or one of those three with different firmware, please try this:
 
 1. Install with rendering support: `uv tool install 'golblick[render]'` (or `pipx install 'golblick[render]'`).
-2. Run `golblick probe <file>` on a few stills. If it fails, the error message is the useful part.
+2. Run `golblick report <file>` on a few stills. It prints a summary that is safe to paste into an issue: it leaves out the file's name, its folder and the camera's serial number. If something fails, the report says where, and carries on.
 3. Run `golblick render <file> -o test.jpg` and look at the result in a 360 viewer, or as a flat image. Check that it is upright and not mirrored (text in the scene is the easiest tell), that horizons and straight lines continue across the seam where the two lenses meet, and what the *lens agreement* line says. Around +0.7 to +0.9 is a correct projection, and near +0.02 means the geometry is wrong.
 4. If `golblick preview <file>` reports an equirectangular preview, your camera embeds its own stitch, and comparing the two is very helpful.
 
-Then open an issue with the camera model and firmware, the command output, and what you saw. A crop of the seam is enough; you don't need to share whole photos.
+Then [open a camera report](https://github.com/AkshayRao27/golblick/issues/new?template=camera.yml) with the reports and what you saw. A crop of the seam is enough; you don't need to share whole photos.
 
-⚠️ `probe` prints the camera's serial number. Delete that line before posting. `probe -v` also prints the calibration values, which are specific to your camera body. They are very useful for working out how a new model stores its lenses, so share them if you're comfortable with that, but it's your call.
+`golblick probe -v` also prints the calibration values, which are specific to your camera body. They are very useful for working out how a new model stores its lenses, so share them if you're comfortable with that, but it's your call. `probe` prints the camera's serial number too, so delete that line before posting its output.
 
-Video isn't rendered yet, but `triage` and `probe` work on it, and reports on those are welcome too.
+Video isn't rendered yet, but `triage`, `probe` and `report` work on it, and reports on those are welcome too.
 
 ## Code
 

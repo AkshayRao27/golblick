@@ -60,6 +60,27 @@ $ golblick probe IMG_20260314_090809_00_007.insp
 
 Add `-v` to print the calibration parameters themselves. The full output also includes the camera's serial number, so leave it out of anything you post publicly.
 
+## Report a problem
+
+`report` prints a summary of a file for a bug report. It leaves out the file's name (Insta360 names carry the date and time), its folder and the camera's serial number, so you can paste it as it is:
+
+```sh
+$ golblick report IMG_20260314_090809_00_007.insp
+```
+```
+golblick 0.1.0, Python 3.13.15
+file         .insp, 26.8 MiB
+vendor       insta360
+model        Insta360 X5
+firmware     v1.11.10_build1
+...
+preview      2560x1280 nv12 equirectangular
+source       11904x5952 jpeg dual-fisheye
+levelling    gravity, from this file's inertial record
+```
+
+If golblick can't read part of the file, that line says what failed and the rest of the report carries on. For a file it doesn't recognise at all, it says what the file looks like instead, for example a plain JPEG with none of the camera's data, or a copy whose end is all zeros.
+
 ## Get the camera's own preview
 
 Insta360 stills carry the camera's own preview, which is larger and more useful than the 320×160 EXIF thumbnail:
