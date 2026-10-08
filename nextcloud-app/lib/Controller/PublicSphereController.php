@@ -8,7 +8,9 @@ declare(strict_types=1);
 
 namespace OCA\Golblick\Controller;
 
+use OCA\Golblick\Http\RangeFileResponse;
 use OCA\Golblick\Service\PanoramaStore;
+use OCA\Golblick\Service\VideoStore;
 use OCA\Golblick\Service\Settings;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
@@ -51,6 +53,7 @@ final class PublicSphereController extends PublicShareController {
 		private IManager $shareManager,
 		private PanoramaStore $store,
 		private Settings $settings,
+		private VideoStore $videos,
 	) {
 		parent::__construct($appName, $request, $session);
 	}
@@ -82,13 +85,29 @@ final class PublicSphereController extends PublicShareController {
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/sphere/{fileId}/info', requirements: ['fileId' => '\d+'])]
 	public function info(string $token, int $fileId): JSONResponse {
 		[$file, $path] = $this->file($fileId);
-		$sphere = $file !== null && PanoramaStore::isCandidate($file);
+		$answer = SphereController::describe($file, $this->videos);
 
-		return new JSONResponse([
-			'sphere' => $sphere,
-			'etag' => $sphere ? $file->getEtag() : null,
-			'path' => $sphere ? $path : null,
-		]);
+		return new JSONResponse($answer + ['path' => $answer['sphere'] ? $path : null]);
+	}
+
+	#[PublicPage]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/video/{fileId}', requirements: ['fileId' => '\d+'])]
+	public function video(string $token, int $fileId): Response {
+		[$file] = $this->file($fileId);
+		$master = $file === null ? null : VideoStore::master($file);
+		// The partner has to be in the share too, or a share of one lens file would expose the other.
+		if ($master !== null && $master->getId() !== $file->getId() && $this->file($master->getId())[0] === null) {
+			$master = null;
+		}
+		$path = $master === null ? null : $this->videos->ready($master);
+		if ($path === null) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		$response = new RangeFileResponse($path, 'video/mp4', $this->request->getHeader('Range') ?: null);
+		$response->cacheFor(3600 * 24, false, false);
+
+		return $response;
 	}
 
 	#[PublicPage]

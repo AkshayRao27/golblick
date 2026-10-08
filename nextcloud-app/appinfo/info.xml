@@ -11,7 +11,7 @@ The camera stores the two lenses' fisheye images rather than a panorama, so this
 
 ⚠️ Needs `"insp": ["image/jpeg"]` added to `config/mimetypemapping.json`, which has side effects. Read the README before installing. The app's admin settings page can add it for you, and checks the rest of the setup.
     ]]></description>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
     <licence>agpl</licence>
     <author>Akshay Rao</author>
     <namespace>Golblick</namespace>
@@ -24,6 +24,7 @@ The camera stores the two lenses' fisheye images rather than a panorama, so this
     </dependencies>
     <background-jobs>
         <job>OCA\Golblick\BackgroundJob\Prerender</job>
+        <job>OCA\Golblick\BackgroundJob\VideoRender</job>
     </background-jobs>
     <settings>
         <admin>OCA\Golblick\Settings\Admin</admin>

@@ -24,6 +24,13 @@ final class Settings {
 	public const ZOOM_WIDTHS = [1024, 2048, 3072, 4096];
 	public const DEFAULT_ZOOM_WIDTH = 4096;
 
+	/**
+	 * Stitched video widths. H.264 wider than 4096 often won't play in a
+	 * browser, and below 2880 looking around gets soft.
+	 */
+	public const VIDEO_WIDTHS = [2880, 3840];
+	public const DEFAULT_VIDEO_WIDTH = 3840;
+
 	private const FLAGS = [
 		'memories_zoom' => true,
 		'sphere_files' => true,
@@ -31,6 +38,7 @@ final class Settings {
 		'sphere_memories' => true,
 		'sphere_public' => true,
 		'prerender' => false,
+		'video_render' => false,
 	];
 
 	public function __construct(
@@ -52,6 +60,20 @@ final class Settings {
 		$this->appConfig->setValueString(Application::APP_ID, 'zoom_width', (string)$width);
 	}
 
+	/** Width of the stitched copies of videos. */
+	public function videoWidth(): int {
+		$configured = (int)$this->appConfig->getValueString(Application::APP_ID, 'video_width', (string)self::DEFAULT_VIDEO_WIDTH);
+
+		return in_array($configured, self::VIDEO_WIDTHS, true) ? $configured : self::DEFAULT_VIDEO_WIDTH;
+	}
+
+	public function setVideoWidth(int $width): void {
+		if (!in_array($width, self::VIDEO_WIDTHS, true)) {
+			throw new \InvalidArgumentException('video_width must be one of ' . implode(', ', self::VIDEO_WIDTHS));
+		}
+		$this->appConfig->setValueString(Application::APP_ID, 'video_width', (string)$width);
+	}
+
 	public function flag(string $name): bool {
 		if (!array_key_exists($name, self::FLAGS)) {
 			throw new \InvalidArgumentException("unknown setting $name");
@@ -70,7 +92,7 @@ final class Settings {
 
 	/** @return array<string, bool|int> */
 	public function all(): array {
-		$out = ['zoom_width' => $this->zoomWidth()];
+		$out = ['zoom_width' => $this->zoomWidth(), 'video_width' => $this->videoWidth()];
 		foreach (array_keys(self::FLAGS) as $name) {
 			$out[$name] = $this->flag($name);
 		}

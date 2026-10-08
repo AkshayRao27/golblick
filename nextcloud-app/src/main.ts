@@ -28,7 +28,7 @@
  * buttons go through the share's token instead (config.share; see overlay.ts).
  */
 import { mdiClipboardTextOutline, mdiPanoramaSphereOutline } from '@mdi/js';
-import { registerFileAction } from '@nextcloud/files';
+import { DefaultType, registerFileAction } from '@nextcloud/files';
 
 import { config, info, openSphere, svgIcon } from './overlay';
 
@@ -36,6 +36,7 @@ const LABEL = 'View as sphere';
 const BUTTON_CLASS = 'golblick-sphere-button';
 
 const isInsp = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insp');
+const isInsv = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insv');
 
 // ---- Files: a proper file action -------------------------------------------
 
@@ -50,6 +51,24 @@ if (config.files) registerFileAction({
     return null;
   },
   order: 50,
+});
+
+// Videos: the same sphere, playing. The default action for an .insv, so a
+// click plays it; nothing else in Nextcloud can (see Preview/Insta360Video.php).
+if (config.files) registerFileAction({
+  id: 'golblick-video',
+  displayName: () => 'Play as sphere',
+  iconSvgInline: () => svgIcon(mdiPanoramaSphereOutline),
+  enabled: ({ nodes }) => nodes.length === 1 && isInsv(nodes[0].basename) && nodes[0].fileid !== undefined,
+  exec: async ({ nodes }) => {
+    const node = nodes[0];
+    openSphere(Number(node.fileid), String(node.attributes?.etag ?? ''), node.basename, true);
+    return null;
+  },
+  default: DefaultType.DEFAULT,
+  // Files' own Download is a default action too, with no order; the first by
+  // order wins, so this has to sort ahead of it.
+  order: -1000,
 });
 
 // Under the same switch: it lives in the same menu, through the same API. Not

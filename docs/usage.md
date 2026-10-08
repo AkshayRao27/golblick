@@ -70,7 +70,7 @@ There are two kinds of report, and `report` works out which one applies. For the
 $ golblick report IMG_20260314_090809_00_007.insp
 ```
 ```
-golblick 0.3.0, Python 3.13.15
+golblick 0.4.0, Python 3.13.15
 file         .insp, 26.8 MiB
 vendor       insta360
 model        Insta360 X5

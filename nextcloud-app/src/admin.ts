@@ -18,12 +18,21 @@ type SettingsState = {
   sphere_memories: boolean;
   sphere_public: boolean;
   prerender: boolean;
+  video_width: number;
+  video_render: boolean;
 };
 type Status = {
   settings: SettingsState;
   checks: Check[];
   cache: { files: number; bytes: number; current: number };
   insp: number;
+  videos: {
+    usable: boolean;
+    clips: number;
+    cache: { files: number; bytes: number; current: number };
+    rendering: { fileid: number; started: number | null } | null;
+    failed: number;
+  };
 };
 
 const root = document.getElementById('golblick-admin');
@@ -197,6 +206,32 @@ function render(status: Status) {
   // ---- Pre-render
   const prerenderNote = feedback('prerender');
 
+  // ---- Videos
+  const v = status.videos;
+  const videoNote = feedback('video_render');
+  const videoWidthNote = feedback('video_width');
+  const videoWidth = el('select', {}, ...[2880, 3840].map((w) =>
+    el('option', { value: String(w), selected: w === s.video_width }, `${w} × ${w / 2}`)));
+  videoWidth.addEventListener('change', () => void save({ video_width: Number(videoWidth.value) }, videoWidthNote).then(() => load(false)));
+  const videoClearNote = feedback('video_clear');
+  const videoClear = el('button', { type: 'button', textContent: 'Delete stitched videos', disabled: v.cache.files === 0 && v.failed === 0 });
+  videoClear.addEventListener('click', async () => {
+    if (!window.confirm('Delete every stitched video? With background rendering on, they are rendered again, which takes a long time.')) return;
+    videoClear.disabled = true;
+    try {
+      const r = await api<{ removed: number }>('POST', '/settings/videos/clear');
+      videoClearNote.ok(`Removed ${r.removed} videos, and cleared the list of videos that couldn't be stitched.`);
+      await load(false);
+    } catch (e) {
+      videoClearNote.fail((e as Error).message);
+      videoClear.disabled = false;
+    }
+  });
+  const since = v.rendering?.started ? new Date(v.rendering.started * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+  const videoProgress = `${v.cache.current} of ${v.clips} registered videos are stitched at this size, ${megabytes(v.cache.bytes)} in all.`
+    + (v.rendering ? ` One is being stitched now${since ? `, since ${since}` : ''}.` : '')
+    + (v.failed > 0 ? ` ${v.failed} couldn't be stitched; the server log says why.` : '');
+
   // ---- Integrations
   const zoomNote = feedback('memories_zoom');
   const filesNote = feedback('sphere_files');
@@ -227,6 +262,20 @@ function render(status: Status) {
       s.prerender, (on) => void save({ prerender: on }, prerenderNote)),
     el('p', { className: 'golblick-progress' }, `${status.cache.current} of ${status.insp} .insp files have a panorama at the current size.`),
     prerenderNote.node,
+
+    el('h3', {}, 'Videos'),
+    el('p', { className: 'settings-hint' },
+      'Insta360 videos play as a sphere from Files once the server has stitched them, which it does in the background, newest first. '
+      + 'It is slow: about 18 CPU-seconds for every second of video at 3840 wide, so a five-minute clip takes 20 minutes or more on four cores, '
+      + 'and the copies take about 9 GB per hour of video at 3840 (5 GB at 2880). The horizon is levelled once per clip, at its start. '
+      + 'It needs .insv registered (see Setup), ffmpeg, and the data directory on local disk.'),
+    toggle('Stitch videos in the background',
+      v.usable ? 'Runs ffmpeg at the lowest priority, one video at a time.' : 'Not available: the data directory isn\'t on local disk.',
+      s.video_render, (on) => void save({ video_render: on }, videoNote)),
+    videoNote.node,
+    el('label', {}, 'Video size ', videoWidth), videoWidthNote.node,
+    el('p', { className: 'golblick-progress' }, videoProgress),
+    videoClear, videoClearNote.node,
 
     el('h3', {}, 'Integrations'),
     el('p', { className: 'settings-hint' },

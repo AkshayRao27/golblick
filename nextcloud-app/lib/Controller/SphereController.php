@@ -9,7 +9,9 @@ declare(strict_types=1);
 namespace OCA\Golblick\Controller;
 
 use OCA\Golblick\Service\CameraReport;
+use OCA\Golblick\Http\RangeFileResponse;
 use OCA\Golblick\Service\PanoramaStore;
+use OCA\Golblick\Service\VideoStore;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
@@ -38,6 +40,7 @@ final class SphereController extends Controller {
 		private IUserSession $userSession,
 		private PanoramaStore $store,
 		private CameraReport $report,
+		private VideoStore $videos,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -52,10 +55,47 @@ final class SphereController extends Controller {
 	public function info(int $fileId): JSONResponse {
 		$file = $this->file($fileId);
 
-		return new JSONResponse([
+		return new JSONResponse(self::describe($file, $this->videos));
+	}
+
+	/**
+	 * What info answers: a photo is a sphere; a video is one too (its thumbnail,
+	 * at least), and says whether its stitched copy is ready to play. Shared
+	 * with PublicSphereController.
+	 */
+	public static function describe(?File $file, VideoStore $videos): array {
+		if ($file !== null && strcasecmp($file->getExtension(), 'insv') === 0) {
+			$master = VideoStore::master($file);
+
+			return [
+				'sphere' => true,
+				'etag' => $file->getEtag(),
+				'video' => $master !== null && $videos->ready($master) !== null,
+				'videoEtag' => $master?->getEtag(),
+			];
+		}
+
+		return [
 			'sphere' => $file !== null && PanoramaStore::isCandidate($file),
 			'etag' => $file?->getEtag(),
-		]);
+		];
+	}
+
+	/** A video's stitched copy, with byte ranges so the player can seek. */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/video/{fileId}', requirements: ['fileId' => '\d+'])]
+	public function video(int $fileId): Response {
+		$file = $this->file($fileId);
+		$master = $file === null ? null : VideoStore::master($file);
+		$path = $master === null ? null : $this->videos->ready($master);
+		if ($path === null) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		$response = new RangeFileResponse($path, 'video/mp4', $this->request->getHeader('Range') ?: null);
+		$response->cacheFor(3600 * 24, false, false);
+
+		return $response;
 	}
 
 	/** The full-size panorama, the same image Memories gets on zoom. */

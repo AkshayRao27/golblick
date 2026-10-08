@@ -19,14 +19,14 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
 
 ## Videos
 
-Videos are optional, and only get as far as Files for now. **Register .insv files** in the setup check on the settings page gives each `.insv` a thumbnail of the clip's opening frame as a panorama. They don't appear in Memories and don't play in the image viewer: played as they are, they'd show the raw fisheye, and only one lens of it. Clicking one downloads it.
+Videos are optional, and so far they play from Files only. They don't appear in Memories yet.
 
-- An X5 stores a stitched, levelled panorama of the opening frame in the file, so that's the thumbnail.
-- A OneR or X3 writes each lens to its own file (`_00_` and `_10_`), but the `_00_` file stores the opening frame of both. Decoding it needs ffmpeg, the same program Nextcloud uses for its own video thumbnails. The setup check says whether it's installed; without it, these videos get no thumbnail. Both files of a clip show the same picture.
+1. **Register .insv files** in the setup check on the settings page. Each `.insv` then shows a thumbnail of its opening frame as a panorama in Files. An X5 stores that frame stitched; a OneR or X3 stores both lenses' opening frame in the `_00_` file, and decoding it needs ffmpeg, the same program Nextcloud uses for its own video thumbnails.
+2. Switch on **Stitch videos in the background** in the Videos section. The server then makes a stitched copy of each clip, newest first, one at a time, with ffmpeg at the lowest priority. Clicking a video in Files plays that copy as a sphere you can look around in while it plays; until it's ready, you see the opening frame. Every file of a clip (`_00_`, `_10_` and the low-resolution `LRV_` copy) plays the same video.
 
-A thumbnail takes 1 to 4 seconds the first time on a test server, and Nextcloud keeps it after that.
+Stitching is slow and the copies are big: about 18 CPU-seconds per second of video at 3840 × 1920, and about 9 GB per hour of video (5 GB at 2880 × 1440, which you can pick instead). The horizon is levelled once per clip, at its start, so a clip filmed while the camera tilts tilts with it. The copies live in the app's data folder, so this needs the data directory on local disk rather than object storage. Deleting them from the settings page frees the space; with stitching on, they're made again.
 
-## Viewing a photo as a sphere
+## Viewing a photo as a sphere## Viewing a photo as a sphere
 
 A **View as sphere** button opens the photo full-window as a sphere you can drag around, with the mouse wheel or a pinch to zoom. Escape closes it. You'll find it:
 

@@ -20,6 +20,7 @@ import {
   Scene,
   SphereGeometry,
   TextureLoader,
+  VideoTexture,
   WebGLRenderer,
 } from 'three';
 
@@ -27,6 +28,10 @@ export class SphereView {
   private disposers: (() => void)[] = [];
   private destroyed = false;
   private swapTexture: ((src: string) => Promise<void>) | null = null;
+  private swapVideo: ((video: HTMLVideoElement) => void) | null = null;
+  /** While a video plays, every animation frame draws; otherwise only changes do. */
+  private video: HTMLVideoElement | null = null;
+  private invalidate: (() => void) | null = null;
 
   /** Current view direction and vertical field of view, degrees. */
   private longitude = 0;
@@ -89,6 +94,19 @@ export class SphereView {
       needsRender = true;
     };
 
+    // A stitched video replaces the still once it can play. Same sphere, same
+    // view; the texture just updates itself each frame.
+    this.swapVideo = (video: HTMLVideoElement) => {
+      const texture = new VideoTexture(video);
+      texture.colorSpace = SRGBColorSpace;
+      const previous = material.map;
+      material.map = texture;
+      material.needsUpdate = true;
+      previous?.dispose();
+      this.video = video;
+      needsRender = true;
+    };
+
     const resize = () => {
       const width = this.element.clientWidth || 1;
       const height = this.element.clientHeight || 1;
@@ -105,7 +123,8 @@ export class SphereView {
     const tick = () => {
       if (this.destroyed) return;
       frame = requestAnimationFrame(tick);
-      if (!needsRender) return;
+      const playing = this.video !== null && !this.video.paused && !this.video.ended;
+      if (!needsRender && !playing) return;
       needsRender = false;
 
       camera.fov = this.fov;
@@ -124,9 +143,10 @@ export class SphereView {
     };
     tick();
 
-    this.attachControls(() => {
+    this.invalidate = () => {
       needsRender = true;
-    });
+    };
+    this.attachControls(this.invalidate);
 
     this.disposers.push(() => {
       cancelAnimationFrame(frame);
@@ -274,6 +294,16 @@ export class SphereView {
     } catch {
       return false;
     }
+  }
+
+  /** Show a video on the sphere instead of the still it opened with. */
+  public attachVideo(video: HTMLVideoElement) {
+    this.swapVideo?.(video);
+  }
+
+  /** Draw once more, e.g. when a paused video has shown a new frame after a seek. */
+  public redraw() {
+    this.invalidate?.();
   }
 
   public destroy() {
