@@ -86,6 +86,9 @@ final class PublicSphereController extends PublicShareController {
 	public function info(string $token, int $fileId): JSONResponse {
 		[$file, $path] = $this->file($fileId);
 		$answer = SphereController::describe($file, $this->videos);
+		if (($answer['video'] ?? false) && !$this->masterShared($file)) {
+			$answer['video'] = false;
+		}
 
 		return new JSONResponse($answer + ['path' => $answer['sphere'] ? $path : null]);
 	}
@@ -95,11 +98,7 @@ final class PublicSphereController extends PublicShareController {
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/video/{fileId}', requirements: ['fileId' => '\d+'])]
 	public function video(string $token, int $fileId): Response {
 		[$file] = $this->file($fileId);
-		$master = $file === null ? null : VideoStore::master($file);
-		// The partner has to be in the share too, or a share of one lens file would expose the other.
-		if ($master !== null && $master->getId() !== $file->getId() && $this->file($master->getId())[0] === null) {
-			$master = null;
-		}
+		$master = $file === null || !$this->masterShared($file) ? null : VideoStore::master($file);
 		$path = $master === null ? null : $this->videos->ready($master);
 		if ($path === null) {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
@@ -125,6 +124,17 @@ final class PublicSphereController extends PublicShareController {
 		$response->cacheFor(3600 * 24, false, false);
 
 		return $response;
+	}
+
+	/**
+	 * Whether the clip's first file, which its stitched copy is made from, is in
+	 * the share too. A share of one lens file must not play a video made from
+	 * the other.
+	 */
+	private function masterShared(File $file): bool {
+		$master = VideoStore::master($file);
+
+		return $master !== null && ($master->getId() === $file->getId() || $this->file($master->getId())[0] !== null);
 	}
 
 	/** @return array{0: ?File, 1: ?string} the file and its path inside the share */
