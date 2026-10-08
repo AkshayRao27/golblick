@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace OCA\Golblick\AppInfo;
 
+use OCA\Files_Sharing\Event\BeforeTemplateRenderedEvent as PublicShareRenderedEvent;
 use OCA\Golblick\Listener\LoadSphereViewer;
 use OCA\Golblick\Middleware\MemoriesZoom;
 use OCA\Golblick\Preview\Insta360;
@@ -33,6 +34,7 @@ final class Application extends App implements IBootstrap {
 		$context->registerMiddleware(MemoriesZoom::class, true);
 
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, LoadSphereViewer::class);
+		$context->registerEventListener(PublicShareRenderedEvent::class, LoadSphereViewer::class);
 	}
 
 	public function boot(IBootContext $context): void {

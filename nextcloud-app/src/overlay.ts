@@ -2,12 +2,47 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * The full-window sphere that every entry point opens: the Files action, the
- * button in Nextcloud's Viewer, and the button in Memories.
+ * button in Nextcloud's Viewer, and the button in Memories, for a signed-in
+ * user or on a public share link.
  */
 import { mdiClose } from '@mdi/js';
+import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
 
 import type { SphereView } from './sphere';
+
+/** Which buttons to add, and the token when this page is a public share link. */
+export const config = loadState<{ files: boolean; viewer: boolean; memories: boolean; share: string | null }>(
+  'golblick', 'config', { files: true, viewer: true, memories: true, share: null });
+
+/** The sphere endpoints: a signed-in user's files, or the share's (lib/Controller/PublicSphereController.php). */
+const sphereUrl = (fileId: number) => generateUrl(config.share
+  ? `/apps/golblick/s/${config.share}/sphere/${fileId}` : `/apps/golblick/sphere/${fileId}`);
+
+/** On a share link, `path` is the file's place in the share, which its public preview is addressed by. */
+export type Info = { sphere: boolean; etag: string | null; path?: string | null };
+const infoCache = new Map<number, Promise<Info>>();
+
+/** Whether a file is one of ours. Cheap on the server, and cached per page. */
+export function info(fileId: number): Promise<Info> {
+  let pending = infoCache.get(fileId);
+  if (!pending) {
+    pending = fetch(`${sphereUrl(fileId)}/info`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : { sphere: false, etag: null }))
+      .catch(() => ({ sphere: false, etag: null }));
+    infoCache.set(fileId, pending);
+  }
+  return pending;
+}
+
+/** The screen-sized preview the sphere starts on, from the same place the page's own previews come from. */
+async function previewUrl(fileId: number, etag: string): Promise<string | null> {
+  const size = `x=2048&y=1024&a=1&etag=${encodeURIComponent(etag)}`;
+  if (!config.share) return generateUrl('/core/preview') + `?fileId=${fileId}&${size}`;
+  const answer = await info(fileId);
+  if (!answer.sphere || answer.path == null) return null;
+  return generateUrl(`/apps/files_sharing/publicpreview/${config.share}`) + `?file=${encodeURIComponent(answer.path)}&${size}`;
+}
 
 let open: (() => void) | null = null;
 
@@ -74,11 +109,12 @@ export async function openSphere(fileId: number, etag: string, name = ''): Promi
   close.addEventListener('click', shut);
   window.addEventListener('keydown', onKey, true);
 
-  const query = `etag=${encodeURIComponent(etag)}`;
-  const preview = generateUrl('/core/preview') + `?fileId=${fileId}&x=2048&y=1024&a=1&${query}`;
-  const full = generateUrl(`/apps/golblick/sphere/${fileId}`) + `?${query}`;
+  const full = `${sphereUrl(fileId)}?etag=${encodeURIComponent(etag)}`;
 
   try {
+    const preview = await previewUrl(fileId, etag);
+    if (closed) return;
+    if (preview === null) throw new Error('not a sphere');
     const { SphereView } = await import('./sphere');
     if (closed) return;
     view = await SphereView.create(overlay, preview);

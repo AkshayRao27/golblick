@@ -23,20 +23,19 @@
  *
  * Either part can be switched off on the admin page; the server passes the
  * choice in as initial state, and loads nothing at all if both are off.
+ *
+ * On a public share link the page is Files and the Viewer again, and the same
+ * buttons go through the share's token instead (config.share; see overlay.ts).
  */
 import { mdiClipboardTextOutline, mdiPanoramaSphereOutline } from '@mdi/js';
 import { registerFileAction } from '@nextcloud/files';
-import { loadState } from '@nextcloud/initial-state';
-import { generateUrl } from '@nextcloud/router';
 
-import { openSphere, svgIcon } from './overlay';
+import { config, info, openSphere, svgIcon } from './overlay';
 
 const LABEL = 'View as sphere';
 const BUTTON_CLASS = 'golblick-sphere-button';
 
 const isInsp = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insp');
-
-const config = loadState<{ files: boolean; viewer: boolean; memories: boolean }>('golblick', 'config', { files: true, viewer: true, memories: true });
 
 // ---- Files: a proper file action -------------------------------------------
 
@@ -53,8 +52,9 @@ if (config.files) registerFileAction({
   order: 50,
 });
 
-// Under the same switch: it lives in the same menu, through the same API.
-if (config.files) registerFileAction({
+// Under the same switch: it lives in the same menu, through the same API. Not
+// on a public share link: a visitor isn't the one to report the owner's photo.
+if (config.files && !config.share) registerFileAction({
   id: 'golblick-report',
   displayName: () => 'Report to golblick',
   iconSvgInline: () => svgIcon(mdiClipboardTextOutline),
@@ -66,22 +66,6 @@ if (config.files) registerFileAction({
   },
   order: 51,
 });
-
-// ---- Shared: ask the server whether an open file is one of ours ------------
-
-type Info = { sphere: boolean; etag: string | null };
-const infoCache = new Map<number, Promise<Info>>();
-
-function info(fileId: number): Promise<Info> {
-  let pending = infoCache.get(fileId);
-  if (!pending) {
-    pending = fetch(generateUrl(`/apps/golblick/sphere/${fileId}/info`), { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : { sphere: false, etag: null }))
-      .catch(() => ({ sphere: false, etag: null }));
-    infoCache.set(fileId, pending);
-  }
-  return pending;
-}
 
 /**
  * A button that looks like its neighbours, made by cloning one of them.

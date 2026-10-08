@@ -28,7 +28,7 @@ use OCP\IUserSession;
  *
  * Only for a signed-in user's own files and files shared with them: the id is
  * resolved inside the user's folder, so an id from anywhere else is a 404.
- * Public share links are not covered.
+ * Public share links go through PublicSphereController instead.
  */
 final class SphereController extends Controller {
 	public function __construct(

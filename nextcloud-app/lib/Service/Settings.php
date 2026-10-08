@@ -29,6 +29,7 @@ final class Settings {
 		'sphere_files' => true,
 		'sphere_viewer' => true,
 		'sphere_memories' => true,
+		'sphere_public' => true,
 		'prerender' => false,
 	];
 

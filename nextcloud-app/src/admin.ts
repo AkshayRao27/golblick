@@ -16,6 +16,7 @@ type SettingsState = {
   sphere_files: boolean;
   sphere_viewer: boolean;
   sphere_memories: boolean;
+  sphere_public: boolean;
   prerender: boolean;
 };
 type Status = {
@@ -197,6 +198,7 @@ function render(status: Status) {
   const filesNote = feedback('sphere_files');
   const memoriesButtonNote = feedback('sphere_memories');
   const viewerNote = feedback('sphere_viewer');
+  const publicNote = feedback('sphere_public');
 
   root.replaceChildren(
     el('h2', {}, 'Golblick (360° Photos)'),
@@ -248,6 +250,12 @@ function render(status: Status) {
       'In the image viewer that Files and Photos open. The viewer has no way for other apps to add buttons, so golblick inserts this one into its top bar itself.',
       s.sphere_viewer, (on) => void save({ sphere_viewer: on }, viewerNote)),
     viewerNote.node,
+
+    el('h4', {}, 'Public share links'),
+    toggle('Offer "View as sphere" on share links',
+      'Visitors to a share link get the Files and image viewer buttons above, if those are on. Only for shares that let visitors see the files, and not for a password-protected share until its password is entered. Opening a photo\'s sphere renders its full-size panorama the first time, so a visitor can make the server do that for every .insp in a shared folder.',
+      s.sphere_public, (on) => void save({ sphere_public: on }, publicNote)),
+    publicNote.node,
   );
 }
 
