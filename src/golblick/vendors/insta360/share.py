@@ -60,7 +60,9 @@ def shareable(path: str | Path) -> tuple[bytes, list[str]]:
         at, until = record.offset + start, record.offset + end
         value = bytes(data[at:until])
         if number == _SERIAL and wire == _metadata.WIRE_LEN:
-            secrets.append(value)
+            # A copy made by share already has a serial of zeros, and zeros are everywhere.
+            if value.strip(b"0"):
+                secrets.append(value)
             data[at:until] = b"0" * len(value)
             cleared.append("serial number")
         elif number == _CAPTURE_TIME and wire == _metadata.WIRE_VARINT:
@@ -96,7 +98,7 @@ def _verify(data: bytearray, secrets: list[bytes], stamps: set[str]) -> None:
             raise FormatError("the copy still contains the serial number or the location; "
                               "refusing to write it")
     for stamp in stamps:
-        if len(stamp) < 8:
+        if len(stamp) < 8 or not stamp.strip("0"):
             continue
         day, time = stamp[:8], stamp[8:14]
         forms = {stamp, f"{day}_{time}", f"{day[:4]}:{day[4:6]}:{day[6:8]}",

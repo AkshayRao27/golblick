@@ -100,6 +100,16 @@ def test_a_shareable_copy_carries_no_location_dates_or_serial(tmp_path):
     assert fields[7][0].value == 0
 
 
+def test_a_copy_can_be_shared_again_and_comes_out_unchanged(tmp_path):
+    """Someone sending on a copy they were sent; its zeros are not identifiers."""
+    first = tmp_path / "IMG_00000000_000000_00_001.insp"
+    first.write_bytes(shareable(_photo(tmp_path))[0])
+
+    data, _ = shareable(first)
+
+    assert data == first.read_bytes()
+
+
 def test_the_copy_is_refused_if_the_serial_turns_up_anywhere_else(tmp_path):
     """The check has to be able to fire, or it only looks like a check."""
     source = _photo(tmp_path, imu=b"\x01" * 8 + SERIAL.encode() + b"\x01" * 19)
