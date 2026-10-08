@@ -23,8 +23,8 @@ Other camera models and firmware revisions may still differ. The parser in this 
 | Extension | Container | Contents |
 |---|---|---|
 | `.insp` | JPEG | One dual-fisheye still: two circular images side by side |
-| `.insv` | MP4 | Two separate HEVC video streams, one per lens, plus AAC audio |
-| `.lrv` | MP4 | Low-bitrate H.264 proxy, also dual fisheye |
+| `.insv` | MP4 | One video stream per lens, plus AAC audio. The X5 puts both streams in one file; the OneR and X3 write one file per lens (see below) |
+| `.lrv` | MP4 | Low-bitrate proxy with both lenses side by side in one stream |
 
 Because both are valid standard containers, ordinary decoders open them and show something. An `.insp` opens in any image viewer and looks like two fisheye circles. Not all cameras store a stitched image. Still dimensions are per camera, and the X5 and X3 each have photos in my library taken in two modes:
 
@@ -37,6 +37,16 @@ Because both are valid standard containers, ordinary decoders open them and show
 | X5 | 11904×5952 | 18 |
 
 Each is two square cells side by side. Measured on an X5, video is two 2880×2880 HEVC streams at 59.94 fps, around 154 Mbps combined.
+
+⚠️ **Correction (2026-10-08): the table used to say every `.insv` holds two HEVC streams, which is only the X5.** Measured over every video in the test library (the stream layout with ffprobe, the records with the trailer reader):
+
+| Camera | Master | Second file | Proxy |
+|---|---|---|---|
+| OneR | `VID_…_00_…insv`, one 2880×2880 stream (lens 0), H.264 (40) or HEVC (46); carries the trailer | `VID_…_10_…insv`, the same for lens 1, **no trailer** (88 files) | `LRV_…_11_…insv` (an `.insv` extension), 736×368, both lenses side by side in one stream (77) |
+| X3 | as the OneR, H.264 (2) | as the OneR | `.lrv`, H.264 1024×512, both lenses side by side (3) |
+| X5 | one file, two 2880×2880 HEVC streams (44) | none | `.lrv`, H.264 1664×832, both lenses side by side, not stitched (39) |
+
+So on a OneR or X3 the two halves of a clip are two files, paired by name, and only the `_00_` one says anything about the camera.
 
 An `.lrv` is a dual fisheye *proxy*, so it is no more viewable than the master. Insta360's phone app and Studio both use it as a fast preview, and Studio expects the `.insv` and `.lrv` to be imported together ([Insta360's import guide](https://onlinemanual.insta360.com/studio/en-us/troubleshooting/file-import-issue/media-import-issue)).
 
@@ -308,6 +318,17 @@ Previously recorded here as unidentified. It is the camera's own full-size previ
 | X5 | NV12 (YUV 4:2:0) | 2560×1280, declared in the header | **equirectangular stitch** |
 
 The X5 variant is the valuable one: a 2560×1280 panorama, stitched and horizon-levelled on device, sitting in the file with no processing required. It is the same image as the EXIF thumbnail at 64× the pixel count.
+
+**In videos it is different again**, measured 2026-10-08 on all 345 `.insv` and `.lrv` files in the test library:
+
+| File | `0x0200` | `0x0500` |
+|---|---|---|
+| OneR, X3 master (88) | one keyframe of lens 0 at full size (2880×2880), in the clip's own codec | the matching keyframe of lens 1 |
+| OneR, X3 proxy (80) | one proxy keyframe, both lenses side by side (736×368 OneR, 1024×512 X3) | byte-identical to `0x0200` on all 80 |
+| X5 master and `.lrv` (83) | NV12, 1280×640, equirectangular stitch, the same 40-byte header as stills | absent |
+| OneR `_10_` (88), zero-filled `.lrv` (6) | no trailer | |
+
+The keyframe records are a 22-byte header followed by an Annex B stream (an HEVC VPS or an H.264 SPS first) that ffmpeg decodes to one frame. ⚠️ The header is undecoded: bytes 0–3 are `00 00 01 34` or `00 00 00 01`, bytes 16–21 `00 02 00 01 xx 10` with `xx` one of `0c`, `0f`, `10`, `12`. Which frame of the clip the keyframes are is not established; they look like the opening frame, unchecked. So a OneR or X3 clip carries a whole dual-fisheye frame, both lenses, in the `_00_` file's trailer, but as compressed video, which nothing in this project decodes without ffmpeg. The X5's is ready to use as it stands.
 
 ### The NV12 header
 

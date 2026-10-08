@@ -7,8 +7,8 @@ This page is the short version. The measurements behind it, and the method for e
 | Extension | What it is |
 |---|---|
 | `.insp` | A photo. A normal JPEG holding both lenses' images side by side, as two fisheye circles |
-| `.insv` | A video. A normal MP4 with one video stream per lens |
-| `.lrv` | A low-resolution copy of a video, also two fisheye circles. Insta360's apps use it for fast previews |
+| `.insv` | A video. A normal MP4 with one video stream per lens. The X5 keeps both in one file; the OneR and X3 write a second file (`_10_`) for the other lens |
+| `.lrv` | A low-resolution copy of a video, both fisheye circles side by side in one stream. Insta360's apps use it for fast previews. The OneR names its copies `LRV_…_11_…insv` |
 
 Any image viewer or video player can open these files, and you get the two circles, because that is what the file holds. Turning them into a panorama is a separate step, and doing it right needs information the camera writes at the end of the file.
 
