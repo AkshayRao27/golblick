@@ -135,6 +135,8 @@ $ golblick render IMG_20260314_090809_00_007.insp -o pano.jpg -w 4096
 
 It projects from the full-resolution frame, not the embedded preview: on a OneR that is 6080×3040 rather than 1920×960. Output is JPEG unless the filename ends in `.png`.
 
+A OneR or X3 video (the `_00_` file) renders as its opening frame, which the camera stores in the file at full size. Decoding it needs [ffmpeg](https://ffmpeg.org/) on the PATH. An X5 video stores a stitched panorama of its opening frame instead, so `golblick preview` already gives you one.
+
 Two lines in that output are worth reading:
 
 - **Lens agreement** scores the render against itself, by correlating the two lenses where they overlap. Around +0.7 to +0.9 is a correct projection, and +0.02 means something is wrong. It cannot see everything; [accuracy.md](accuracy.md) says what it misses.

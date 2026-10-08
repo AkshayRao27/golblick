@@ -330,6 +330,19 @@ The X5 variant is the valuable one: a 2560×1280 panorama, stitched and horizon-
 
 The keyframe records are a 22-byte header followed by an Annex B stream (an HEVC VPS or an H.264 SPS first) that ffmpeg decodes to one frame. ⚠️ The header is undecoded: bytes 0–3 are `00 00 01 34` or `00 00 00 01`, bytes 16–21 `00 02 00 01 xx 10` with `xx` one of `0c`, `0f`, `10`, `12`. Which frame of the clip the keyframes are is not established; they look like the opening frame, unchecked. So a OneR or X3 clip carries a whole dual-fisheye frame, both lenses, in the `_00_` file's trailer, but as compressed video, which nothing in this project decodes without ffmpeg. The X5's is ready to use as it stands.
 
+**The keyframes are frame 0.** Decoded and compared with the first 40 frames of the `_00_` stream on three clips (OneR HEVC, OneR H.264, X3), the lens-0 keyframe matches frame 0 to within one grey level (mean absolute difference 0.8–1.0) and the next four frames by 1.6 or more. `golblick render` on a OneR or X3 `.insv` decodes both with ffmpeg (`keyframe.py`, `cli._decode_keyframes`), puts lens 0 on the left as in a still, and projects that. Scored against Insta360 Studio's exports of frame 0 of the same five clips (four OneR, one X3; `render.fit_orientation`, tilt of the fitted rotation):
+
+| Ours | Studio export | Tilt left over |
+|---|---|---|
+| calibration roll only | stitching optimisation off, stabilisation off | 0.9–2.3°, median 1.3° |
+| no rotation at all | the same | 91° on the OneR (the sensor mounting), 2.4° on the X3 |
+| gravity, median of the whole record | stitching optimisation off, FlowState on | 1.0–3.4°, median 2.7° |
+| gravity, first 50 samples (about 0.1 s) | the same | 1.1–2.6°, median 1.9° |
+
+So Studio's export with stabilisation off is the camera's frame with only the mounting corrected, which is what golblick's calibration route produces; the 1.3° between them is the floor this comparison can measure. Its yaw is 180° from ours on all five (179.3–182.1), as with stills. Gravity levels frame 0 to within about 1.5° of that floor. The start of the record did better on 2 clips and the same on 3; that is too few and too small a difference to tune on, so the whole-record median stays. ⚠️ Five clips from two cameras.
+
+On the X5, record `0x0200` matches Studio's FlowState frame 0 with a correlation of 0.99 and 0.6–3.8° of tilt on three clips, so the camera's own stitch is a levelled picture of the opening frame. Whether it is exactly frame 0 was not checked.
+
 ### The NV12 header
 
 Forty bytes, then the pixel data. Ten `uint32` fields, identical across all 25 X5 files measured:

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from . import imaging, triage
-from .errors import GolblickError, MissingDependency, UnsupportedFile
+from .errors import FormatError, GolblickError, MissingDependency, ThumbnailError, UnsupportedFile
 from .vendors import VENDORS, detect
 
 
@@ -201,13 +201,12 @@ def cmd_render(args: argparse.Namespace) -> int:
             f"{args.file}: no equidistant calibration, so the lens geometry is unknown"
         )
 
-    source = vendor.extract_source(args.file)
-    image = _decode_jpeg(source.data)
+    image, frame = _source_frame(vendor, args.file)
     reader = getattr(vendor, "lens_profile", None)
     profile = reader(args.file) if reader is not None else None
     field_of_view = args.field_of_view or (profile.field_of_view if profile else 194.0)
     radial = profile.radial if profile is not None else ()
-    lenses = render.lenses_from_calibration(model, source.width, radial)
+    lenses = render.lenses_from_calibration(model, image.shape[1], radial)
 
     width = args.width
     height = width // 2
@@ -233,7 +232,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     _write_image(output, pixels, xmp, args.quality)
 
     print(f"{output}  ({_human(output.stat().st_size)})")
-    print(f"  {width}x{height}  equirectangular  from {source.width}x{source.height}")
+    print(f"  {width}x{height}  equirectangular  from {frame}")
     print(f"  field of view  {field_of_view:g} degrees"
           + ("" if args.field_of_view else " (the camera's measured value)"))
     print(f"  lens model     {'equidistant, measured correction' if radial else 'equidistant'}")
@@ -504,7 +503,11 @@ def _level_to_stitch(render, vendor, path: str, image, lenses, field_of_view, st
     extract = getattr(vendor, "extract_preview", None)
     if extract is None:
         raise _NoStitch("no preview reader")
-    preview = extract(path)
+    try:
+        preview = extract(path)
+    except ThumbnailError as exc:
+        # No preview record, or a OneR or X3 video's keyframe where a still keeps one.
+        raise _NoStitch(str(exc)) from exc
     if preview.layout != "equirectangular":
         raise _NoStitch("the preview is not a stitched panorama")
 
@@ -545,6 +548,57 @@ def _version() -> str:
         return version("golblick")
     except PackageNotFoundError:  # pragma: no cover - running from a source tree
         return "dev"
+
+
+def _source_frame(vendor, path: str):
+    """The lens pair to project, decoded, and a line saying what it was.
+
+    A still wraps a JPEG.  A video has no single frame, but a OneR or X3
+    stores its opening frame in the trailer as one compressed keyframe per
+    lens, so a video renders as that frame -- decoded by ffmpeg, because the
+    library carries no video decoder.
+    """
+    try:
+        source = vendor.extract_source(path)
+    except FormatError as still:
+        reader = getattr(vendor, "extract_keyframes", None)
+        if reader is None:
+            raise
+        try:
+            keyframes = reader(path)
+        except FormatError as video:
+            raise UnsupportedFile(
+                f"{path}: no frame to project ({still}; and as a video: {video})") from video
+        image = _decode_keyframes(keyframes)
+        size = f"{image.shape[1]}x{image.shape[0]}"
+        return image, f"the video's opening frame, {size} ({keyframes.codec} keyframes)"
+    return _decode_jpeg(source.data), f"{source.width}x{source.height}"
+
+
+def _decode_keyframes(keyframes):
+    """Decode each stream with ffmpeg and put the lenses side by side, as in a still."""
+    import shutil
+    import subprocess
+    from io import BytesIO
+
+    import numpy
+    from PIL import Image
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise UnsupportedFile("rendering a video's opening frame needs ffmpeg on the PATH")
+    frames = []
+    for stream in keyframes.streams:
+        result = subprocess.run(
+            [ffmpeg, "-v", "error", "-f", keyframes.codec, "-i", "pipe:0", "-frames:v", "1",
+             "-f", "image2pipe", "-c:v", "png", "pipe:1"],
+            input=stream, capture_output=True, check=False,
+        )
+        if result.returncode != 0 or not result.stdout:
+            reason = result.stderr.decode(errors="replace").strip()
+            raise FormatError(f"ffmpeg could not decode the keyframe: {reason}")
+        frames.append(numpy.asarray(Image.open(BytesIO(result.stdout)).convert("RGB")))
+    return frames[0] if len(frames) == 1 else numpy.hstack(frames)
 
 
 def _decode_jpeg(data: bytes):

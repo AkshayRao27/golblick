@@ -106,6 +106,10 @@ def parse(data: bytes) -> Preview:
 
     if len(data) < _NV12_HEADER:
         raise FormatError(f"preview record is {len(data)} bytes, too small for its header")
+    if data[22:26] == b"\x00\x00\x00\x01":
+        # A OneR or X3 video keeps a compressed keyframe here instead (keyframe.py).
+        raise ThumbnailError("this record holds a compressed video keyframe, not a picture; "
+                             "golblick render decodes it with ffmpeg")
 
     width, height = _NV12_DIMENSIONS.unpack_from(data, 16)
     pixels = data[_NV12_HEADER:]

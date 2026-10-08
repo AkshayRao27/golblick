@@ -47,6 +47,12 @@ organised per vendor behind a small contract.  A vendor module provides:
     ``extract_preview`` on purpose: a preview is what the camera chose to show,
     and is typically a small fraction of the pixels.
 
+``extract_keyframes(path) -> Keyframes``
+    Optional.  A video's opening frame as the camera stored it, still
+    compressed: ``codec``, ``layout`` (one stream per lens, or one stream with
+    both) and the ``streams``.  The library carries no video decoder, so this
+    hands over bytes for something else to decode; the CLI uses ffmpeg.
+
 ``shareable(path) -> (bytes, cleared)``
     Optional.  A copy of the file that is safe to send to someone else: no
     location, no dates, no serial number, everything else unchanged.  Must

@@ -10,6 +10,8 @@ from pathlib import Path
 from . import calibration as _calibration
 from . import metadata as _metadata
 from .imu import gravity_up, gravity_up_nearby
+from .keyframe import Keyframes
+from .keyframe import extract as extract_keyframes
 from .lens import LensProfile, lens_profile
 from .naming import EXTENSIONS, classify
 from .preview import Preview
@@ -26,6 +28,7 @@ DESCRIPTION = "Insta360 .insp / .insv / .lrv"
 __all__ = [
     "DESCRIPTION",
     "EXTENSIONS",
+    "Keyframes",
     "LensProfile",
     "MAGIC",
     "METADATA",
@@ -36,6 +39,7 @@ __all__ = [
     "Trailer",
     "classify",
     "describe",
+    "extract_keyframes",
     "extract_preview",
     "extract_source",
     "extract_thumbnail",
