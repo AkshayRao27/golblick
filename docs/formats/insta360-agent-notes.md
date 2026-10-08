@@ -508,6 +508,20 @@ n = 25, of which 14 upright and 11 tilted.
 
 🔴 **The mapping is per camera and is never borrowed.** Upright, an X5 reads gravity along −x and a OneR along +x. Those are opposite signs on the same axis, so applying one camera's mapping to the other hangs the panorama upside down. `imu.gravity_up` **refuses** a model it has not measured.
 
+🔴 **It is also per kind of file: an X5 video uses a different map from an X5 still** (measured 2026-10-08). The first stitched X5 video came out 127° off level with the still map. Fitting frame 0 of every X5 video in the library (44, both lens streams decoded, unlevelled render) to the camera's own stitch of it (record `0x0200`), and comparing the up direction that implies with the accelerometer's median over the first 1,500 samples:
+
+```
+up_render = (+a_z, −a_x, +a_y)          # Insta360 X5, video
+```
+
+| Map, samples | Median | p90 | Within 5° |
+|---|---|---|---|
+| **video map, first 1,500** | **3.7°** | 9.8° | 73% |
+| video map, whole record | 21° | 82° | 5% |
+| still map, first 1,500 | 87° | 139° | 0% |
+
+It is the still map turned 180° about the vertical, and the yaw that fits each video to its stitch is 0° (within 4°) on all 44, where X5 stills need 180°: the same half turn, seen in the heading. Which of the two (the inertial frame, or which stream holds which calibrated lens) the half turn belongs to is not established; lens agreement cannot tell, because swapping the lenses is a rotation and it is blind to rotations. The window was then varied: the first 1,000 to 3,000 samples score 3.4–3.7° median, 25 to 300 score 4.3–6.8°, so a window of that size is also the best of those tried for a video's opening frame. OneR and X3 videos keep their still maps, which level frame 0 to within 1.0–3.4° of Insta360 Studio's export on five clips. `imu.is_video` decides by content (`ftyp` at byte 4).
+
 ### Measuring the mapping without a levelled reference
 
 Only the X5 embeds a stitch, so for every other camera there is nothing to score a candidate mapping against. What there is instead is *a lot of files*: over hundreds of handheld shots the camera is upright **on average**, so the signed permutation that carries the population's median reading to vertical is the mapping.

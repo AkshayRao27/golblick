@@ -155,7 +155,7 @@ final class Insta360Video implements IProviderV2 {
 		$imu = $trailer->fetch($handle, Trailer::IMU);
 		if ($imu !== null && $model !== null) {
 			try {
-				$orientation = Orientation::level(Imu::gravityUp($imu, $model, Imu::OPENING_SAMPLES));
+				$orientation = Orientation::level(Imu::gravityUp($imu, $model, Imu::OPENING_SAMPLES, true));
 			} catch (FormatError $e) {
 				// An unmeasured camera or an unreadable record: the mounting angle still applies.
 			}

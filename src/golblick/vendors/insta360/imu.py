@@ -42,7 +42,6 @@ import struct
 from dataclasses import dataclass
 
 from ...errors import FormatError
-from .keyframe import LENS_1
 from .trailer import IMU, read_trailer
 
 _TIMECODE = struct.Struct("<q")
@@ -125,14 +124,15 @@ def gravity(path) -> tuple[float, float, float]:
     nearest the shutter, because a still's log is short and a hand shake at one
     end of it should not tilt the horizon.
 
-    ⚠️ Except for a OneR or X3 video, which is rendered as its opening frame
-    (keyframe.py): there the record covers the whole clip, so only its first
-    ``OPENING_SAMPLES`` (about 3 seconds) are used.  The reason is memory, in
-    the Nextcloud port, which has to stay identical: a 23-minute clip holds
-    some 700,000 samples.  Against Insta360 Studio's levelled exports of frame
-    0 on five clips, that window left 1.1 to 3.2 degrees of tilt where the
-    whole record left 1.9 to 3.3, never worse on any of them; five clips are
-    too few to tune it on, and it was not.
+    ⚠️ Except for a video, which is levelled for its opening frame: there the
+    record covers the whole clip, so only its first ``OPENING_SAMPLES`` are
+    used.  It was chosen for memory, in the Nextcloud port, which has to stay
+    identical (a 23-minute clip holds some 700,000 samples), and then measured:
+    on all 44 X5 videos in one library, against the camera's own stitch of
+    frame 0, the first 1,000 to 1,500 samples level it best (median 3.4 to 3.7
+    degrees, 73% within 5), 25 to 300 are noisier (4.3 to 6.8) and the whole
+    record is far worse (21), because the camera moves.  On five OneR and X3
+    clips against Insta360 Studio it was never worse than the whole record.
 
     ⚠️ This is the direction of gravity **in the IMU's own axes**, which are
     not the render's axes.  :func:`golblick.render.level` holds the rotation
@@ -141,7 +141,7 @@ def gravity(path) -> tuple[float, float, float]:
     samples = entries(path)
     if not samples:
         raise FormatError(f"{path}: inertial record is empty")
-    if read_trailer(path).get(LENS_1) is not None:
+    if is_video(path):
         samples = samples[:OPENING_SAMPLES]
     axes = []
     for axis in range(3):
@@ -235,6 +235,27 @@ _AXES = {
     "Insta360 X3": ((0.0, 0.0, -1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
 }
 
+#: Where a camera's VIDEO record differs from its stills'.  Others use _AXES.
+_VIDEO_AXES = {
+    # up_render = (az, -ax, ay): the still map turned 180 degrees about the
+    # vertical.  🔴 Measured 2026-10-08 on all 44 X5 videos in one library, by
+    # fitting frame 0 (both lens streams, decoded) to the camera's own levelled
+    # stitch of it (record 0x0200) and comparing the up direction that implies
+    # with the accelerometer: median 3.7 degrees, p90 9.8, 73% within 5, over
+    # the first OPENING_SAMPLES.  The still map scores 87 degrees median; the
+    # whole record, 21.  The fitted yaw is also 0 within 4 degrees on all 44,
+    # where X5 stills need 180, which is the same half turn seen another way.
+    # OneR and X3 videos keep their still maps, which level frame 0 to within
+    # 1.0 to 3.4 degrees of Insta360 Studio's export on five clips.
+    "Insta360 X5": ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+}
+
+
+def is_video(path) -> bool:
+    """By content: an MP4 (.insv, .lrv) has ``ftyp`` at byte 4; a still is a JPEG."""
+    with open(path, "rb") as handle:
+        return handle.read(8)[4:8] == b"ftyp"
+
 
 def gravity_up_nearby(path) -> tuple[float, float, float]:
     """Which way is up, from this file or from the frame beside it.
@@ -309,7 +330,7 @@ def gravity_up(path) -> tuple[float, float, float]:
     from . import describe  # circular at import time, fine at call time
 
     model = describe(path)["model"]
-    axes = _AXES.get(model)
+    axes = (_VIDEO_AXES.get(model) if is_video(path) else None) or _AXES.get(model)
     if axes is None:
         raise FormatError(
             f"{path}: the inertial axis mapping for {model!r} has not been measured, "

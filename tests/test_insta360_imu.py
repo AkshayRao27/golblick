@@ -288,8 +288,23 @@ def test_a_video_levels_its_opening_frame_from_the_start_of_the_record(tmp_path)
     payload += b"".join(biased(i, turned) for i in range(count + 1, 3 * count + 1))
     keyframe = b"\x00" * 22 + b"\x00\x00\x00\x01\x40\x01"
     video = write_file(tmp_path / "VID_20200809_163437_00_026.insv",
-                       [(IMU, payload), (0x0200, keyframe + b"0"), (0x0500, keyframe + b"1")], leading=b"mp4")
+                       [(IMU, payload), (0x0200, keyframe + b"0"), (0x0500, keyframe + b"1")],
+                       leading=b"\x00\x00\x00\x18ftypisom")
     still = write_file(tmp_path / "IMG_20200809_163437_00_026.insp", [(IMU, payload)])
 
     assert imu.gravity(video) == pytest.approx((-1.0, 0.0, 0.0))
     assert imu.gravity(still) == pytest.approx((0.0, -1.0, 0.0))
+
+
+def test_an_x5_video_has_its_own_axes(tmp_path):
+    """Its record is stated in a frame turned half way round from its stills'."""
+    payload = b"".join(biased(i, LEVEL_X5) for i in range(1, 6))
+    records = [(METADATA, model_record("Insta360 X5")), (IMU, payload)]
+    still = write_file(tmp_path / "IMG_20260126_115034_00_011.insp", records)
+    video = write_file(tmp_path / "VID_20260126_115034_00_011.insv", records,
+                       leading=b"\x00\x00\x00\x18ftypisom")
+
+    up_still, up_video = imu.gravity_up(still), imu.gravity_up(video)
+
+    assert up_still[1] == pytest.approx(up_video[1])
+    assert up_still[0] == pytest.approx(-up_video[0]) and up_still[2] == pytest.approx(-up_video[2])
