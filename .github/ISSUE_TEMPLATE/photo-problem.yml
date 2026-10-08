@@ -44,7 +44,7 @@ body:
   - type: dropdown
     id: where
     attributes:
-      label: Where
+      label: Where did you run golblick?
       options:
         - Command-line tool
         - Nextcloud app

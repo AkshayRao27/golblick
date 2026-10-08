@@ -1,5 +1,5 @@
 name: Trying a camera golblick hasn't been tested with
-description: Any 360 camera other than the Insta360 OneR, X3 and X5. Useful whether it works or not
+description: Any 360 camera other than the Insta360 OneR, X3 and X5. Reports are useful whether renders work as intended or not.
 title: "Untested camera: "
 labels: ["untested camera"]
 body:
@@ -27,8 +27,8 @@ body:
   - type: textarea
     id: what
     attributes:
-      label: How it looks
-      description: Does the panorama look right? Check that it's upright and not mirrored (text in the scene is the easiest tell), and that lines continue across the seam where the two lenses meet. If it didn't render at all, say what happened.
+      label: How does it look?
+      description: Does the panorama look right? Check that it's upright and not mirrored, and that lines continue across the seam where the two lenses meet. If it didn't render at all, say what happened.
     validations:
       required: true
   - type: dropdown
@@ -44,7 +44,7 @@ body:
   - type: dropdown
     id: where
     attributes:
-      label: Where
+      label: Where did you run golblick?
       options:
         - Command-line tool
         - Nextcloud app

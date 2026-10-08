@@ -98,7 +98,7 @@ golblick-share/IMG_00000000_000000_00_002.insp  from IMG_20260314_091102_00_008.
   ...
 ```
 
-Everything else stays exactly as the camera wrote it, so the copies render the same as the originals. Before writing each copy, `share` searches all of it for the serial number, the coordinates and the date, and refuses if any of them is still there. It can't change what's in the picture, so look at the photos before you send them. `-o` picks the folder; it won't overwrite a copy that's already there.
+Everything else stays exactly as the camera wrote it, so the copies render the same as the originals, in golblick and in Insta360 Studio. Before writing each copy, `share` searches all of it for the serial number, the coordinates and the date, and refuses if any of them is still there. It can't change what's in the picture, so look at the photos before you send them. `-o` picks the folder; it won't overwrite a copy that's already there.
 
 ## Get the camera's own preview
 

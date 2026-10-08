@@ -141,6 +141,8 @@ Measured 2026-10-07 on stills from all three cameras, for `golblick share` (`ven
 
 No XMP in any of them. The OneR and X3 also split a second JFIF image across their APP2 segments; JFIF carries no EXIF.
 
+Insta360 Studio 6.0.6 opens, previews and exports the cleaned copies of a OneR, an X3 and two X5 stills (checked 2026-10-08). It shows the serial as zeros, and the exported JPEGs have blank EXIF dates. Each export still gets a GPS IFD, at latitude 0, longitude 0 and altitude 0, which Studio writes from the cleared field 11; a map would place those exports off the coast of West Africa. In Studio's media library the OneR and X3 copies showed a placeholder instead of a thumbnail and the X5 copies showed one. ⚠️ Whether the OneR and X3 originals get a thumbnail there was not checked; the only bytes that differ from the originals are in the EXIF and metadata fields listed above.
+
 ## Calibration
 
 The most useful finding in the format, and the one that makes open tooling viable: **calibration is stored as underscore-delimited ASCII**, not packed binary, and the richer cameras store it **several times** at increasing fidelity.
