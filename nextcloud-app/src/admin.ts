@@ -266,8 +266,8 @@ function render(status: Status) {
     el('h3', {}, 'Videos'),
     el('p', { className: 'settings-hint' },
       'Insta360 videos play as a sphere from Files once the server has stitched them, which it does in the background, newest first. '
-      + 'It is slow: about 18 CPU-seconds for every second of video at 3840 wide, so a five-minute clip takes 20 minutes or more on four cores, '
-      + 'and the copies take about 9 GB per hour of video at 3840 (5 GB at 2880). The horizon is levelled once per clip, at its start. '
+      + 'It is slow and needs memory: for every second of video, about 10 CPU-seconds at 2880 wide and 15 at 3840, so a five-minute clip takes 15 minutes or more on four cores; '
+      + 'a render needs about 0.7 GB of memory at 2880 and 1.2 GB at 3840, and the copies take about 5 GB per hour of video at 2880 and 9 GB at 3840. The horizon is levelled once per clip, at its start. '
       + 'It needs .insv registered (see Setup), ffmpeg, and the data directory on local disk.'),
     toggle('Stitch videos in the background',
       v.usable ? 'Runs ffmpeg at the lowest priority, one video at a time.' : 'Not available: the data directory isn\'t on local disk.',

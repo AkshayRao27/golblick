@@ -26,10 +26,12 @@ final class Settings {
 
 	/**
 	 * Stitched video widths. H.264 wider than 4096 often won't play in a
-	 * browser, and below 2880 looking around gets soft.
+	 * browser, and below 2880 looking around gets soft. 2880 by default for
+	 * memory: a render peaks at 0.72 GB there and 1.15 GB at 3840, on servers
+	 * that may have 4 GB for everything (VideoRenderer).
 	 */
 	public const VIDEO_WIDTHS = [2880, 3840];
-	public const DEFAULT_VIDEO_WIDTH = 3840;
+	public const DEFAULT_VIDEO_WIDTH = 2880;
 
 	private const FLAGS = [
 		'memories_zoom' => true,

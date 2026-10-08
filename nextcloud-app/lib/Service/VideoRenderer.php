@@ -81,9 +81,15 @@ final class VideoRenderer {
 		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model);
 
 		$bitrate = (int)round(self::BITS_PER_PIXEL_SECOND * $width * intdiv($width, 2));
+		// 🔴 Memory, not speed, sets these. With ffmpeg's defaults (threads from
+		// the host's core count) a render peaked at 4 GB and was killed on a
+		// 3 GB container, and a production AIO box has 4 GB for everything.
+		// One decoder thread per lens, sliced x264 threads and no lookahead:
+		// 0.72 GB at 2880 wide and 1.15 GB at 3840, measured on a OneR clip;
+		// the rest is the frame size itself, and fewer threads didn't move it.
 		$command = [$ffmpeg, '-nostdin', '-v', 'error', '-y'];
 		foreach ($inputs as $input) {
-			array_push($command, '-i', $input);
+			array_push($command, '-threads', '1', '-i', $input);
 		}
 		$first = \count($inputs);
 		foreach (['x0', 'y0', 'x1', 'y1', 'mask'] as $table) {
@@ -97,8 +103,9 @@ final class VideoRenderer {
 			$lenses[0][0], $lenses[0][1], $lenses[1][0], $lenses[1][1], $x0, $y0, $x1, $y1, $lensSize, $mask,
 		);
 		array_push($command,
-			'-filter_complex', $filter, '-map', '[out]', '-map', '0:a:0?',
-			'-c:v', 'libx264', '-preset', 'veryfast', '-b:v', (string)$bitrate,
+			'-filter_threads', '1', '-filter_complex', $filter, '-map', '[out]', '-map', '0:a:0?',
+			'-c:v', 'libx264', '-preset', 'veryfast', '-threads', '2', '-x264-params', 'sliced-threads=1:rc-lookahead=0',
+			'-b:v', (string)$bitrate,
 			'-maxrate', (string)(int)($bitrate * 1.5), '-bufsize', (string)(2 * $bitrate),
 			'-c:a', 'copy', '-movflags', '+faststart', '-f', 'mp4', "$root/$name.part.mp4");
 
