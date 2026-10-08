@@ -278,3 +278,18 @@ def test_the_donor_is_deterministic(tmp_path):
     bare = burst(tmp_path, "20230913_142237", 2, record=False)
 
     assert imu.gravity_up_nearby(bare) == imu.gravity_up_nearby(bare)
+
+
+def test_a_video_levels_its_opening_frame_from_the_start_of_the_record(tmp_path):
+    """A video's record covers the whole clip; its opening frame is at the start."""
+    held, turned = (-1.0, 0.0, 0.0, 0.0, 0.0, 0.0), (0.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+    count = imu.OPENING_SAMPLES
+    payload = b"".join(biased(i, held) for i in range(1, count + 1))
+    payload += b"".join(biased(i, turned) for i in range(count + 1, 3 * count + 1))
+    keyframe = b"\x00" * 22 + b"\x00\x00\x00\x01\x40\x01"
+    video = write_file(tmp_path / "VID_20200809_163437_00_026.insv",
+                       [(IMU, payload), (0x0200, keyframe + b"0"), (0x0500, keyframe + b"1")], leading=b"mp4")
+    still = write_file(tmp_path / "IMG_20200809_163437_00_026.insp", [(IMU, payload)])
+
+    assert imu.gravity(video) == pytest.approx((-1.0, 0.0, 0.0))
+    assert imu.gravity(still) == pytest.approx((0.0, -1.0, 0.0))

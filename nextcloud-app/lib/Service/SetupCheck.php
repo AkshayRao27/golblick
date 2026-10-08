@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace OCA\Golblick\Service;
 
+use OCA\Golblick\Preview\Insta360Video;
 use OCP\App\IAppManager;
 use OCP\Files\IMimeTypeDetector;
 use OCP\Files\IMimeTypeLoader;
@@ -25,6 +26,9 @@ use OCP\Util;
 final class SetupCheck {
 	public const MAPPING_FILE = 'mimetypemapping.json';
 
+	/** What each extension is registered as. See Preview\Insta360 and Preview\Insta360Video for why. */
+	public const MAPPINGS = ['insp' => 'image/jpeg', 'insv' => Insta360Video::MIME];
+
 	/** The renderer refuses frames it cannot decode within the limit; see AGENT-NOTES § Memory. */
 	private const COMFORTABLE_MEMORY = 512 * 1024 * 1024;
 
@@ -34,6 +38,7 @@ final class SetupCheck {
 		private IDBConnection $db,
 		private IAppManager $appManager,
 		private IConfig $config,
+		private VideoDecoder $decoder,
 	) {
 	}
 
@@ -55,6 +60,8 @@ final class SetupCheck {
 			$checks[] = $this->item('mapping', 'ok', '.insp files are treated as images',
 				$this->inspRows(true) . ' .insp files are known to Nextcloud.');
 		}
+
+		$checks = array_merge($checks, $this->videoChecks());
 
 		$gd = function_exists('gd_info') ? gd_info() : [];
 		$checks[] = ($gd['JPEG Support'] ?? false)
@@ -99,7 +106,11 @@ final class SetupCheck {
 	 *
 	 * @return array{written: bool, rows: int}
 	 */
-	public function register(): array {
+	public function register(string $extension = 'insp'): array {
+		$mime = self::MAPPINGS[$extension] ?? null;
+		if ($mime === null) {
+			throw new \RuntimeException("golblick registers no files called .{$extension}.");
+		}
 		$dir = rtrim((string)\OC::$configDir, '/');
 		$path = $dir . '/' . self::MAPPING_FILE;
 
@@ -112,15 +123,15 @@ final class SetupCheck {
 		}
 
 		$written = false;
-		if (isset($map['insp'])) {
-			if (($map['insp'][0] ?? null) !== 'image/jpeg') {
-				throw new \RuntimeException('config/' . self::MAPPING_FILE . ' already maps .insp to ' . json_encode($map['insp'], JSON_UNESCAPED_SLASHES) . '. Change it manually if you want this app to handle them; it was left untouched.');
+		if (isset($map[$extension])) {
+			if (($map[$extension][0] ?? null) !== $mime) {
+				throw new \RuntimeException('config/' . self::MAPPING_FILE . " already maps .{$extension} to " . json_encode($map[$extension], JSON_UNESCAPED_SLASHES) . '. Change it manually if you want this app to handle them; it was left untouched.');
 			}
 		} else {
 			if (!is_writable(file_exists($path) ? $path : $dir)) {
-				throw new \RuntimeException("The web server cannot write to config/" . self::MAPPING_FILE . '. Add "insp": ["image/jpeg"] to it manually.');
+				throw new \RuntimeException("The web server cannot write to config/" . self::MAPPING_FILE . ". Add \"{$extension}\": [\"{$mime}\"] to it manually.");
 			}
-			$map['insp'] = ['image/jpeg'];
+			$map[$extension] = [$mime];
 			$tmp = $path . '.golblick-' . bin2hex(random_bytes(4));
 			if (file_put_contents($tmp, json_encode($map, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n") === false || !rename($tmp, $path)) {
 				@unlink($tmp);
@@ -129,7 +140,7 @@ final class SetupCheck {
 			$written = true;
 		}
 
-		$rows = $this->mimeTypes->updateFilecache('insp', $this->mimeTypes->getId('image/jpeg'));
+		$rows = $this->mimeTypes->updateFilecache($extension, $this->mimeTypes->getId($mime));
 
 		return ['written' => $written, 'rows' => $rows];
 	}
@@ -139,20 +150,54 @@ final class SetupCheck {
 	 * those already typed image/jpeg or those that are not.
 	 */
 	public function inspRows(bool $asJpeg): int {
-		$jpeg = $this->mimeTypes->getId('image/jpeg');
+		return $this->rows('insp', $asJpeg);
+	}
+
+	/** Files with this extension that do (or don't) have the type golblick registers for it. */
+	private function rows(string $extension, bool $registered): int {
+		$type = $this->mimeTypes->getId(self::MAPPINGS[$extension]);
 		$qb = $this->db->getQueryBuilder();
 		$qb->select($qb->func()->count('fileid'))
 			->from('filecache')
-			->where($qb->expr()->iLike('name', $qb->createNamedParameter('%.insp')))
+			->where($qb->expr()->iLike('name', $qb->createNamedParameter('%.' . $extension)))
 			->andWhere($qb->expr()->like('path', $qb->createNamedParameter('files/%')))
-			->andWhere($asJpeg
-				? $qb->expr()->eq('mimetype', $qb->createNamedParameter($jpeg))
-				: $qb->expr()->neq('mimetype', $qb->createNamedParameter($jpeg)));
+			->andWhere($registered
+				? $qb->expr()->eq('mimetype', $qb->createNamedParameter($type))
+				: $qb->expr()->neq('mimetype', $qb->createNamedParameter($type)));
 		$result = $qb->executeQuery();
 		$count = (int)$result->fetchOne();
 		$result->closeCursor();
 
 		return $count;
+	}
+
+	/**
+	 * Videos are opt-in: a type of their own, so they show a thumbnail in Files
+	 * and stay out of Memories and the Viewer until golblick can play them.
+	 */
+	private function videoChecks(): array {
+		$mapped = $this->detector->detectPath('x.insv') === self::MAPPINGS['insv'];
+		$ffmpeg = $this->decoder->binary();
+		$checks = [];
+		if (!$mapped) {
+			$checks[] = $this->item('video_mapping', 'info', '.insv videos are not registered',
+				'Optional. "Register .insv files" below gives Insta360 videos a panoramic thumbnail of their opening frame in Files. They don\'t appear in Memories or play in the image viewer yet: played as they are, they would show the raw fisheye.');
+		} elseif (($wrong = $this->rows('insv', false)) > 0) {
+			$checks[] = $this->item('video_mapping', 'warn', "$wrong .insv files still have an old file type",
+				'The mapping is in place, but these files were indexed before it was. "Register .insv files" updates them.');
+		} else {
+			$checks[] = $this->item('video_mapping', 'ok', '.insv videos get a thumbnail in Files',
+				$this->rows('insv', true) . ' .insv files are known to Nextcloud. They don\'t appear in Memories yet.');
+		}
+		if ($ffmpeg !== null) {
+			$checks[] = $this->item('ffmpeg', 'ok', 'ffmpeg is installed',
+				"$ffmpeg. Thumbnails of OneR and X3 videos need it to decode the opening frame; X5 videos don't.");
+		} else {
+			$checks[] = $this->item('ffmpeg', $mapped ? 'warn' : 'info', 'ffmpeg is not installed',
+				'Thumbnails of OneR and X3 videos need it to decode the opening frame, so without it they get none. X5 videos don\'t need it. Nextcloud uses the same ffmpeg for its own video thumbnails; preview_ffmpeg_path in config.php points to it if it isn\'t on the PATH.');
+		}
+
+		return $checks;
 	}
 
 	private function memoriesCheck(): array {

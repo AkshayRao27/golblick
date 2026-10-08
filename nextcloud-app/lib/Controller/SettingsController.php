@@ -64,9 +64,9 @@ final class SettingsController extends Controller {
 	}
 
 	#[FrontpageRoute(verb: 'POST', url: '/settings/register')]
-	public function register(): JSONResponse {
+	public function register(string $extension = 'insp'): JSONResponse {
 		try {
-			return new JSONResponse($this->check->register());
+			return new JSONResponse($this->check->register($extension));
 		} catch (\RuntimeException $e) {
 			return new JSONResponse(['error' => $e->getMessage()], Http::STATUS_CONFLICT);
 		}

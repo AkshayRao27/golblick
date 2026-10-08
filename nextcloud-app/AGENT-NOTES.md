@@ -4,12 +4,13 @@ Details behind the [README](README.md), for anyone (human or coding agent) chang
 
 ## No new server-side dependency
 
-The whole reader is reimplemented here in PHP: the trailer walk, the protobuf field walk, the lens calibration parse and the equirectangular projection. Pixels go through **GD**, which Nextcloud already requires. Nothing shells out, and the Python library in the parent repository is not called.
+The whole reader is reimplemented here in PHP: the trailer walk, the protobuf field walk, the lens calibration parse and the equirectangular projection. Pixels go through **GD**, which Nextcloud already requires. Nothing shells out except `Service/VideoDecoder`, for OneR and X3 video thumbnails only (see [Videos](#videos-libpreviewinsta360videophp)), and the Python library in the parent repository is not called.
 
 ```
-lib/Insta360/     Trailer · Protobuf · Calibration · EmbeddedPreview · Imu · LensProfile   the reader
-lib/Render/       Equirectangular · Seam · Orientation                                    the projection
-lib/Preview/      Insta360                                                                the provider
+lib/Insta360/     Trailer · Protobuf · Calibration · EmbeddedPreview · Imu · LensProfile · Keyframes   the reader
+lib/Render/       Equirectangular · Seam · Orientation                                                the projection
+lib/Preview/      Insta360 · Insta360Video                                                            the providers
+lib/Service/      VideoDecoder                                                                        ffmpeg, for video keyframes
 ```
 
 The reader is a deliberate port of `src/golblick/vendors/insta360/` and is kept close enough to compare side by side. A change to the projection goes into both, and the two outputs are compared on the same file afterwards.
@@ -107,6 +108,17 @@ One page under Administration settings, own section. `src/admin.ts` renders it i
 - Pre-rendering is a `TimedJob` every 15 minutes that stops after 120 s. It keeps no state: it walks `.insp` files newest first by `mtime` (sync clients keep the camera's time; on one real library 1,437 of 1,438 matched the date in the file name) and skips any already cached at the current width, so each run continues where the last left off and a newly added photo goes first. Cached files are skipped by comparing `<fileid>-<etag>-<width>.jpg` against one listing of the cache folder before any file is opened. A file the renderer refuses (no camera data) is tried again every run; the refusal happens while reading the trailer, so it costs little. A group folder file has no owner home to open it through, so it is opened via `IUserMountCache::getMountsForFileId()` and the folder of the first user who has it mounted; the cached panorama is the same whoever renders it and is only served through endpoints that check the viewer's own access. Measured on a 4-core AIO copy: one run took 129 s and rendered 6 OneR panoramas at 4096.
 - The cache figures count entries by name: `<fileid>-<etag>-<width>.jpg`. Entries at another width are left by a size change and replaced only when their file is rendered again, hence the clear button.
 - In current themes `--color-success` and its siblings are pale tints; the icons use the solid `--color-element-success` and so on.
+
+## Videos (`lib/Preview/Insta360Video.php`)
+
+Opt-in: `.insv` is mapped to `application/x-insta360-insv` only when the admin presses **Register .insv files** (`SetupCheck::register('insv')`). A type nothing else claims, on purpose: `video/mp4` would put the files in Memories and the Viewer, which would play the raw fisheye (one lens on a OneR, the first of two streams on an X5). Measured on 8008: after registering and `occ memories:index`, no `.insv` row in `oc_memories` or `oc_memories_failures`; clicking one in Files downloads it. Step 3 of the video plan (playback in Memories) is when the type changes.
+
+- **Trailer reads by seeking.** A video trailer runs to 83 MB on an X5, so `Trailer::read($handle, $only)` locates every record by walking footers (or the X5 video index) through seeks and reads only the payloads asked for; `fetch()` reads one more later, while the handle is open. A walk longer than 64 records counts as not closing, which can only make it refuse. `get()` on a record that exists but wasn't read throws rather than returning null. Checked against the Python reader on all 1,783 `.insp`/`.insv`/`.lrv` files in one library: identical record ids, sizes and metadata, including the 83 X5 videos read through the index.
+- **X5:** record `0x0200` is NV12, stitched and levelled by the camera, so it goes through `Equirectangular::fromNv12` as an X5 still does.
+- **OneR, X3:** records `0x0200` and `0x0500` are the opening frame's keyframes (`Keyframes`, a port of `keyframe.py`). `VideoDecoder` finds ffmpeg as core's Movie provider does (`preview_ffmpeg_path`, then `IBinaryFinder`), writes each stream to a temporary file, and has ffmpeg scale each lens and `hstack` them into the lens pair at the width needed, so PHP only holds the finished pair, which goes through `refuseIfTooBigToDecode` before GD decodes it. Files, not pipes, because a 1.5 MB keyframe in and a 10 MB PNG out can deadlock on pipe buffers. 60-second timeout. Then `Equirectangular::fromLensPair` as for a still.
+- **Levelling** uses the first `Imu::OPENING_SAMPLES` (1,500) of the record, the same rule as `imu.py`, which says why: memory (a 23-minute clip holds about 700,000 samples, and PHP holds each as an array) and the opening frame being at the start. Past that, `Imu::decode` still checks every timecode, so a stride is accepted or refused on the whole record exactly as the Python does.
+- **`_10_` files** have no trailer; the provider reads the `_00_` file of the same name in the same folder, so both show the same picture.
+- **Measured** on 8008 (official Debian image plus ffmpeg) on two OneR clips, one X3 clip with their `_10_` partners, an X5 clip and a OneR proxy: every preview 200, 1.0 s (X5) to 3.8 s (OneR) at 1024. Against `golblick render` at 1024 on the same files, the fitted rotation between the two is 0.00–0.16° and the mean difference 3–15 grey levels, the same size as the PHP-to-Python difference on two `.insp` photos measured the same way (9–12), so nothing video-specific.
 
 ## Levelling routes
 

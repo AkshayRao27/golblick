@@ -149,15 +149,19 @@ function render(status: Status) {
   const recheck = el('button', { type: 'button', textContent: 'Check again' });
   recheck.addEventListener('click', () => void load());
   const actions = el('div', { className: 'golblick-actions' }, recheck);
-  const mapping = status.checks.find((c) => c.id === 'mapping');
-  if (mapping && mapping.level !== 'ok') {
-    const register = el('button', { type: 'button', className: 'primary', textContent: 'Register .insp files' });
+  // One button per file type that still needs registering. Videos are opt-in.
+  for (const [id, extension, after] of [
+    ['video_mapping', 'insv', 'Their thumbnails are made the next time each one is shown in Files.'],
+    ['mapping', 'insp', 'Memories adds them to the timeline at its next background run. You can also run "occ memories:index" to index them immediately.'],
+  ] as const) {
+    const check = status.checks.find((c) => c.id === id);
+    if (!check || check.level === 'ok') continue;
+    const register = el('button', { type: 'button', className: id === 'mapping' ? 'primary' : '', textContent: `Register .${extension} files` });
     register.addEventListener('click', async () => {
       register.disabled = true;
       try {
-        const r = await api<{ written: boolean; rows: number }>('POST', '/settings/register');
-        setupNote.ok(`${r.written ? 'Added the mapping to config/mimetypemapping.json. ' : ''}Updated ${r.rows} files. `
-          + 'Memories adds them to the timeline at its next background run. You can also run "occ memories:index" to index them immediately.');
+        const r = await api<{ written: boolean; rows: number }>('POST', '/settings/register', { extension });
+        setupNote.ok(`${r.written ? 'Added the mapping to config/mimetypemapping.json. ' : ''}Updated ${r.rows} files. ${after}`);
         await load(false);
       } catch (e) {
         setupNote.fail((e as Error).message);

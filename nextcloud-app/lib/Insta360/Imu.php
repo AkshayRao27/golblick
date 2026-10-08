@@ -41,6 +41,12 @@ final class Imu {
 	private const TIMECODE_BYTES = 8;
 
 	/**
+	 * How much of a video's record levels its opening frame: imu.py's
+	 * OPENING_SAMPLES, which says why. Pass it as $first for a video.
+	 */
+	public const OPENING_SAMPLES = 1500;
+
+	/**
 	 * How each camera's inertial axes sit relative to the render's, as rows of
 	 * a map applied to the acceleration vector.
 	 *
@@ -81,7 +87,7 @@ final class Imu {
 	 * @param string $model  the camera model, from the metadata record
 	 * @return array{float, float, float}
 	 */
-	public static function gravityUp(string $record, string $model): array {
+	public static function gravityUp(string $record, string $model, ?int $first = null): array {
 		$axes = self::AXES[$model] ?? null;
 		if ($axes === null) {
 			throw new FormatError(sprintf(
@@ -92,7 +98,7 @@ final class Imu {
 			));
 		}
 
-		$vector = self::gravity($record);
+		$vector = self::gravity($record, $first);
 		$length = sqrt($vector[0] ** 2 + $vector[1] ** 2 + $vector[2] ** 2);
 		if ($length < 0.5) {
 			throw new FormatError(sprintf(
@@ -119,8 +125,8 @@ final class Imu {
 	 *
 	 * @return array{float, float, float}
 	 */
-	public static function gravity(string $record): array {
-		$samples = self::entries($record);
+	public static function gravity(string $record, ?int $first = null): array {
+		$samples = self::entries($record, $first);
 		if ($samples === []) {
 			throw new FormatError('inertial record is empty');
 		}
@@ -144,10 +150,10 @@ final class Imu {
 	 *
 	 * @return list<array{float, float, float}>
 	 */
-	public static function entries(string $record): array {
+	public static function entries(string $record, ?int $keep = null): array {
 		$fits = [];
 		foreach (array_keys(self::LAYOUTS) as $stride) {
-			$decoded = self::decode($record, $stride);
+			$decoded = self::decode($record, $stride, $keep);
 			if ($decoded !== null) {
 				$fits[$stride] = $decoded;
 			}
@@ -176,7 +182,7 @@ final class Imu {
 	 *
 	 * @return list<array{float, float, float}>|null
 	 */
-	private static function decode(string $record, int $stride): ?array {
+	private static function decode(string $record, int $stride, ?int $keep): ?array {
 		$length = \strlen($record);
 		if ($stride > $length || $length % $stride !== 0) {
 			return null;
@@ -202,6 +208,12 @@ final class Imu {
 			}
 			$previous = $timecode;
 
+			// Past $keep, only the timecodes are checked, so a stride is accepted
+			// or refused on the whole record exactly as imu.py does, while
+			// memory stays bounded by what is kept.
+			if ($keep !== null && \count($samples) >= $keep) {
+				continue;
+			}
 			$six = unpack($format, substr($record, $offset + self::TIMECODE_BYTES, $stride - self::TIMECODE_BYTES));
 			if ($six === false) {
 				return null;

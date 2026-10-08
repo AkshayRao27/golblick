@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace OCA\Golblick\Insta360;
 
 /**
- * Reader for the binary trailer Insta360 appends to .insp files.
+ * Reader for the binary trailer Insta360 appends to .insp, .insv and .lrv files.
  *
  * A port of the Python reader in src/golblick/vendors/insta360/trailer.py,
  * kept deliberately close to it so the two can be compared line for line. The
@@ -19,6 +19,13 @@ namespace OCA\Golblick\Insta360;
  * Reads only the trailer, never the whole file. That matters more here than in
  * the CLI: a preview provider runs over a whole library, and an X5 still is 24
  * MB of which the trailer is the last few.
+ *
+ * ⚠️ Unlike the Python reader, it does not load the trailer in one piece. A
+ * video's trailer runs to 83 MB (X5) and a thumbnail needs one or two of its
+ * records, so the records are located by seeking from footer to footer, and
+ * only the payloads asked for are read. The proofs are the same: the walk must
+ * land exactly on the trailer's start, and an X5 video's index must agree with
+ * every record's own footer and end exactly where the index begins.
  */
 final class Trailer {
 	public const MAGIC = '8db42d694ccc418790edff439fe026bf';
@@ -26,6 +33,8 @@ final class Trailer {
 	public const METADATA = 0x0101;
 	public const PREVIEW = 0x0200;
 	public const IMU = 0x0300;
+	/** In a OneR or X3 video, the keyframe of lens 1; PREVIEW holds lens 0's. See Keyframes. */
+	public const SECOND_KEYFRAME = 0x0500;
 
 	/**
 	 * Padding widths to try between the last record and the trailer footer.
@@ -35,28 +44,77 @@ final class Trailer {
 	 */
 	private const CANDIDATE_PADS = [32, 0, 16, 8, 64];
 
-	/** @var array<int, string> record id => payload */
+	/**
+	 * Real trailers carry about a dozen records (an X5 video's index has 31
+	 * slots). The walk reads one footer per step from the stream, and a wrong
+	 * pad width can read noise as a long run of tiny records, so a walk this
+	 * long is treated as not closing. It can only make the reader refuse.
+	 */
+	private const MAX_RECORDS = 64;
+
+	private const RECORD_FOOTER = 6;
+	private const INDEX_ENTRY = 10;
+
+	/** @var array<int, array{int, int}> record id => [start in the file, size] */
+	private array $locations;
+
+	/** @var array<int, string> record id => payload, for the records that were read */
 	private array $records;
 
 	/** Where the trailer starts, i.e. the length of the frame in front of it. */
 	private int $offset;
 
-	private function __construct(array $records, int $offset) {
+	private function __construct(array $locations, array $records, int $offset) {
+		$this->locations = $locations;
 		$this->records = $records;
 		$this->offset = $offset;
 	}
 
+	/**
+	 * A record's payload, or null if the file has no such record.
+	 *
+	 * @throws \LogicException for a record that exists but was not asked for in read()
+	 */
 	public function get(int $recordId): ?string {
-		return $this->records[$recordId] ?? null;
+		if (!isset($this->locations[$recordId])) {
+			return null;
+		}
+		if (!\array_key_exists($recordId, $this->records)) {
+			throw new \LogicException(sprintf('record 0x%04x was located but not read; ask for it in Trailer::read', $recordId));
+		}
+
+		return $this->records[$recordId];
+	}
+
+	/**
+	 * A record's payload, read now from $handle, which must be the file read() was given.
+	 *
+	 * @param resource $handle
+	 */
+	public function fetch($handle, int $recordId): ?string {
+		if (\array_key_exists($recordId, $this->records)) {
+			return $this->records[$recordId];
+		}
+		if (!isset($this->locations[$recordId])) {
+			return null;
+		}
+		[$at, $length] = $this->locations[$recordId];
+		fseek($handle, $at);
+		$payload = self::readExactly($handle, $length);
+		if (\strlen($payload) !== $length) {
+			throw new FormatError(sprintf('short read of record 0x%04x', $recordId));
+		}
+
+		return $this->records[$recordId] = $payload;
 	}
 
 	public function has(int $recordId): bool {
-		return isset($this->records[$recordId]);
+		return isset($this->locations[$recordId]);
 	}
 
-	/** @return array<int, int> record id => payload size in bytes, in file order */
+	/** @return array<int, int> record id => payload size in bytes */
 	public function recordSizes(): array {
-		return array_map('strlen', $this->records);
+		return array_map(static fn (array $at): int => $at[1], $this->locations);
 	}
 
 	/**
@@ -123,9 +181,10 @@ final class Trailer {
 
 	/**
 	 * @param resource $handle a seekable stream positioned anywhere
+	 * @param list<int>|null $only the records to read; null reads all of them
 	 * @throws FormatError if the trailer cannot be parsed with certainty
 	 */
-	public static function read($handle): self {
+	public static function read($handle, ?array $only = null): self {
 		if (fseek($handle, 0, SEEK_END) !== 0) {
 			throw new FormatError('stream is not seekable');
 		}
@@ -142,50 +201,146 @@ final class Trailer {
 			throw new FormatError("trailer size {$size} is impossible in {$fileSize} bytes");
 		}
 
-		fseek($handle, $fileSize - $size);
-		$blob = self::readExactly($handle, $size);
-		if (\strlen($blob) !== $size) {
-			throw new FormatError('short read of the trailer: ' . \strlen($blob) . " of {$size}");
-		}
-
-		$footerStart = $size - \strlen(self::MAGIC) - 8;
+		$start = $fileSize - $size;
+		$footerStart = $fileSize - \strlen(self::MAGIC) - 8;
+		$locations = null;
 		foreach (self::CANDIDATE_PADS as $pad) {
 			$end = $footerStart - $pad;
-			if ($end < 0) {
+			if ($end >= $start && ($locations = self::walk($handle, $start, $end)) !== null) {
+				break;
+			}
+		}
+		// Only once no walk closes, so a layout that already parsed is never
+		// reinterpreted. An id-0 footer is what stopped the walks above.
+		if ($locations === null) {
+			foreach (self::CANDIDATE_PADS as $pad) {
+				$end = $footerStart - $pad;
+				if ($end >= $start && ($locations = self::index($handle, $start, $end)) !== null) {
+					break;
+				}
+			}
+		}
+		if ($locations === null) {
+			throw new FormatError('no padding width makes the record walk consume the trailer exactly, '
+				. 'or ends on a consistent record index');
+		}
+
+		$records = [];
+		foreach ($locations as $id => [$at, $length]) {
+			if ($only !== null && !\in_array($id, $only, true)) {
 				continue;
 			}
-			$records = self::walk($blob, $end, $stopped);
-			if ($stopped === 0 && $records !== []) {
-				return new self($records, $fileSize - $size);
+			fseek($handle, $at);
+			$records[$id] = self::readExactly($handle, $length);
+			if (\strlen($records[$id]) !== $length) {
+				throw new FormatError(sprintf('short read of record 0x%04x', $id));
 			}
 		}
 
-		throw new FormatError('no padding width makes the record walk consume the trailer exactly');
+		return new self($locations, $records, $start);
+	}
+
+	/** Six bytes at $at: a record footer's id and size. */
+	private static function footerAt($handle, int $at): array {
+		fseek($handle, $at);
+		$bytes = self::readExactly($handle, self::RECORD_FOOTER);
+
+		return \strlen($bytes) === self::RECORD_FOOTER ? unpack('vid/Vsize', $bytes) : ['id' => 0, 'size' => 0];
 	}
 
 	/**
 	 * Walk records backwards from $end; each record is *followed* by its footer.
+	 * Null unless the walk lands exactly on the trailer's start.
 	 *
-	 * @return array<int, string>
+	 * @return array<int, array{int, int}>|null
 	 */
-	private static function walk(string $blob, int $end, ?int &$stopped): array {
-		$records = [];
+	private static function walk($handle, int $start, int $end): ?array {
+		$locations = [];
 		$pos = $end;
-		while ($pos >= 6) {
-			$footer = unpack('vid/Vsize', substr($blob, $pos - 6, 6));
-			$start = $pos - 6 - $footer['size'];
+		$steps = 0;
+		while ($pos - $start >= self::RECORD_FOOTER) {
+			$footer = self::footerAt($handle, $pos - self::RECORD_FOOTER);
+			$recordStart = $pos - self::RECORD_FOOTER - $footer['size'];
 			// An all-zero footer is the pad, not a record. Id 0 only appears as
-			// the record index of X5 video trailers, which this port does not
-			// read, so treating it as the end of the walk keeps the boundary
-			// check decisive.
-			if ($start < 0 || $footer['id'] === 0) {
+			// the index of an X5 video trailer, which a walk cannot read, so
+			// treating it as the end of the walk keeps the boundary check
+			// decisive and leaves the index to index().
+			if ($recordStart < $start || $footer['id'] === 0) {
 				break;
 			}
-			$records[$footer['id']] = substr($blob, $start, $footer['size']);
-			$pos = $start;
+			if (++$steps > self::MAX_RECORDS) {
+				return null;
+			}
+			// Walking backwards, so a repeated id ends up holding the earliest one.
+			$locations[$footer['id']] = [$recordStart, $footer['size']];
+			$pos = $recordStart;
 		}
-		$stopped = $pos;
 
-		return $records;
+		return $pos === $start && $locations !== [] ? $locations : null;
+	}
+
+	/**
+	 * An X5 video's indexed trailer, whose index record ends at $end, or null.
+	 *
+	 * The gaps between indexed records hold stale data, so nothing can be said
+	 * to consume the trailer exactly. What replaces that proof: every entry must
+	 * point at a record whose own footer repeats the entry's id and size, the
+	 * records must not overlap, and the last of them must end exactly where the
+	 * index begins.
+	 *
+	 * @return array<int, array{int, int}>|null
+	 */
+	private static function index($handle, int $start, int $end): ?array {
+		if ($end - $start < self::RECORD_FOOTER) {
+			return null;
+		}
+		$footer = self::footerAt($handle, $end - self::RECORD_FOOTER);
+		$size = $footer['size'];
+		$indexStart = $end - self::RECORD_FOOTER - $size;
+		if ($footer['id'] !== 0 || $size === 0 || $size % self::INDEX_ENTRY !== 0 || $indexStart < $start) {
+			return null;
+		}
+		fseek($handle, $indexStart);
+		$index = self::readExactly($handle, $size);
+		if (\strlen($index) !== $size) {
+			return null;
+		}
+
+		$found = [];
+		for ($pos = 0; $pos < $size; $pos += self::INDEX_ENTRY) {
+			// The id is big-endian here, the opposite of the record footer's.
+			$entry = unpack('nid/Vsize/Voffset', substr($index, $pos, self::INDEX_ENTRY));
+			if ($entry['id'] === 0 && $entry['size'] === 0 && $entry['offset'] === 0) {
+				continue;
+			}
+			$at = $start + $entry['offset'];
+			$footerAt = $at + $entry['size'];
+			if ($entry['id'] === 0 || $footerAt + self::RECORD_FOOTER > $indexStart) {
+				return null;
+			}
+			$own = self::footerAt($handle, $footerAt);
+			if ($own['id'] !== $entry['id'] || $own['size'] !== $entry['size']) {
+				return null;
+			}
+			$found[] = [$entry['id'], $at, $entry['size']];
+		}
+
+		usort($found, static fn (array $a, array $b): int => $a[1] <=> $b[1]);
+		for ($i = 1, $n = \count($found); $i < $n; ++$i) {
+			if ($found[$i - 1][1] + $found[$i - 1][2] + self::RECORD_FOOTER > $found[$i][1]) {
+				return null;
+			}
+		}
+		$last = end($found);
+		if ($last === false || $last[1] + $last[2] + self::RECORD_FOOTER !== $indexStart) {
+			return null;
+		}
+
+		$locations = [];
+		foreach ($found as [$id, $at, $length]) {
+			$locations[$id] ??= [$at, $length];
+		}
+
+		return $locations;
 	}
 }

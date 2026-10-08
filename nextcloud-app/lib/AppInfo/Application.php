@@ -12,6 +12,7 @@ use OCA\Files_Sharing\Event\BeforeTemplateRenderedEvent as PublicShareRenderedEv
 use OCA\Golblick\Listener\LoadSphereViewer;
 use OCA\Golblick\Middleware\MemoriesZoom;
 use OCA\Golblick\Preview\Insta360;
+use OCA\Golblick\Preview\Insta360Video;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
@@ -29,6 +30,7 @@ final class Application extends App implements IBootstrap {
 		// The regex is deliberately longer than core's for the same mimetype;
 		// see OCA\Golblick\Preview\Insta360 for why that matters.
 		$context->registerPreviewProvider(Insta360::class, '/^image\/jpeg$/');
+		$context->registerPreviewProvider(Insta360Video::class, '/^application\/x-insta360-insv$/');
 
 		// Global, because the response it rewrites belongs to Memories.
 		$context->registerMiddleware(MemoriesZoom::class, true);

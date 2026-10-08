@@ -1,6 +1,6 @@
 # 360 photo previews for Nextcloud
 
-Shows Insta360 `.insp` photos as panoramas in Nextcloud, and lets you look around them as a sphere. Without it, Nextcloud doesn't recognise `.insp` at all: by default, Files shows a generic icon and Memories leaves them out of the timeline.
+Shows Insta360 `.insp` photos as panoramas in Nextcloud, and lets you look around them as a sphere. Without it, Nextcloud doesn't recognise `.insp` at all: by default, Files shows a generic icon and Memories leaves them out of the timeline. It can also give `.insv` videos a panoramic thumbnail in Files; see [Videos](#videos).
 
 ## 🚩 Please read this before you proceed
 
@@ -8,7 +8,7 @@ This is barely even an alpha of a fully vibe-coded app, tested on throwaway Next
 
 ## How it works
 
-The app reads the camera's data from the end of each `.insp` file and renders the preview in plain PHP, using the GD library Nextcloud already requires. It doesn't need the Python tool from this repository, and doesn't run any external programs. The sphere view runs in the browser, using JavaScript that ships with the app. [AGENT-NOTES.md](AGENT-NOTES.md), written mainly for coding agents, has the implementation details: performance, memory use, and how it shares JPEG previews with Nextcloud's own provider.
+The app reads the camera's data from the end of each `.insp` file and renders the preview in plain PHP, using the GD library Nextcloud already requires. It doesn't need the Python tool from this repository, and doesn't run any external programs, with one exception: thumbnails of OneR and X3 videos need ffmpeg, if you register videos at all. The sphere view runs in the browser, using JavaScript that ships with the app. [AGENT-NOTES.md](AGENT-NOTES.md), written mainly for coding agents, has the implementation details: performance, memory use, and how it shares JPEG previews with Nextcloud's own provider.
 
 ## What installing it changes
 
@@ -16,6 +16,15 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
 
 - **Zooming in Memories needed a workaround.** When you zoom past the preview's size, Memories loads the original file, and for a `.insp` that is the two fisheye circles. The app swaps that one image for a full-size panorama, so zooming stays a panorama. It doesn't change the file or what you get when you download it. The first zoom on each photo makes the server render that panorama, which takes up to about 20 seconds on a OneR photo; Memories shows the preview meanwhile, and later zooms take under a second. To make it faster at the cost of detail, pick a smaller panorama size on the app's settings page (1024 to 4096 pixels wide, default 4096), or have the panoramas rendered ahead of time there. X5 photos stop at 2560, the size of the panorama the camera stores.
 - **Files the app can't read go to Nextcloud's normal JPEG preview**, which shows the fisheye pair. On a large photo it may also run out of memory. In the test library this was 6 files out of 1,438, all damaged or exported without the camera's data.
+
+## Videos
+
+Videos are optional, and only get as far as Files for now. **Register .insv files** in the setup check on the settings page gives each `.insv` a thumbnail of the clip's opening frame as a panorama. They don't appear in Memories and don't play in the image viewer: played as they are, they'd show the raw fisheye, and only one lens of it. Clicking one downloads it.
+
+- An X5 stores a stitched, levelled panorama of the opening frame in the file, so that's the thumbnail.
+- A OneR or X3 writes each lens to its own file (`_00_` and `_10_`), but the `_00_` file stores the opening frame of both. Decoding it needs ffmpeg, the same program Nextcloud uses for its own video thumbnails. The setup check says whether it's installed; without it, these videos get no thumbnail. Both files of a clip show the same picture.
+
+A thumbnail takes 1 to 4 seconds the first time on a test server, and Nextcloud keeps it after that.
 
 ## Viewing a photo as a sphere
 
@@ -88,7 +97,7 @@ Previews are generated the first time each photo is viewed, or ahead of time if 
 
 **Administration settings → Golblick (360° Photos)** has:
 
-- a setup check: whether `.insp` is registered, GD, PHP's memory limit, whether the Memories zoom fix can attach, and whether ImageMagick can read RAW files (see [Nextcloud AIO and RAW photos](#nextcloud-aio-and-raw-photos))
+- a setup check: whether `.insp` is registered, whether `.insv` videos are (optional) and ffmpeg is installed, GD, PHP's memory limit, whether the Memories zoom fix can attach, and whether ImageMagick can read RAW files (see [Nextcloud AIO and RAW photos](#nextcloud-aio-and-raw-photos))
 - the size of the full-size panorama used for zooming and the sphere view, and a button to clear the ones already made
 - rendering those panoramas in the background, newest photos first, off by default because it costs about 19 seconds of CPU per OneR photo at full size
 - switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one

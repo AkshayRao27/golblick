@@ -42,6 +42,7 @@ import struct
 from dataclasses import dataclass
 
 from ...errors import FormatError
+from .keyframe import LENS_1
 from .trailer import IMU, read_trailer
 
 _TIMECODE = struct.Struct("<q")
@@ -113,12 +114,25 @@ def entries(path) -> list[Sample]:
     return next(iter(fits.values()))
 
 
+#: How much of a video's record levels its opening frame.  See :func:`gravity`.
+OPENING_SAMPLES = 1500
+
+
 def gravity(path) -> tuple[float, float, float]:
     """The accelerometer's median reading over the whole record, in g.
 
     The median rather than the mean, and over every sample rather than the one
     nearest the shutter, because a still's log is short and a hand shake at one
     end of it should not tilt the horizon.
+
+    ⚠️ Except for a OneR or X3 video, which is rendered as its opening frame
+    (keyframe.py): there the record covers the whole clip, so only its first
+    ``OPENING_SAMPLES`` (about 3 seconds) are used.  The reason is memory, in
+    the Nextcloud port, which has to stay identical: a 23-minute clip holds
+    some 700,000 samples.  Against Insta360 Studio's levelled exports of frame
+    0 on five clips, that window left 1.1 to 3.2 degrees of tilt where the
+    whole record left 1.9 to 3.3, never worse on any of them; five clips are
+    too few to tune it on, and it was not.
 
     ⚠️ This is the direction of gravity **in the IMU's own axes**, which are
     not the render's axes.  :func:`golblick.render.level` holds the rotation
@@ -127,6 +141,8 @@ def gravity(path) -> tuple[float, float, float]:
     samples = entries(path)
     if not samples:
         raise FormatError(f"{path}: inertial record is empty")
+    if read_trailer(path).get(LENS_1) is not None:
+        samples = samples[:OPENING_SAMPLES]
     axes = []
     for axis in range(3):
         ordered = sorted(sample.acceleration[axis] for sample in samples)
