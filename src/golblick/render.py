@@ -515,6 +515,48 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     return blended.astype(numpy.float32), hemispheres
 
 
+def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None):
+    """Where each output pixel comes from, for a video renderer that remaps every frame.
+
+    A video is the same projection applied to every frame, so it is computed
+    once, as tables a remapping filter (ffmpeg's ``remap``) can apply, and the
+    frames never pass through Python.  Returns ``(maps, share)``: ``maps`` is
+    one ``(x, y, valid)`` per lens, with ``x`` and ``y`` in that lens's OWN
+    frame, ``lens_size`` square (the lenses of a OneR or X3 video are separate
+    streams, not halves of one frame), and ``share`` is how much of each output
+    pixel comes from lens 1, 0 to 1.
+
+    The hand-over is the plain cross-fade about the bisector, not a routed
+    seam: a route is chosen from one frame's content, and a video's content
+    moves.  ``lenses`` come from :func:`lenses_from_calibration` at twice
+    ``lens_size``, as if the lenses sat side by side.
+    """
+    numpy = _numpy()
+    width, height = size
+    theta_max = numpy.deg2rad(field_of_view / 2)
+    feather = numpy.deg2rad(min(3.0, max(1.5, 4.0 * 180.0 / height)))
+    rays = _rays(width, height)
+    if orientation is not None:
+        rays = rays @ numpy.asarray(orientation, numpy.float64)
+    if lens_size is None:
+        lens_size = int(round(lenses[0].centre_x * 2))
+
+    maps, thetas = [], []
+    for index, lens in enumerate(lenses):
+        u, v, theta = _project(rays, lens, index, theta_max)
+        valid = theta <= theta_max
+        maps.append((u - index * lens_size, v, valid))
+        thetas.append(numpy.where(valid, theta, theta_max + feather))
+
+    closest = numpy.minimum.reduce(thetas)
+    weights = [numpy.clip((closest + feather - theta) / feather, 0, 1)
+               * numpy.clip((theta_max - theta) / feather, 0, 1) * valid
+               for theta, (_, _, valid) in zip(thetas, maps, strict=True)]
+    total = weights[0] + weights[1]
+    share = numpy.where(total > 0, weights[1] / numpy.maximum(total, 1e-9), 0.0)
+    return maps, share
+
+
 def overlap_agreement(hemispheres):
     """How well the two lenses agree where both of them see the scene.
 

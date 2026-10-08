@@ -656,3 +656,25 @@ def test_routing_declines_when_there_is_nothing_to_route_around():
     )
 
     assert offset is None, "routed a seam through a scene with nothing to route around"
+
+
+def test_remap_tables_reproduce_the_photo_projection():
+    """A video renderer applies these tables to every frame; they must be the photo projection.
+
+    Lopsided on purpose: tilted lenses and an orientation with yaw, pitch and
+    roll, so a sign or transpose error cannot cancel out.  Below the width at
+    which photos route their seam, both hand over about the bisector.
+    """
+    image, lenses = synthetic_pair(size=256, tilts=((0.01, -0.02), (-0.015, 0.01)))
+    orientation = render.rotation(17.0, 9.0, -23.0)
+    size = (512, 256)
+
+    expected, _ = render.equirectangular(image, lenses, size, 194.0, orientation=orientation)
+    maps, share = render.remap_tables(lenses, size, 194.0, orientation=orientation, lens_size=256)
+
+    halves = (image[:, :256], image[:, 256:])
+    sampled = [render._sample(halves[i], x, y, valid) for i, (x, y, valid) in enumerate(maps)]
+    got = sampled[0] * (1 - share)[..., None] + sampled[1] * share[..., None]
+
+    assert numpy.abs(got - expected).mean() < 0.5
+    assert 0.0 < share.mean() < 1.0
