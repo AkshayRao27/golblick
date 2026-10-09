@@ -622,6 +622,21 @@ So one sign in the X5's axis map was wrong, in the one component that leaves the
 
 ⚠️ What remains: the two worst frames are still ~10° out, and they are the two most tilted in the library (50° and 47°). Whether that is accelerometer error under motion, or something else, is not established.
 
+## Lens brightness in video
+
+In a still, the camera has already matched its two lenses; in a video it has not. Measured 2026-10-09 as lens 1 over lens 0 on the band both lenses see, a degree inside each rim, pixels near black or white left out:
+
+| Source | Lens 1 / lens 0 |
+|---|---|
+| 8 OneR stills, spread through the library | 0.99–1.02 (luma) |
+| X3 clip, four frames through it | 1.18 every frame (luma); per channel R 1.19, G 1.10, B 0.81 |
+| X5 clip | 0.93–0.95 |
+| OneR clips | 0.90–1.05 and 1.05–1.13, drifting within each clip |
+
+⚠️ **It is not one factor per clip.** Broken into 30° sectors round the seam, the X3 frame reads 1.2–1.4 along the sky and 0.85–1.03 along the ground: glare from the sun on one lens, added on top of the picture, more than an exposure difference. A gain per channel would have lowered the step in the sky and made one along the ground. The Nextcloud app evens it out frame by frame along the seam instead (`nextcloud-app/AGENT-NOTES.md`, "Lens balance"). ⚠️ Where glare has washed one lens out entirely, there is no picture left to match, and the seam stays.
+
+⚠️ **Weight by area when measuring this.** The same X3 frame read R 1.28, G 1.18, B 0.68 when sampled on an equirectangular grid with the lens axis on its equator, against 1.19, 1.10, 0.81 on an even grid round the seam: the equirectangular grid puts the seam through its poles, where pixels crowd, so it counts mostly the sky and the ground. Both are right about their own sample; only the even grid describes the seam as a whole. The X3 and X5 are one clip each.
+
 ## A measured baseline for naive stitching
 
 Scored by SSIM against the embedded 320×160 thumbnail, for one X5 still. ⚠️ Record `0x0200` supersedes the thumbnail as the reference (it is the same image from the same camera at 2560×1280), so these numbers are a baseline measured against the coarser of the two references, and should be re-measured against `0x0200` before anything is compared to them:

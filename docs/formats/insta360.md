@@ -41,10 +41,11 @@ Some differences that matter in practice:
 - **Most OneR photos have no motion sensor reading of their own.** In bursts and brackets the camera writes the reading to one frame, and golblick borrows it from another photo taken in the same shutter press.
 - **The calibration doesn't say everything.** It doesn't say how wide each lens sees, or how far the lens departs from an ideal fisheye. Both were measured per camera and are built into golblick. The X5 is left uncorrected: a fixed correction didn't bring its renders closer to Insta360's.
 - **The sensors are mounted at different angles.** A OneR's sensor sits 90° round from an X3's or X5's. The calibration records this, and without it every OneR panorama would come out on its side.
+- **In video, the two lenses don't match.** In a photo the camera has evened out the two lenses' brightness and colour. In video it hasn't, and with the sun on one lens they can differ by up to 40% along the sky, so a stitch has to even them out itself.
 
 ## What isn't known yet
 
-- Video. `probe` reads videos from all three cameras, but none is rendered yet. X5 videos lay out their trailer differently, with an index of where each block sits, and several of those blocks aren't identified.
+- Video. `probe` reads videos from all three cameras, `render` renders a video's opening frame, and the Nextcloud app stitches whole clips. X5 videos lay out their trailer differently, with an index of where each block sits, and several of those blocks aren't identified.
 - Two record types in photos, `0x0900` and `0x0b00`, appear in most files and aren't identified.
 - Three of the four calibration types. Only the simplest one is understood, and it's the one every camera stores. The others have a known number of values but not a known meaning, so golblick gives them to you as raw numbers.
 

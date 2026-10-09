@@ -32,6 +32,9 @@ use OCP\Files\Folder;
  * through the table's mask and encodes H.264 that browsers can play. Levelled
  * once, from the first seconds of the inertial record, as the thumbnail is;
  * the horizon is not followed through the clip.
+ *
+ * The camera doesn't match a video's lenses to each other, so each frame is
+ * also evened out along the seam (RemapTables::writeBalance, balance()).
  */
 final class VideoRenderer {
 	/** 20 Mbit/s at 3840x1920, in proportion for other widths. */
@@ -79,29 +82,31 @@ final class VideoRenderer {
 			throw new FormatError('could not create the table directory');
 		}
 		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model);
+		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model);
 
 		$bitrate = (int)round(self::BITS_PER_PIXEL_SECOND * $width * intdiv($width, 2));
 		// 🔴 Memory, not speed, sets these. With ffmpeg's defaults (threads from
 		// the host's core count) a render peaked at 4 GB and was killed on a
 		// 3 GB container, and a production AIO box has 4 GB for everything.
 		// One decoder thread per lens, sliced x264 threads and no lookahead:
-		// 0.72 GB at 2880 wide and 1.15 GB at 3840, measured on a OneR clip;
-		// the rest is the frame size itself, and fewer threads didn't move it.
+		// 0.94 GB at 2880 wide and 1.47 GB at 3840, measured on a OneR clip, of
+		// which the lens balance is 0.2 GB; the rest is the frame size itself,
+		// and fewer threads didn't move it.
 		$command = [$ffmpeg, '-nostdin', '-v', 'error', '-y'];
 		foreach ($inputs as $input) {
 			array_push($command, '-threads', '1', '-i', $input);
 		}
-		$first = \count($inputs);
-		foreach (['x0', 'y0', 'x1', 'y1', 'mask'] as $table) {
-			array_push($command, '-i', "$tables/$table.pgm");
+		$table = [];
+		foreach (['x0', 'y0', 'x1', 'y1', 'mask', 's0x', 's0y', 's1x', 's1y', 'fx', 'fy'] as $index => $map) {
+			array_push($command, '-i', "$tables/$map.pgm");
+			$table[$map] = (\count($inputs) + $index) . ':v';
 		}
-		[$x0, $y0, $x1, $y1, $mask] = range($first, $first + 4);
-		$filter = sprintf(
-			'[%1$d:v:%2$d]scale=%9$d:%9$d:flags=area[l0];[%3$d:v:%4$d]scale=%9$d:%9$d:flags=area[l1];'
-			. '[l0][%5$d:v][%6$d:v]remap,format=gbrp[a];[l1][%7$d:v][%8$d:v]remap,format=gbrp[b];'
-			. '[%10$d:v]format=gbrp[m];[a][b][m]maskedmerge,format=yuv420p[out]',
-			$lenses[0][0], $lenses[0][1], $lenses[1][0], $lenses[1][1], $x0, $y0, $x1, $y1, $lensSize, $mask,
-		);
+		$filter = sprintf('[%d:v:%d]scale=%d:%3$d:flags=area,split[l0][s0];', $lenses[0][0], $lenses[0][1], $lensSize)
+			. sprintf('[%d:v:%d]scale=%d:%3$d:flags=area,split[l1][s1];', $lenses[1][0], $lenses[1][1], $lensSize)
+			. self::balance($table, $width)
+			. "[l0][{$table['x0']}][{$table['y0']}]remap,format=gbrp[a];[l1][{$table['x1']}][{$table['y1']}]remap,format=gbrp[b];"
+			. "[{$table['mask']}]format=gbrp[m];[a][b][m]maskedmerge[blended];"
+			. '[blended][correction]blend=all_mode=grainmerge,format=yuv420p[out]';
 		array_push($command,
 			'-filter_threads', '1', '-filter_complex', $filter, '-map', '[out]', '-map', '0:a:0?',
 			'-c:v', 'libx264', '-preset', 'veryfast', '-threads', '2', '-x264-params', 'sliced-threads=1:rc-lookahead=0',
@@ -120,6 +125,54 @@ final class VideoRenderer {
 
 		// Twelve times the clip's length, an hour at least: four cores run at about a fifth of real time.
 		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration']))];
+	}
+
+	/**
+	 * The filters that even the lenses out, frame by frame: from the lens
+	 * streams [s0] and [s1], a [correction] to add to the blended frame,
+	 * centred on 128 (blend's grain modes); RemapTables::writeBalance has the
+	 * reasoning and the tables.
+	 *
+	 * Measured on four clips: on an X3 clip whose sun glare put lens 1 up to
+	 * 40 levels above lens 0 along the sky, the step at the seam all but went;
+	 * an X5's 5 to 7% barely needed it.
+	 *
+	 * - The difference, lens 1 minus lens 0, along the seam strip, with any
+	 *   pixel near white in either lens counted as no difference: where glare
+	 *   has washed a lens out there is nothing to match, and chasing it put a
+	 *   white haze over the trees next to a blown sky.
+	 * - Averaged across the strip, then blurred round the circle, about ten
+	 *   degrees, twice. The strip is tiled three wide first so the blur wraps.
+	 *   avgblur, not gblur: gblur returns black on an image one pixel high.
+	 * - Averaged over nine frames, so a person walking past the seam moves it
+	 *   slowly: on a clip with people and a hand close to the lens it moved
+	 *   under a level a frame at the 99th percentile.
+	 * - Half to each lens, at most 20 levels: a glare offset needed 15 to 20,
+	 *   and anything far bigger is a washed-out lens, not an offset.
+	 * - Laid out as a ladder of weights from -1 to 1 (geq; scale can't
+	 *   interpolate between two rows) and spread over the frame through fx and
+	 *   fy, at a quarter of the output size and upscaled.
+	 *
+	 * @param array<string, string> $table input labels of the tables, by name
+	 */
+	private static function balance(array $table, int $width): string {
+		$around = RemapTables::STRIP_AROUND;
+		$ladder = RemapTables::LADDER;
+		$step = ($ladder - 1) / 2;
+		// Quoted, so the commas inside stay part of the expression.
+		$white = "'255*gte(val,250)'";
+		$rung = static fn (string $c): string => "'clip(($c(X,Y)-128)/2,-20,20)*(Y/$step-1)+128'";
+
+		return "[s0][{$table['s0x']}][{$table['s0y']}]remap,format=gbrp,split[t0][k0];"
+			. "[s1][{$table['s1x']}][{$table['s1y']}]remap,format=gbrp,split[t1][k1];"
+			. "[k0]lutrgb=r={$white}:g={$white}:b={$white}[w0];[k1]lutrgb=r={$white}:g={$white}:b={$white}[w1];"
+			. '[w0][w1]blend=all_mode=lighten[white];'
+			. '[t1][t0]blend=all_mode=grainextract,split[diff][grey];[grey]lutrgb=r=128:g=128:b=128[none];'
+			. "[diff][none][white]maskedmerge,scale=$around:1:flags=area,split=3[d0][d1][d2];"
+			. "[d0][d1][d2]hstack=inputs=3,avgblur=sizeX=12:sizeY=0,avgblur=sizeX=12:sizeY=0,crop=$around:1:$around:0,"
+			. "tmix=frames=9,scale=$around:$ladder:flags=neighbor,"
+			. sprintf('geq=r=%s:g=%s:b=%s[ladder];', $rung('r'), $rung('g'), $rung('b'))
+			. sprintf('[ladder][%s][%s]remap,scale=%d:%d:flags=bilinear[correction];', $table['fx'], $table['fy'], $width, intdiv($width, 2));
 	}
 
 	/**
