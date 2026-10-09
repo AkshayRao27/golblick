@@ -22,7 +22,7 @@ const sphereUrl = (fileId: number) => generateUrl(config.share
 /**
  * On a share link, `path` is the file's place in the share, which its public
  * preview is addressed by. For a video, `video` says whether its stitched copy
- * is ready, and `videoEtag` versions it (it belongs to the clip's first file).
+ * is ready, and `videoEtag` versions that copy (it changes whenever the copy is made again).
  */
 export type Info = { sphere: boolean; etag: string | null; path?: string | null; video?: boolean; videoEtag?: string | null };
 const infoCache = new Map<number, Promise<Info>>();

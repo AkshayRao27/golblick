@@ -66,12 +66,16 @@ final class SphereController extends Controller {
 	public static function describe(?File $file, VideoStore $videos): array {
 		if ($file !== null && strcasecmp($file->getExtension(), 'insv') === 0) {
 			$master = VideoStore::master($file);
+			$ready = $master === null ? null : $videos->ready($master);
 
+			// Versioned by the copy itself, not by the clip: the copy is made
+			// again at another size, or after the cache is cleared, while the
+			// clip is unchanged, and the player's URL is cached for a day.
 			return [
 				'sphere' => true,
 				'etag' => $file->getEtag(),
-				'video' => $master !== null && $videos->ready($master) !== null,
-				'videoEtag' => $master?->getEtag(),
+				'video' => $ready !== null,
+				'videoEtag' => $ready === null ? null : substr(md5(basename($ready) . ':' . (int)@filemtime($ready)), 0, 16),
 			];
 		}
 
