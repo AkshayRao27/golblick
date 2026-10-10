@@ -1,0 +1,8 @@
+<?php
+/**
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+?>
+<div id="golblick-admin" class="section golblick-personal">
+	<h2>Golblick (360° Photos)</h2>
+</div>

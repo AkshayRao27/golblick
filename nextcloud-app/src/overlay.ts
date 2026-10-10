@@ -68,8 +68,12 @@ export function svgIcon(path: string, size = 20): string {
  * A video opens on its thumbnail, the clip's first frame, and plays its
  * stitched copy on the same sphere once that can play. A clip the server
  * hasn't stitched yet stays on the first frame and says so.
+ *
+ * With `pageThrough`, the left and right arrows close the sphere and go on to
+ * the viewer underneath, so it moves to the next photo; main.ts uses that
+ * when Memories opens straight into the sphere.
  */
-export async function openSphere(fileId: number, etag: string, name = '', isVideo = false): Promise<void> {
+export async function openSphere(fileId: number, etag: string, name = '', isVideo = false, pageThrough = false): Promise<void> {
   open?.();
 
   const overlay = document.createElement('div');
@@ -102,6 +106,10 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
   // Capture phase, so the viewer underneath never sees these keys: Escape
   // would close it as well, and the arrows would page to another photo.
   const onKey = (e: KeyboardEvent) => {
+    if (pageThrough && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      shut();
+      return;
+    }
     if (e.key === 'Escape') shut();
     if (e.key === ' ' && player) {
       if (player.paused) void player.play();

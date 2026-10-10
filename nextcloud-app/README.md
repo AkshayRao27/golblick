@@ -19,16 +19,16 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
 
 ## Videos
 
-Videos are optional, and so far they play from Files only. They don't appear in Memories yet.
+Videos are optional. They play from Files, and in Memories once their stitched copies are saved next to the clips (see below).
 
 1. **Register .insv files** in the setup check on the settings page. Each `.insv` then shows a thumbnail of its opening frame as a panorama in Files. An X5 stores that frame stitched; a OneR or X3 stores both lenses' opening frame in the `_00_` file, and decoding it needs ffmpeg, the same program Nextcloud uses for its own video thumbnails.
 2. Switch on **Stitch videos in the background** in the Videos section. The server then makes a stitched copy of each clip, newest first, one at a time, with ffmpeg at the lowest priority. Clicking a video in Files plays that copy as a sphere you can look around in while it plays; until it's ready, you see the opening frame. Every file of a clip (`_00_`, `_10_` and the low-resolution `LRV_` copy) plays the same video.
 
 Stitching is slow, needs memory, and the copies are big. At the default 2880 × 1440, each second of video takes about 12 CPU-seconds, a render needs about 1 GB of memory, and the copies take about 5 GB per hour of video; at 3840 × 1920, which you can pick instead, it's 18 CPU-seconds, 1.5 GB and 9 GB. The horizon is levelled once per clip, at its start, so a clip filmed while the camera tilts tilts with it. The camera doesn't match a video's two lenses to each other the way it does for photos, so the stitching evens them out along the seam as the clip plays; where glare has washed one lens out completely, the seam can still show. For each clip it also decides, from a few of its frames, where and how the two lenses meet: on an X3 or X5, which record how far apart their lenses sit, it can line up someone who stays close to the camera, such as whoever is holding it, and on any camera it can move the seam to where the lenses agree. If that doesn't clearly help on frames it didn't choose from, it keeps the plain seam. The copies live in the app's data folder, so this needs the data directory on local disk rather than object storage. Deleting them from the settings page frees the space; with stitching on, they're made again.
 
-To see the videos in Memories, switch on **Save each stitched copy next to its clip**. Each finished copy then moves into the clip's folder as an ordinary MP4 named after the clip, ending in `.360.mp4`, marked as a 360° video the same way Insta360 Studio marks its exports. Memories lists it like any other video, under the day the clip was recorded, and any player that understands 360° video plays it as one. Memories itself plays it flat, so the app adds its sphere button to Memories' viewer for these too, and clicking the copy in Files plays it as a sphere. The copies count against that folder's storage and are synced to desktop clients like any other file. Deleting one doesn't bring it back.
+To see the videos in Memories, switch on **Save each stitched copy next to its clip**. Each finished copy then moves into the clip's folder as an ordinary MP4 named after the clip, ending in `.360.mp4`, marked as a 360° video the same way Insta360 Studio marks its exports. Memories lists it like any other video, under the day the clip was recorded, and any player that understands 360° video plays it as one. Memories on its own would play it as a flat, stretched rectangle, so by default it opens as a sphere instead. Each user can change that on their personal settings page (see [Settings](#settings)), and the sphere button in Memories' viewer is there either way. Clicking the copy in Files plays it as a sphere. The copies count against that folder's storage and are synced to desktop clients like any other file. Deleting one doesn't bring it back.
 
-## Viewing a photo as a sphere## Viewing a photo as a sphere
+## Viewing a photo as a sphere
 
 A **View as sphere** button opens the photo full-window as a sphere you can drag around, with the mouse wheel or a pinch to zoom. Escape closes it. You'll find it:
 
@@ -103,6 +103,8 @@ Previews are generated the first time each photo is viewed, or ahead of time if 
 - the size of the full-size panorama used for zooming and the sphere view, and a button to clear the ones already made
 - rendering those panoramas in the background, newest photos first, off by default because it costs about 19 seconds of CPU per OneR photo at full size
 - switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one
+
+**Personal settings → Golblick (360° Photos)** lets each user choose what happens when a 360° video or photo opens in Memories. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. In the sphere, the left and right arrow keys go on to the previous or next item.
 
 Once `.insp` counts as JPEG, every app that works on photos treats these files as photos too. An app that reads the original file, such as one that runs face or object recognition, gets the two fisheye circles rather than a panorama.
 

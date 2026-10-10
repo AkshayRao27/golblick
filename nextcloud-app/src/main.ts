@@ -21,6 +21,9 @@
  * (memoriesHasOwnSphere). That view loads the original, which for a .insp is
  * the lens pair; lib/Middleware/MemoriesZoom.php hands it the panorama instead.
  *
+ * In Memories, a 360 video or photo can also open straight into the sphere,
+ * as each user chooses on their personal settings page (decideMemories).
+ *
  * Either part can be switched off on the admin page; the server passes the
  * choice in as initial state, and loads nothing at all if both are off.
  *
@@ -29,6 +32,7 @@
  */
 import { mdiClipboardTextOutline, mdiPanoramaSphereOutline } from '@mdi/js';
 import { DefaultType, registerFileAction } from '@nextcloud/files';
+import { loadState } from '@nextcloud/initial-state';
 
 import { config, info, openSphere, svgIcon } from './overlay';
 
@@ -154,6 +158,7 @@ function sync(container: Element | null, fileId: number | null, current: () => n
       e.stopPropagation();
       // A video under the sphere would carry on playing, sound and all.
       for (const video of document.querySelectorAll('.memories-viewer video, #viewer video')) (video as HTMLVideoElement).pause();
+      if (memoriesFileId() === fileId) holding = fileId;
       openSphere(fileId, answer.etag ?? '', '', answer.video === true);
     });
     container.insertBefore(button, container.firstChild);
@@ -208,7 +213,73 @@ function memoriesHasOwnSphere(fileId: number | null): boolean {
   return fileId !== null && photo?.fileid === fileId && (photo.pano ?? 0) > 0;
 }
 
+/**
+ * What the user wants a 360 photo or video to do when it opens in Memories,
+ * from their personal settings (lib/Service/Preferences.php). Memories plays
+ * a video flat and at once, its own `video_autoplay` setting permitting, so
+ * keeping it still means pausing its player as it starts: the player is
+ * Memories' own and changes between releases, but it always ends in a <video>.
+ */
+const preferences = loadState<{ open_video: string; open_photo: string }>(
+  'golblick', 'preferences', { open_video: 'play', open_photo: 'flat' });
+const asIs = preferences.open_video === 'play' && preferences.open_photo === 'flat';
+
+/** The Memories slide whose video may not start by itself, until the user acts on the viewer. */
+let holding: number | null = null;
+/** A video held back before it was known whether it is a sphere, to start again if it isn't. */
+let held: HTMLVideoElement | null = null;
+/** The slide last decided on, so each is decided once per visit. */
+let decided: number | null = null;
+
+if (config.memories && !asIs) {
+  // Capture, because media events don't bubble.
+  document.addEventListener('play', (e) => {
+    const video = e.target;
+    if (holding === null || holding !== memoriesFileId() || !(video instanceof HTMLVideoElement)
+      || !video.closest('.memories-viewer')) return;
+    video.pause();
+    held = video;
+  }, true);
+  // A click or key on the viewer is the user's own, and may play the video
+  // flat; not while the sphere is open over it.
+  const release = (e: Event) => {
+    if (holding === null || document.querySelector('.golblick-sphere')) return;
+    if (e.type === 'keydown' || (e.target instanceof Element && e.target.closest('.memories-viewer'))) {
+      holding = null;
+      held = null;
+    }
+  };
+  document.addEventListener('pointerdown', release, true);
+  document.addEventListener('keydown', release, true);
+}
+
+/** Open the slide as a sphere, or hold its video still, as the user chose. */
+function decideMemories(fileId: number | null) {
+  if (asIs || fileId === decided) return;
+  decided = fileId;
+  holding = fileId;
+  held = null;
+  if (fileId === null) return;
+  info(fileId).then((answer) => {
+    if (decided !== fileId) return;
+    const isVideo = 'video' in answer;
+    const choice = isVideo ? preferences.open_video : preferences.open_photo;
+    if (!answer.sphere || choice === 'play' || choice === 'flat' || (!isVideo && memoriesHasOwnSphere(fileId))) {
+      if (holding === fileId) {
+        holding = null;
+        if (held?.isConnected) void held.play().catch(() => {});
+        held = null;
+      }
+      return;
+    }
+    if (choice !== 'sphere' || document.querySelector('.golblick-sphere')) return;
+    for (const video of document.querySelectorAll('.memories-viewer video')) (video as HTMLVideoElement).pause();
+    openSphere(fileId, answer.etag ?? '', '', answer.video === true, true);
+  });
+}
+
 function syncMemories() {
+  decideMemories(memoriesFileId());
   const bar = document.querySelector('.memories-viewer .top-bar .action-items');
   if (memoriesHasOwnSphere(memoriesFileId())) {
     bar?.querySelector(`.${BUTTON_CLASS}`)?.remove();

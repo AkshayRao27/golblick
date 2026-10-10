@@ -29,5 +29,7 @@ The camera stores the two lenses' fisheye images rather than a panorama, so this
     <settings>
         <admin>OCA\Golblick\Settings\Admin</admin>
         <admin-section>OCA\Golblick\Settings\Section</admin-section>
+        <personal>OCA\Golblick\Settings\Personal</personal>
+        <personal-section>OCA\Golblick\Settings\Section</personal-section>
     </settings>
 </info>

@@ -10,12 +10,14 @@ namespace OCA\Golblick\Listener;
 
 use OCA\Golblick\AppInfo\Application;
 use OCA\Files_Sharing\Event\BeforeTemplateRenderedEvent as PublicShareRenderedEvent;
+use OCA\Golblick\Service\Preferences;
 use OCA\Golblick\Service\Settings;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 use OCP\AppFramework\Services\IInitialState;
 use OCP\Constants;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
+use OCP\IUserSession;
 use OCP\Util;
 
 /**
@@ -32,6 +34,9 @@ use OCP\Util;
  * its files at all; not on the password prompt, which is the same event with
  * a scope.
  *
+ * A signed-in user's choice of what 360 photos and videos do when they open
+ * in Memories comes along too (Preferences); a visitor gets no Memories.
+ *
  * @template-implements IEventListener<Event>
  */
 final class LoadSphereViewer implements IEventListener {
@@ -40,6 +45,8 @@ final class LoadSphereViewer implements IEventListener {
 	public function __construct(
 		private Settings $settings,
 		private IInitialState $initialState,
+		private Preferences $preferences,
+		private IUserSession $session,
 	) {
 	}
 
@@ -61,6 +68,10 @@ final class LoadSphereViewer implements IEventListener {
 			'memories' => $this->settings->flag('sphere_memories'),
 			'share' => null,
 		];
+		$user = $this->session->getUser();
+		if ($config['memories'] && $user !== null) {
+			$this->initialState->provideInitialState('preferences', $this->preferences->all($user->getUID()));
+		}
 		$this->load($config);
 	}
 

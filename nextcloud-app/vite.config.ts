@@ -46,8 +46,8 @@ export default defineConfig({
     minify: 'terser',
     lib: {
       // main: the sphere view, on Files, Photos and Memories pages.
-      // admin: the settings page.
-      entry: { main: 'src/main.ts', admin: 'src/admin.ts' },
+      // admin and personal: the two settings pages.
+      entry: { main: 'src/main.ts', admin: 'src/admin.ts', personal: 'src/personal.ts' },
       formats: ['es'],
       fileName: (_format, name) => `golblick-${name}.mjs`,
     },
