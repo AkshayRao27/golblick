@@ -239,6 +239,8 @@ final class VideoRenderer {
 	/** Move a finished render into place. */
 	public function finish(string $name, int $fileId): void {
 		$base = $this->store->root() . "/$name";
+		// Untagged is still a working copy, so a refusal here isn't a failure.
+		SphericalTag::add("$base.part.mp4");
 		if (!rename("$base.part.mp4", "$base.mp4")) {
 			throw new FormatError('could not move the finished video into place');
 		}
