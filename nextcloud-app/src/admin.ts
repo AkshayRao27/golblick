@@ -20,6 +20,7 @@ type SettingsState = {
   prerender: boolean;
   video_width: number;
   video_render: boolean;
+  video_beside: boolean;
 };
 type Status = {
   settings: SettingsState;
@@ -209,6 +210,7 @@ function render(status: Status) {
   // ---- Videos
   const v = status.videos;
   const videoNote = feedback('video_render');
+  const besideNote = feedback('video_beside');
   const videoWidthNote = feedback('video_width');
   const videoWidth = el('select', {}, ...[2880, 3840].map((w) =>
     el('option', { value: String(w), selected: w === s.video_width }, `${w} × ${w / 2}`)));
@@ -273,6 +275,11 @@ function render(status: Status) {
       v.usable ? 'Runs ffmpeg at the lowest priority, one video at a time.' : 'Not available: the data directory isn\'t on local disk.',
       s.video_render, (on) => void save({ video_render: on }, videoNote)),
     videoNote.node,
+    toggle('Save each stitched copy next to its clip',
+      'Moves each finished copy into the clip\'s folder as an ordinary video file, named after the clip with .360.mp4 at the end, so it shows up in Memories and plays in any app that handles 360° video. '
+      + 'It counts against that folder\'s storage and desktop clients sync it like any other file. Copies already stitched are moved over one at a time. Turning this off later leaves saved copies where they are.',
+      s.video_beside, (on) => void save({ video_beside: on }, besideNote)),
+    besideNote.node,
     el('label', {}, 'Video size ', videoWidth), videoWidthNote.node,
     el('p', { className: 'golblick-progress' }, videoProgress),
     videoClear, videoClearNote.node,

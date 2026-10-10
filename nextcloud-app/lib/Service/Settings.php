@@ -41,6 +41,7 @@ final class Settings {
 		'sphere_public' => true,
 		'prerender' => false,
 		'video_render' => false,
+		'video_beside' => false,
 	];
 
 	public function __construct(

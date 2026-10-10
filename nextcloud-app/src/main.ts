@@ -37,6 +37,8 @@ const BUTTON_CLASS = 'golblick-sphere-button';
 
 const isInsp = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insp');
 const isInsv = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insv');
+// A clip's stitched copy saved next to it (VideoStore::BESIDE on the server).
+const isSphereCopy = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.360.mp4');
 
 // ---- Files: a proper file action -------------------------------------------
 
@@ -55,11 +57,14 @@ if (config.files) registerFileAction({
 
 // Videos: the same sphere, playing. The default action for an .insv, so a
 // click plays it; nothing else in Nextcloud can (see Preview/Insta360Video.php).
+// Also for a stitched copy saved next to its clip, which the Viewer would
+// otherwise play flat.
 if (config.files) registerFileAction({
   id: 'golblick-video',
   displayName: () => 'Play as sphere',
   iconSvgInline: () => svgIcon(mdiPanoramaSphereOutline),
-  enabled: ({ nodes }) => nodes.length === 1 && isInsv(nodes[0].basename) && nodes[0].fileid !== undefined,
+  enabled: ({ nodes }) => nodes.length === 1 && (isInsv(nodes[0].basename) || isSphereCopy(nodes[0].basename))
+    && nodes[0].fileid !== undefined,
   exec: async ({ nodes }) => {
     const node = nodes[0];
     openSphere(Number(node.fileid), String(node.attributes?.etag ?? ''), node.basename, true);
@@ -147,7 +152,9 @@ function sync(container: Element | null, fileId: number | null, current: () => n
     button.dataset.fileId = String(fileId);
     button.addEventListener('click', (e) => {
       e.stopPropagation();
-      openSphere(fileId, answer.etag ?? '');
+      // A video under the sphere would carry on playing, sound and all.
+      for (const video of document.querySelectorAll('.memories-viewer video, #viewer video')) (video as HTMLVideoElement).pause();
+      openSphere(fileId, answer.etag ?? '', '', answer.video === true);
     });
     container.insertBefore(button, container.firstChild);
   });
@@ -179,7 +186,10 @@ function memoriesFileId(): number | null {
   return match ? Number(match[1]) : null;
 }
 
-type MemoriesGlobal = { viewer?: { currentPhoto?: { fileid?: number; pano?: number } | null } };
+type MemoriesGlobal = { viewer?: { currentPhoto?: { fileid?: number; pano?: number; flag?: number } | null } };
+
+/** Memories' FLAG_IS_VIDEO (src/services/utils/const.ts). */
+const MEMORIES_IS_VIDEO = 1 << 2;
 
 /**
  * Whether Memories shows its own sphere for this photo. Releases after
@@ -192,6 +202,9 @@ type MemoriesGlobal = { viewer?: { currentPhoto?: { fileid?: number; pano?: numb
  */
 function memoriesHasOwnSphere(fileId: number | null): boolean {
   const photo = (globalThis as { _m?: MemoriesGlobal })._m?.viewer?.currentPhoto;
+  // Its sphere is for photos only: it skips a video even when it has marked
+  // it as a panorama, so a video keeps this button.
+  if (((photo?.flag ?? 0) & MEMORIES_IS_VIDEO) !== 0) return false;
   return fileId !== null && photo?.fileid === fileId && (photo.pano ?? 0) > 0;
 }
 

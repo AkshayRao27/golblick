@@ -74,7 +74,7 @@ final class SettingsController extends Controller {
 	#[FrontpageRoute(verb: 'PUT', url: '/settings')]
 	public function save(?int $zoom_width = null, ?bool $memories_zoom = null, ?bool $sphere_files = null,
 		?bool $sphere_viewer = null, ?bool $sphere_memories = null, ?bool $sphere_public = null, ?bool $prerender = null,
-		?int $video_width = null, ?bool $video_render = null): JSONResponse {
+		?int $video_width = null, ?bool $video_render = null, ?bool $video_beside = null): JSONResponse {
 		try {
 			if ($zoom_width !== null) {
 				$this->settings->setZoomWidth($zoom_width);
@@ -84,7 +84,7 @@ final class SettingsController extends Controller {
 			}
 			foreach (['memories_zoom' => $memories_zoom, 'sphere_files' => $sphere_files,
 				'sphere_viewer' => $sphere_viewer, 'sphere_memories' => $sphere_memories, 'sphere_public' => $sphere_public,
-				'prerender' => $prerender, 'video_render' => $video_render] as $name => $value) {
+				'prerender' => $prerender, 'video_render' => $video_render, 'video_beside' => $video_beside] as $name => $value) {
 				if ($value !== null) {
 					$this->settings->setFlag($name, $value);
 				}

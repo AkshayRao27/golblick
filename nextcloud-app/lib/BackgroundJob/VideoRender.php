@@ -107,6 +107,7 @@ final class VideoRender extends TimedJob {
 				$this->logger->info('golblick: stitched video ' . $current['name']
 					. (!empty($current['guards']) ? ' (lens guards detected)' : '')
 					. (isset($current['seam']) ? ', seam: ' . $current['seam'] : ''), ['app' => 'golblick']);
+				$this->besideClip($current['fileid'], $current['name']);
 			} catch (FormatError $e) {
 				$this->fail($current['name'], $e->getMessage());
 			}
@@ -122,7 +123,55 @@ final class VideoRender extends TimedJob {
 		return true;
 	}
 
+	/**
+	 * With "save next to the clip" on, move a finished copy into its clip's
+	 * folder. A copy that can't go there stays in the app's data, still
+	 * playable from Files, and the reason is logged.
+	 */
+	private function besideClip(int $fileId, string $name): void {
+		if (!$this->settings->flag('video_beside')) {
+			return;
+		}
+		$file = $this->open($fileId);
+		if ($file === null) {
+			return;
+		}
+		try {
+			$this->renderer->publish($file, $name);
+		} catch (FormatError $e) {
+			$this->logger->warning("golblick: kept $name in app data: " . $e->getMessage(), ['app' => 'golblick']);
+		}
+	}
+
+	/**
+	 * Copies made before "save next to the clip" was switched on, moved over
+	 * one per run, current versions only. Returns whether one was moved.
+	 */
+	private function moveOneBeside(): bool {
+		if (!$this->settings->flag('video_beside')) {
+			return false;
+		}
+		$width = $this->settings->videoWidth();
+		$root = $this->store->root();
+		foreach (glob(($root ?? '/nonexistent') . "/*-$width.mp4") ?: [] as $path) {
+			$name = basename($path, '.mp4');
+			if (str_ends_with($name, '.part') || !preg_match('/^(\d+)-/', $name, $m)) {
+				continue;
+			}
+			$file = $this->open((int)$m[1]);
+			if ($file === null || VideoStore::nameFor($file->getId(), $file->getEtag(), $width) !== $name) {
+				continue;
+			}
+			$this->besideClip($file->getId(), $name);
+
+			return true;
+		}
+
+		return false;
+	}
+
 	private function startNext(): void {
+		$this->moveOneBeside();
 		$finished = $this->store->finishedNames();
 		$failed = $this->failed();
 		$width = $this->settings->videoWidth();

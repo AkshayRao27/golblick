@@ -79,6 +79,12 @@ final class SphereController extends Controller {
 			];
 		}
 
+		if ($file !== null && VideoStore::isSphericalVideo($file)) {
+			// A 360 MP4 plays itself; it's versioned by its own etag.
+			return ['sphere' => true, 'etag' => $file->getEtag(), 'video' => true,
+				'videoEtag' => substr(md5($file->getEtag()), 0, 16)];
+		}
+
 		return [
 			'sphere' => $file !== null && PanoramaStore::isCandidate($file),
 			'etag' => $file?->getEtag(),
@@ -91,8 +97,7 @@ final class SphereController extends Controller {
 	#[FrontpageRoute(verb: 'GET', url: '/video/{fileId}', requirements: ['fileId' => '\d+'])]
 	public function video(int $fileId): Response {
 		$file = $this->file($fileId);
-		$master = $file === null ? null : VideoStore::master($file);
-		$path = $master === null ? null : $this->videos->ready($master);
+		$path = $file === null ? null : $this->videos->playable($file);
 		if ($path === null) {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
 		}

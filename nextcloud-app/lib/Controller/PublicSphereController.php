@@ -98,8 +98,10 @@ final class PublicSphereController extends PublicShareController {
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/video/{fileId}', requirements: ['fileId' => '\d+'])]
 	public function video(string $token, int $fileId): Response {
 		[$file] = $this->file($fileId);
-		$master = $file === null || !$this->masterShared($file) ? null : VideoStore::master($file);
-		$path = $master === null ? null : $this->videos->ready($master);
+		// A clip's copy is keyed on its _00_ file, which has to be in the share
+		// too; a 360 MP4 is its own video, already reached through the share.
+		$allowed = $file !== null && (strcasecmp($file->getExtension(), 'insv') !== 0 || $this->masterShared($file));
+		$path = $allowed ? $this->videos->playable($file) : null;
 		if ($path === null) {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
 		}

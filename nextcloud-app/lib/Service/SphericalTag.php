@@ -166,6 +166,65 @@ final class SphericalTag {
 		return true;
 	}
 
+	/** Largest movie header read when checking a file: about an hour of video's worth. */
+	private const MAX_MOOV = 32 * 1024 * 1024;
+
+	/**
+	 * Whether the MP4 open on $handle ($length bytes) is marked as a 360
+	 * video: Google's version 1 tag (this class's, and Insta360 Studio's) or
+	 * version 2 (an `sv3d` box in the sample description). Reads only the
+	 * top-level box headers and the movie header, which can be at either end.
+	 *
+	 * @param resource $handle seekable
+	 */
+	public static function isSpherical($handle, int $length): bool {
+		for ($at = 0; $at + 8 <= $length;) {
+			if (fseek($handle, $at) !== 0) {
+				return false;
+			}
+			$head = fread($handle, 8);
+			if ($head === false || \strlen($head) !== 8) {
+				return false;
+			}
+			[, $size] = unpack('N', $head);
+			$type = substr($head, 4, 4);
+			$header = 8;
+			if ($size === 1) {
+				$big = fread($handle, 8);
+				if ($big === false || \strlen($big) !== 8) {
+					return false;
+				}
+				[, $size] = unpack('J', $big);
+				$header = 16;
+			} elseif ($size === 0) {
+				$size = $length - $at;
+			}
+			if ($size < $header) {
+				return false;
+			}
+			if ($type === 'moov') {
+				if ($size > self::MAX_MOOV) {
+					return false;
+				}
+				$moov = '';
+				while (\strlen($moov) < $size - $header) {
+					$chunk = fread($handle, $size - $header - \strlen($moov));
+					if ($chunk === false || $chunk === '') {
+						return false;
+					}
+					$moov .= $chunk;
+				}
+				$uuid = strpos($moov, 'uuid' . self::UUID);
+
+				return ($uuid !== false && stripos(substr($moov, $uuid, 4096), 'equirectangular') !== false)
+					|| str_contains($moov, 'sv3d');
+			}
+			$at += $size;
+		}
+
+		return false;
+	}
+
 	/**
 	 * Direct children of the box spanning [$start, $end) in $data, as
 	 * [type, start, size]. Stops at anything malformed or 64-bit sized.

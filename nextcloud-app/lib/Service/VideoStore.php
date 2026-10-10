@@ -25,6 +25,12 @@ use OCP\IConfig;
  * Names are <fileid>-<etag>-<width>.mp4, so a changed file gets a new entry,
  * as the panorama cache does. Work in progress sits next to them under the
  * same name with .part, .log, .status, .pid and a .tables directory.
+ *
+ * With "save next to the clip" on, a finished copy is moved out of here into
+ * the clip's own folder as <clip>.360.mp4 (BESIDE), an ordinary file that
+ * Memories and every other app can see, and an empty <name>.beside marker is
+ * left here so the job knows that clip is done -- and doesn't make it again
+ * if someone deletes the copy.
  */
 final class VideoStore {
 	public function __construct(
@@ -51,6 +57,84 @@ final class VideoStore {
 		}
 
 		return "$data/appdata_$instance/golblick/videos";
+	}
+
+	/** What a copy saved next to its clip is called, after the clip's name. */
+	public const BESIDE = '.360.mp4';
+
+	public static function besideName(File $master): string {
+		return pathinfo($master->getName(), PATHINFO_FILENAME) . self::BESIDE;
+	}
+
+	/** The copy saved next to $master, if there is one. */
+	public static function beside(File $master): ?File {
+		try {
+			$node = $master->getParent()->get(self::besideName($master));
+		} catch (\Throwable $e) {
+			return null;
+		}
+
+		return $node instanceof File ? $node : null;
+	}
+
+	/**
+	 * Whether $file is itself a 360 video: an MP4 marked as one, as the copies
+	 * this app saves next to their clips are, and Insta360 Studio's exports.
+	 */
+	public static function isSphericalVideo(File $file): bool {
+		if (!\in_array($file->getMimetype(), ['video/mp4', 'video/quicktime'], true)) {
+			return false;
+		}
+		try {
+			$handle = $file->fopen('r');
+		} catch (\Throwable $e) {
+			return false;
+		}
+		if ($handle === false) {
+			return false;
+		}
+		try {
+			return SphericalTag::isSpherical($handle, $file->getSize());
+		} finally {
+			fclose($handle);
+		}
+	}
+
+	/** A local path to $file's own bytes, or null if its storage isn't local. */
+	public static function localPath(File $file): ?string {
+		try {
+			$storage = $file->getStorage();
+			if (!$storage->isLocal()) {
+				return null;
+			}
+			$local = $storage->getLocalFile($file->getInternalPath());
+		} catch (\Throwable $e) {
+			return null;
+		}
+
+		return \is_string($local) && is_file($local) ? $local : null;
+	}
+
+	/**
+	 * The local path a player should stream for $file: a clip's stitched copy,
+	 * or a 360 MP4's own bytes.
+	 */
+	public function playable(File $file): ?string {
+		if (strcasecmp($file->getExtension(), 'insv') === 0) {
+			$master = self::master($file);
+
+			return $master === null ? null : $this->ready($master);
+		}
+
+		return self::isSphericalVideo($file) ? self::localPath($file) : null;
+	}
+
+	/** Record that the copy called $name now lives next to its clip. */
+	public function markBeside(string $name): void {
+		$root = $this->root();
+		if ($root !== null) {
+			@touch("$root/$name.beside");
+		}
 	}
 
 	public static function nameFor(int $fileId, string $etag, int $width): string {
@@ -84,15 +168,26 @@ final class VideoStore {
 		return $partner instanceof File ? $partner : null;
 	}
 
-	/** The stitched copy's path, or null if there isn't one at the current width. */
+	/**
+	 * A local path to the stitched copy, or null if there isn't one: the copy
+	 * in here at the current width, or else the one saved next to the clip.
+	 * That one is served only from local storage; on any other (object
+	 * storage, encryption) getting a path would mean copying the whole video
+	 * first, so it doesn't play from Files there, though it's still a normal
+	 * file everywhere else.
+	 */
 	public function ready(File $file): ?string {
 		$root = $this->root();
 		if ($root === null) {
 			return null;
 		}
 		$path = "$root/" . $this->nameOf($file) . '.mp4';
+		if (is_file($path)) {
+			return $path;
+		}
+		$beside = self::beside($file);
 
-		return is_file($path) ? $path : null;
+		return $beside === null ? null : self::localPath($beside);
 	}
 
 	/**
@@ -108,6 +203,9 @@ final class VideoStore {
 				$names[$name] = true;
 			}
 		}
+		foreach (glob(($this->root() ?? '/nonexistent') . '/*.beside') ?: [] as $path) {
+			$names[basename($path, '.beside')] = true;
+		}
 
 		return $names;
 	}
@@ -118,6 +216,7 @@ final class VideoStore {
 		$files = $bytes = $current = 0;
 		foreach (array_keys($this->finishedNames()) as $name) {
 			$files++;
+			// A copy saved next to its clip counts, but its size is the user's storage, not this cache.
 			$bytes += (int)@filesize($this->root() . "/$name.mp4");
 			if (str_ends_with($name, $suffix)) {
 				$current++;
@@ -127,11 +226,16 @@ final class VideoStore {
 		return ['files' => $files, 'bytes' => $bytes, 'current' => $current];
 	}
 
-	/** Removes everything except a render in progress, whose files the job still needs. */
+	/**
+	 * Removes everything except a render in progress, whose files the job
+	 * still needs, and the markers of copies saved next to their clips: those
+	 * copies are users' files, which this doesn't touch, and dropping their
+	 * markers would only have them made again on top of themselves.
+	 */
 	public function clear(?string $keep = null): int {
 		$removed = 0;
 		foreach (glob(($this->root() ?? '/nonexistent') . '/*') ?: [] as $path) {
-			if ($keep !== null && str_starts_with(basename($path), $keep . '.')) {
+			if (($keep !== null && str_starts_with(basename($path), $keep . '.')) || str_ends_with($path, '.beside')) {
 				continue;
 			}
 			if (is_dir($path)) {
@@ -149,6 +253,11 @@ final class VideoStore {
 	public function dropOthers(int $fileId, string $keep): void {
 		foreach (glob(($this->root() ?? '/nonexistent') . "/$fileId-*.mp4") ?: [] as $path) {
 			if (basename($path, '.mp4') !== $keep && !str_ends_with($path, '.part.mp4')) {
+				@unlink($path);
+			}
+		}
+		foreach (glob(($this->root() ?? '/nonexistent') . "/$fileId-*.beside") ?: [] as $path) {
+			if (basename($path, '.beside') !== $keep) {
 				@unlink($path);
 			}
 		}

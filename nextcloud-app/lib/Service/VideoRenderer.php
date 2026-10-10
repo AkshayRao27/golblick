@@ -136,7 +136,11 @@ final class VideoRenderer {
 			'-c:v', 'libx264', '-preset', 'veryfast', '-threads', '2', '-x264-params', 'sliced-threads=1:rc-lookahead=0',
 			'-b:v', (string)$bitrate,
 			'-maxrate', (string)(int)($bitrate * 1.5), '-bufsize', (string)(2 * $bitrate),
-			'-c:a', 'copy', '-movflags', '+faststart', '-f', 'mp4', "$root/$name.part.mp4");
+			'-c:a', 'copy', '-movflags', '+faststart');
+		if ($probe['created'] !== null) {
+			array_push($command, '-metadata', 'creation_time=' . $probe['created']);
+		}
+		array_push($command, '-f', 'mp4', "$root/$name.part.mp4");
 
 		$quoted = implode(' ', array_map('escapeshellarg', $command));
 		$base = escapeshellarg("$root/$name");
@@ -248,6 +252,47 @@ final class VideoRenderer {
 		$this->store->dropOthers($fileId, $name);
 	}
 
+	/**
+	 * Move the finished copy $name of $master out of the app's data and into
+	 * the clip's folder, as an ordinary file (VideoStore::BESIDE), through the
+	 * storage layer so the file cache, quota, versions and sharing all apply.
+	 * An existing copy of the same name is replaced: it's an older render of
+	 * the same clip. Left where it was, still playable from Files, if the
+	 * folder can't take it.
+	 *
+	 * @throws FormatError
+	 */
+	public function publish(File $master, string $name): void {
+		$path = $this->store->root() . "/$name.mp4";
+		$source = @fopen($path, 'rb');
+		if ($source === false) {
+			throw new FormatError('the stitched copy is missing');
+		}
+		try {
+			$folder = $master->getParent();
+			$target = VideoStore::besideName($master);
+			if ($folder->nodeExists($target)) {
+				$node = $folder->get($target);
+				if (!$node instanceof File) {
+					throw new FormatError("$target exists next to the clip and isn't a file");
+				}
+				$node->putContent($source);
+			} else {
+				$folder->newFile($target, $source);
+			}
+		} catch (FormatError $e) {
+			throw $e;
+		} catch (\Throwable $e) {
+			throw new FormatError('could not save the copy next to the clip: ' . $e->getMessage());
+		} finally {
+			if (\is_resource($source)) {
+				fclose($source);
+			}
+		}
+		$this->store->markBeside($name);
+		@unlink($path);
+	}
+
 	private function cleanUp(string $name, bool $withVideo): void {
 		$base = $this->store->root() . "/$name";
 		foreach (['.pid', '.status', '.log'] as $suffix) {
@@ -318,7 +363,8 @@ final class VideoRenderer {
 		}
 		$out = [];
 		exec(implode(' ', array_map('escapeshellarg', [$ffprobe, '-v', 'error', '-select_streams', 'v',
-			'-show_entries', 'stream=width,height:format=duration', '-of', 'json', $path])), $out, $code);
+			'-show_entries', 'stream=width,height:stream_tags=creation_time:format=duration:format_tags=creation_time',
+			'-of', 'json', $path])), $out, $code);
 		$info = json_decode(implode("\n", $out), true);
 		if ($code !== 0 || !\is_array($info) || empty($info['streams'])) {
 			throw new FormatError('ffprobe could not read the video');
@@ -330,7 +376,14 @@ final class VideoRenderer {
 			}
 		}
 
-		return ['streams' => $streams, 'duration' => (float)($info['format']['duration'] ?? 0)];
+		// When the clip was recorded: in the container's tags on a OneR or X3,
+		// only in each stream's on an X5. ffmpeg doesn't carry it into a
+		// filter graph's output, and without it Memories files the copy under
+		// the day it was made.
+		$created = $info['format']['tags']['creation_time'] ?? $info['streams'][0]['tags']['creation_time'] ?? null;
+
+		return ['streams' => $streams, 'duration' => (float)($info['format']['duration'] ?? 0),
+			'created' => \is_string($created) && preg_match('/^\d{4}-\d\d-\d\dT[\d:.]+Z?$/', $created) ? $created : null];
 	}
 
 	/**
