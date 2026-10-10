@@ -19,9 +19,10 @@ After the image or video, the camera appends a block of its own (golblick calls 
 - the camera model, firmware version and serial number
 - the lens calibration: where each fisheye circle sits in the frame, how big it is, and how the two lenses are rotated relative to each other, written as plain text
 - a preview image
-- readings from the camera's motion sensor, which say which way was down when the photo was taken
+- readings from the camera's motion sensor, which say which way was down when the photo was taken, and in a video how the camera turned throughout
+- in a video, when each frame was captured, on the motion sensor's clock
 
-golblick reads that block without any of Insta360's code. The calibration places the two circles on the sphere, and the motion sensor reading levels the horizon.
+golblick reads that block without any of Insta360's code. The calibration places the two circles on the sphere, the motion sensor reading levels the horizon, and in a video it steadies every frame.
 
 ## How the cameras differ
 

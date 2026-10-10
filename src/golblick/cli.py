@@ -695,6 +695,35 @@ def cmd_share(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stabilise(args: argparse.Namespace) -> int:
+    """Write the rotation that steadies each frame of a video, as JSON."""
+    from . import stabilise
+
+    vendor = _require_vendor(args.file)
+    reader = getattr(vendor, "motion", None)
+    gravity = getattr(vendor, "gravity_up", None)
+    if reader is None or gravity is None:
+        raise UnsupportedFile(f"{args.file}: {vendor.NAME} exposes no inertial record to stabilise with")
+    motion = reader(args.file)
+    reference = stabilise.level(gravity(args.file))
+    try:
+        rotations = stabilise.track(motion, reference)
+    except ValueError as exc:
+        raise GolblickError(f"{args.file}: {exc}") from exc
+
+    output = _output_path(args, ".stabilise.json")
+    output.write_text(json.dumps({
+        "about": "Per video frame, the rotation (w, x, y, z) from the frame as rendered at "
+                 "`reference` (the opening's level) to the steadied view. Column convention, "
+                 "in golblick's render frame: y up, z forward.",
+        "reference": [list(row) for row in reference],
+        "frame_times": [round(t, 6) for t in motion.frame_times],
+        "rotations": [[round(c, 6) for c in q] for q in rotations],
+    }) + "\n")
+    print(f"{output}  {len(rotations)} frames")
+    return 0
+
+
 def cmd_vendors(args: argparse.Namespace) -> int:
     for vendor in VENDORS:
         extensions = " ".join(sorted(f".{e}" for e in vendor.EXTENSIONS))
@@ -774,6 +803,14 @@ def build_parser() -> argparse.ArgumentParser:
     share.add_argument("-o", "--output", default="golblick-share",
                        help="folder for the copies (default: %(default)s)")
     share.set_defaults(func=cmd_share)
+
+    steady = sub.add_parser(
+        "stabilise",
+        help="write the rotation that steadies each frame of a 360 video, from its gyroscope",
+    )
+    steady.add_argument("file")
+    steady.add_argument("-o", "--output", help="where to write (default: next to the file, .stabilise.json)")
+    steady.set_defaults(func=cmd_stabilise)
 
     listing = sub.add_parser("vendors", help="list supported formats")
     listing.set_defaults(func=cmd_vendors)

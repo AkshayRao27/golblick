@@ -831,3 +831,11 @@ def test_the_app_plans_a_seam_with_the_same_constants():
              "STEP": render._RING_STEP}
     for name, value in pairs.items():
         assert float(constant(name)) == value, name
+
+
+def test_the_numpy_free_level_is_the_renderers():
+    """golblick.stabilise builds its reference without numpy; it must be the same turn."""
+    from golblick import stabilise
+
+    for up in [(0.1, 0.9, -0.3), (-0.7, 0.2, 0.6), (0.0, -0.2, 1.0), (0.3, 0.1, -0.95)]:
+        assert numpy.allclose(numpy.array(stabilise.level(up)), render.level(up), atol=1e-12)

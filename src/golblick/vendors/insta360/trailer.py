@@ -64,12 +64,14 @@ RECORD_NAMES = {
     0x0101: "metadata",       # protobuf: serial, model, firmware, calibration
     0x0200: "preview",        # full-size preview: NV12 stitch (X5) or JPEG pair (OneR, X3)
     0x0300: "imu",            # 20-byte entries: int64 timecode + 12-byte payload
+    0x0400: "frames",         # video: one 16-byte entry per frame, timecode + exposure
     0x0900: "unknown_0900",
     0x0B00: "unknown_0b00",
 }
 
 METADATA = 0x0101
 IMU = 0x0300
+FRAMES = 0x0400
 
 
 @dataclass(frozen=True)

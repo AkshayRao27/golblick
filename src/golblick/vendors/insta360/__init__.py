@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import calibration as _calibration
 from . import metadata as _metadata
-from .imu import gravity_up, gravity_up_nearby
+from .imu import Motion, gravity_up, gravity_up_nearby, motion
 from .keyframe import Keyframes
 from .keyframe import extract as extract_keyframes
 from .lens import LensProfile, lens_profile
@@ -32,6 +32,7 @@ __all__ = [
     "LensProfile",
     "MAGIC",
     "METADATA",
+    "Motion",
     "NAME",
     "Preview",
     "Record",
@@ -47,6 +48,7 @@ __all__ = [
     "gravity_up_nearby",
     "lens_profile",
     "matches",
+    "motion",
     "read_trailer",
     "shareable",
 ]

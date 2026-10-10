@@ -157,6 +157,17 @@ The geometry fields are written, including the cropped-area fields: a partial pa
 
 The pose fields are deliberately left out. `PoseHeadingDegrees` would state which compass direction the centre faces, and nothing in the file fixes that. `PosePitchDegrees` and `PoseRollDegrees` would assert the panorama is level, which is only as true as the levelling. A viewer that finds no pose fields assumes an unknown heading and a level horizon, which is the honest claim; a written `0.0` would look exactly like a measured one.
 
+## Steady a video
+
+`stabilise` works out, from the camera's motion sensor, the rotation that steadies each frame of a 360 video, and writes it as JSON next to the clip:
+
+```sh
+$ golblick stabilise VID_20260126_115034_00_011.insv
+VID_20260126_115034_00_011.stabilise.json  337 frames
+```
+
+Each frame gets a rotation (a quaternion, `w, x, y, z`) from the frame as rendered, levelled at the clip's opening, to the steadied view, along with the time it was captured. The steadied view keeps the horizon level and follows the camera's turns, smoothed over a couple of seconds. That differs from Insta360 Studio's FlowState, which follows turns much more slowly. It needs nothing installed beyond golblick, and takes about 13 seconds for a 30-minute clip. The Nextcloud app uses the same calculation when it plays a video; [accuracy.md](accuracy.md) has how it compares with Studio.
+
 ---
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

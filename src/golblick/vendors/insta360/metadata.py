@@ -27,6 +27,7 @@ MODEL = 2
 FIRMWARE = 3
 CALIBRATION_EQUIDISTANT = 5     # exiftool exposes this one as "Parameters"
 DIMENSIONS = 19                 # {1: width, 2: height}
+FIRST_FRAME = 24                # video: frame 0's timecode on the inertial clock
 CALIBRATION_POLY = 53
 CALIBRATION_MEI = 54
 CALIBRATION_MEI_EXTENDED = 111  # X5 only; see docs/formats/insta360-agent-notes.md

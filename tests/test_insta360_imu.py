@@ -94,6 +94,24 @@ def test_unordered_timecodes_are_refused(tmp_path):
         imu.entries(path)
 
 
+def test_a_rare_repeated_timecode_is_the_clock_not_a_wrong_stride(tmp_path):
+    """Two OneR clips repeat a timecode a few times in 100,000 samples."""
+    times = list(range(2, 4002, 2))
+    times[1000] = times[999]
+    payload = b"".join(doubles(t, LEVEL_X5) for t in times)
+    path = write_file(tmp_path / "r.insv", [(IMU, payload)])
+
+    assert len(imu.entries(path)) == 2000
+
+
+def test_frequent_repeated_timecodes_are_refused(tmp_path):
+    payload = b"".join(doubles(t // 2 * 2, LEVEL_X5) for t in range(2, 2002))
+    path = write_file(tmp_path / "s.insv", [(IMU, payload)])
+
+    with pytest.raises(FormatError, match="no known entry stride"):
+        imu.entries(path)
+
+
 def test_a_missing_record_is_refused(tmp_path):
     """965 OneR stills in one library have no inertial record at all."""
     path = write_file(tmp_path / "f.insp", [(METADATA, b"meta")])
@@ -308,3 +326,71 @@ def test_an_x5_video_has_its_own_axes(tmp_path):
 
     assert up_still[1] == pytest.approx(up_video[1])
     assert up_still[0] == pytest.approx(-up_video[0]) and up_still[2] == pytest.approx(-up_video[2])
+
+
+def video_metadata(model, first_frame=None):
+    """Model string, plus field 24 (frame 0's timecode) when given."""
+    out = model_record(model)
+    if first_frame is not None:
+        value, varint = first_frame, b""
+        while True:
+            byte = value & 0x7F
+            value >>= 7
+            varint += bytes([byte | (0x80 if value else 0)])
+            if not value:
+                break
+        out += b"\xc0\x01" + varint
+    return out
+
+
+def x5_clip(tmp_path, *, first_frame=1_100_000, gyro=(0.1, 0.0, 0.0), log_start=1_000_000):
+    """One second of X5 record at 1 kHz on a microsecond clock, a frame log at
+    30 fps starting before the first frame, and field 24."""
+    samples = b"".join(biased(1_000_000 + i * 1000, LEVEL_X5[:3] + gyro) for i in range(1000))
+    log = b"".join(struct.pack("<qd", log_start + i * 33_367, 0.001) for i in range(30))
+    records = [(METADATA, video_metadata("Insta360 X5", first_frame)), (IMU, samples), (0x0400, log)]
+    return write_file(tmp_path / "VID_20260126_115034_00_011.insv", records,
+                      leading=b"\x00\x00\x00\x18ftypisom")
+
+
+def test_motion_puts_samples_and_frames_on_one_clock_in_seconds(tmp_path):
+    first = 1_000_000 + 3 * 33_367          # the log's fourth entry
+    motion = imu.motion(x5_clip(tmp_path, first_frame=first))
+
+    assert motion.sample_times[1] == pytest.approx(0.001)
+    assert motion.frame_times[0] == pytest.approx(3 * 0.033367)
+    assert motion.frame_times[1] - motion.frame_times[0] == pytest.approx(0.033367)
+    assert len(motion.frame_times) == 27
+
+
+def test_motion_turns_the_gyroscope_with_the_gravity_axes_and_flips_it_for_a_reflection(tmp_path):
+    """The X5's map is a reflection, and an angular velocity is an axial vector."""
+    motion = imu.motion(x5_clip(tmp_path, first_frame=1_000_000, gyro=(0.1, 0.0, 0.0)))
+
+    # The video map sends (x, y, z) to (z, -x, y); the reflection flips that.
+    assert tuple(motion.angular_velocity[:3]) == pytest.approx((0.0, 0.1, 0.0))
+    up = imu.gravity_up(x5_clip(tmp_path, first_frame=1_000_000))
+    assert tuple(motion.up[:3]) == pytest.approx(up)
+
+
+def test_motion_refuses_a_still(tmp_path):
+    path = write_file(tmp_path / "a.insp", [(METADATA, video_metadata("Insta360 X5", 1)),
+                                            (IMU, biased(1, LEVEL_X5) + biased(2, LEVEL_X5))])
+
+    with pytest.raises(FormatError, match="not a video"):
+        imu.motion(path)
+
+
+def test_motion_refuses_a_clip_without_the_first_frame_time(tmp_path):
+    with pytest.raises(FormatError, match="field 24"):
+        imu.motion(x5_clip(tmp_path, first_frame=None))
+
+
+def test_motion_refuses_a_first_frame_outside_the_record(tmp_path):
+    with pytest.raises(FormatError, match="outside the inertial record"):
+        imu.motion(x5_clip(tmp_path, first_frame=5_000_000))
+
+
+def test_motion_refuses_a_first_frame_the_log_does_not_hold(tmp_path):
+    with pytest.raises(FormatError, match="not in the frame log"):
+        imu.motion(x5_clip(tmp_path, first_frame=1_500_000, log_start=1_000_000 - 30 * 33_367))

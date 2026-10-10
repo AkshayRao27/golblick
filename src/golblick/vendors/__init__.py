@@ -36,6 +36,12 @@ organised per vendor behind a small contract.  A vendor module provides:
     ⚠️ It is a separate entry point on purpose.  Everything else here is handed
     a path and reports what is inside it; this is the one that looks outside,
     so a caller that must not touch the filesystem can still use ``gravity_up``.
+``motion(path) -> Motion``
+    Optional.  A video's inertial record for stabilising it: angular velocity
+    (radians per second) and the accelerometer's up, in the render's own
+    frame, with the time each video frame was captured on the same clock.
+    Same rule as ``gravity_up``: raise for a camera whose axes are unmeasured.
+    :mod:`golblick.stabilise` turns it into a rotation per frame.
 ``lens_profile(path) -> profile | None``
     Optional.  What the file does not carry about the lenses but a renderer
     needs: ``field_of_view``, and ``radial``, a measured correction to the

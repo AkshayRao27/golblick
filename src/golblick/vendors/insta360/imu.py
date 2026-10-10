@@ -39,6 +39,7 @@ carry a trailer but corrects roll only.
 from __future__ import annotations
 
 import struct
+from array import array
 from dataclasses import dataclass
 
 from ...errors import FormatError
@@ -51,6 +52,10 @@ _LAYOUTS = {
     20: ("<6H", lambda raw: tuple((v - 0x8000) / 1000 for v in raw)),
     56: ("<6d", lambda raw: tuple(raw)),
 }
+
+
+#: The share of timecodes that may repeat the one before.  See :func:`_decode`.
+_REPEATS_ALLOWED = 0.001
 
 
 @dataclass(frozen=True)
@@ -81,12 +86,21 @@ def _decode(data: bytes, stride: int) -> list[Sample] | None:
 
     samples = []
     previous = None
+    repeats = 0
     for offset in range(0, len(data), stride):
         (timecode,) = _TIMECODE.unpack_from(data, offset)
         # A stride that is wrong slices the payload of one entry as the
-        # timecode of the next, which does not stay ordered for long.
-        if previous is not None and timecode <= previous:
+        # timecode of the next, which does not stay ordered for long.  A
+        # timecode repeated now and then is the camera's clock: two OneR clips
+        # repeat one 2 and 5 times in some 100,000 samples, each time next to
+        # a step of 3 ms instead of 2.  Going backwards, or repeating often,
+        # still refuses.
+        if previous is not None and timecode < previous:
             return None
+        if previous is not None and timecode == previous:
+            repeats += 1
+            if repeats > _REPEATS_ALLOWED * (len(data) // stride):
+                return None
         previous = timecode
         six = convert(values.unpack_from(data, offset + _TIMECODE.size))
         samples.append(Sample(timecode / 1000.0, six[:3], six[3:]))
@@ -161,9 +175,11 @@ def gravity(path) -> tuple[float, float, float]:
 #: (x, y, z) on that camera.  Two components transposed or one inverted in the
 #: camera's own convention would both produce it, and nothing measured
 #: distinguishes those, so the composite is recorded rather than a story about
-#: which axis is which.  The OneR's map is a proper rotation, and the
-#: difference is per camera rather than per encoding -- both of the OneR's two
-#: entry encodings were checked.
+#: which axis is which.  ⚠️ The OneR's and X3's maps are reflections too, so
+#: it is the vendor's convention.  This said the OneR's was a proper rotation
+#: until the map was corrected on 2026-09-29; the corrected one is not.  It
+#: matters beyond gravity: the gyroscope shares these axes, and an angular
+#: velocity changes sign under a reflection (see :func:`motion`).
 #:
 #: 🔴 **Measured per camera, never borrowed.**  Upright, an X5 reads gravity
 #: along -x and a OneR along +x, so applying one camera's mapping to another
@@ -344,3 +360,163 @@ def gravity_up(path) -> tuple[float, float, float]:
 
     unit = [component / length for component in vector]
     return tuple(sum(row[i] * unit[i] for i in range(3)) for row in axes)
+
+
+#: Seconds per raw timecode unit, by entry stride.  Not documented anywhere:
+#: measured, by the span of every video's record against the video's length
+#: (21 clips, three cameras, both encodings, all within 0.1 to 3.5 s of the
+#: clip, the record starting a little before the first frame and ending a
+#: little after the last).  The 56-byte form counts milliseconds, the 20-byte
+#: form microseconds.
+_CLOCK = {20: 1e-6, 56: 1e-3}
+
+#: A frame log entry: the frame's timecode on the inertial clock, then a
+#: double that reads as the exposure time in seconds (1/1144 s on a bright
+#: X3 clip).
+_FRAME_ENTRY = struct.Struct("<qd")
+
+
+@dataclass(frozen=True)
+class Motion:
+    """A video's inertial record, ready to stabilise it with.
+
+    Everything is in the render's own frame and in seconds on one clock, whose
+    zero is the record's first sample.  Vectors are flat, three values per
+    sample, to keep a half-hour clip (some 1.8 million samples) in memory.
+
+    ``angular_velocity`` is in radians per second.  ``up`` is the unit vector
+    the accelerometer reads as up, and ``gravity`` the reading's length in g,
+    which is near 1 only when the camera isn't accelerating.  ``frame_times``
+    is when each video frame was captured; there can be a few more of them
+    than the video has frames, at the end.
+    """
+
+    sample_times: array
+    angular_velocity: array
+    up: array
+    gravity: array
+    frame_times: array
+
+
+def _columns(data: bytes, stride: int):
+    """Timecodes and the six values, as arrays; the same ordering rule as _decode."""
+    layout, convert = _LAYOUTS[stride]
+    times = array("q")
+    values = array("d")
+    previous = None
+    repeats = 0
+    allowed = _REPEATS_ALLOWED * (len(data) // stride)
+    for entry in struct.iter_unpack("<q" + layout[1:], data):
+        timecode = entry[0]
+        if previous is not None and timecode < previous:
+            return None
+        if previous is not None and timecode == previous:
+            repeats += 1
+            if repeats > allowed:
+                return None
+        previous = timecode
+        times.append(timecode)
+        values.extend(convert(entry[1:]))
+    return times, values
+
+
+def motion(path) -> Motion:
+    """The inertial record of a video, with the time of each of its frames.
+
+    The gyroscope shares the accelerometer's axes, so the axis map measured
+    for gravity serves for rotation too, with one twist: an angular velocity
+    is an axial vector, so where that map is a reflection (determinant -1:
+    the X5 and X3) it changes sign.  Measured against Insta360 Studio's
+    FlowState exports, by the rotation between each of their frames and the
+    unstabilised export of the same clip: the predicted map left a residual
+    of 0.16 on an X5 clip and 0.58 on a OneR clip, and without the sign 1.9
+    and 1.7.  The units are radians per second (fitted scale 0.98 to 1.07).
+
+    When frame 0 was captured is metadata field 24, a timecode on the same
+    clock.  On every X3 and X5 clip in one library it equals one of the frame
+    log's entries exactly, and the entries from there on are the frames; on a
+    OneR it sits 6 to 11 ms after one, and the rest follow at the log's
+    spacing.  Against Studio, frame 0 fitted within 4 ms of field 24 on an X5
+    clip and 7 ms on a OneR clip.
+
+    Raises :class:`FormatError` for a still, an unmeasured camera, a missing
+    or unreadable record, and a first frame that falls outside the inertial
+    record or the frame log.
+    """
+    from . import describe, metadata  # circular at import time, fine at call time
+    from .trailer import FRAMES, METADATA
+
+    if not is_video(path):
+        raise FormatError(f"{path}: not a video")
+    model = describe(path)["model"]
+    axes = _VIDEO_AXES.get(model) or _AXES.get(model)
+    if axes is None:
+        raise FormatError(
+            f"{path}: the inertial axis mapping for {model!r} has not been measured, "
+            f"only {sorted(_AXES)}; stabilising it would be a guess"
+        )
+
+    trailer = read_trailer(path)
+    record = trailer.get(IMU)
+    if record is None or not record.data:
+        raise FormatError(f"{path}: no inertial record (0x0300) in the trailer")
+    fits = {}
+    for stride in _LAYOUTS:
+        if len(record.data) % stride == 0:
+            columns = _columns(record.data, stride)
+            if columns is not None:
+                fits[stride] = columns
+    if len(fits) != 1:
+        raise FormatError(f"{path}: inertial record of {len(record.data)} bytes "
+                          f"fits {len(fits)} of the known strides, not one")
+    ((stride, (timecodes, values)),) = fits.items()
+    unit = _CLOCK[stride]
+    start = timecodes[0]
+
+    grouped = metadata.by_number(trailer.get(METADATA).data) if trailer.get(METADATA) else {}
+    first = [f.value for f in grouped.get(metadata.FIRST_FRAME, ()) if isinstance(f.value, int)]
+    if not first:
+        raise FormatError(f"{path}: no first-frame time (metadata field 24)")
+    first = first[0]
+    if not start <= first <= timecodes[-1]:
+        raise FormatError(f"{path}: the first frame's time falls outside the inertial record")
+
+    log = trailer.get(FRAMES)
+    if log is None or len(log.data) < 2 * _FRAME_ENTRY.size or len(log.data) % _FRAME_ENTRY.size:
+        raise FormatError(f"{path}: no readable frame log (0x0400)")
+    stamps = [entry[0] for entry in _FRAME_ENTRY.iter_unpack(log.data)]
+    if any(b <= a for a, b in zip(stamps, stamps[1:], strict=False)):
+        raise FormatError(f"{path}: the frame log's timecodes do not rise")
+    nearest = min(range(len(stamps)), key=lambda i: abs(stamps[i] - first))
+    steps = sorted(b - a for a, b in zip(stamps, stamps[1:], strict=False))
+    spacing = steps[len(steps) // 2]
+    if abs(stamps[nearest] - first) > spacing / 2:
+        raise FormatError(f"{path}: the first frame's time is not in the frame log")
+    shift = first - stamps[nearest]
+    frame_times = array("d", ((stamp + shift - start) * unit for stamp in stamps[nearest:]))
+
+    sign = -1.0 if _determinant(axes) < 0 else 1.0
+    count = len(timecodes)
+    sample_times = array("d", ((t - start) * unit for t in timecodes))
+    angular = array("d", bytes(8 * 3 * count))
+    up = array("d", bytes(8 * 3 * count))
+    gravity = array("d", bytes(8 * count))
+    (a0, a1, a2), (b0, b1, b2), (c0, c1, c2) = axes
+    for i in range(count):
+        o = 6 * i
+        ax, ay, az, gx, gy, gz = values[o:o + 6]
+        angular[3 * i] = sign * (a0 * gx + a1 * gy + a2 * gz)
+        angular[3 * i + 1] = sign * (b0 * gx + b1 * gy + b2 * gz)
+        angular[3 * i + 2] = sign * (c0 * gx + c1 * gy + c2 * gz)
+        length = (ax * ax + ay * ay + az * az) ** 0.5
+        gravity[i] = length
+        if length > 0:
+            up[3 * i] = (a0 * ax + a1 * ay + a2 * az) / length
+            up[3 * i + 1] = (b0 * ax + b1 * ay + b2 * az) / length
+            up[3 * i + 2] = (c0 * ax + c1 * ay + c2 * az) / length
+    return Motion(sample_times, angular, up, gravity, frame_times)
+
+
+def _determinant(m) -> float:
+    (a, b, c), (d, e, f), (g, h, i) = m
+    return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)

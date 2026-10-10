@@ -98,7 +98,10 @@ Record ids observed:
 | `0x0900` | 7,008 B | **Unidentified**. Frequently zero-length |
 | `0x0b00` | 38,982 B | **Unidentified**. Frequently zero-length |
 | `0x0000` | 310 B | X5 video only: an index of where the other records sit (see [below](#the-self-check)) |
-| `0x0400`, `0x0700`, `0x0a00`, `0x0c00`, `0x1600`, `0x1b00`, `0x1c00`, `0x1d00` | 35 B to 8.3 MB | X5 video only. **Unidentified** |
+| `0x0400` | 16 B per frame | Video, all three cameras: the frame log, one entry per frame (see [below](#stabilising-video-from-the-record)) |
+| `0x0700`, `0x0a00`, `0x0c00`, `0x1600`, `0x1b00`, `0x1c00`, `0x1d00` | 35 B to 8.3 MB | X5 video only. **Unidentified** |
+
+⚠️ Correction (2026-10-11): `0x0400` was listed in the last row as X5-only and unidentified. Every video from all three cameras carries it (22 clips checked), and it is the frame log.
 
 ### Zero-length records
 
@@ -426,6 +429,10 @@ The encoding predicts the layout on every file measured, but the format does not
 
 Each entry is a 64-bit millisecond timecode followed by six values: three accelerometer axes in **g**, then three angular velocities. Both are confirmed against exiftool, value for value, on files from all three cameras.
 
+⚠️ Correction (2026-10-11): the timecode is milliseconds only in the 56-byte form. In the 20-byte form it counts **microseconds**. Measured on 21 videos from all three cameras: with those units, every record spans its video's length plus 0.1 to 3.5 s, starting a little before the first frame and ending a little after the last. The angular velocities are radians per second; see [Stabilising video from the record](#stabilising-video-from-the-record).
+
+⚠️ Two OneR clips repeat a timecode 2 and 5 times in some 100,000 samples, each time next to a step of 3 ms instead of 2. The decoder used to refuse both clips outright. It now accepts a repeat up to 0.1% of the entries and still refuses a timecode that goes backwards, which is what a wrong stride produces.
+
 🔴 **Two encodings, and the entry stride is not a property of the camera model.**
 
 | Stride | Payload | Value |
@@ -449,6 +456,61 @@ So an IMU-derived horizon serves **about a third** of this library. Levelling th
 ### Why this was previously recorded as undecoded
 
 An earlier pass reported that the payload "does not read as three floats, as doubles, or as plausibly-scaled int16". Two mistakes compounded: the 20-byte stride measured on an X5 was assumed to hold everywhere, so the 56-byte entries were being sliced at the wrong boundary; and the 16-bit form was tried as *signed* rather than as unsigned biased by `0x8000`. Both were settled in minutes once exiftool's decoded output was put beside the raw bytes, which is the cross-check that should have come first.
+
+## Stabilising video from the record
+
+A video's `0x0300` record covers the whole clip, at 1 kHz on an X3 or X5 and 500 Hz on a OneR, so it can steady every frame. Three things had to be established: the gyroscope's axes and units, when each frame was captured on the record's clock, and a way to score the result.
+
+### The reference: Insta360 Studio, against itself
+
+Eleven clips were exported from Insta360 Studio twice, with stabilisation off and with FlowState, everything else equal. Within a clip the two exports show the same picture turned, so the rotation that lines up frame *k* of one with frame *k* of the other is exactly how Studio steadied that frame. It was solved per frame at 512×256 with the same alignment as [Route 1](#route-1--solve-the-rotation-against-the-cameras-own-stitch), seeded from the frame before; alignment scores were 0.97 to 0.997. Frame 0 of each export is frame 0 of the source clip (cross-correlating frame-to-frame change), and Studio drops the last two frames.
+
+Seven clips were tracked: three X5, three OneR and one X3. One of the OneR clips carries no usable signal, because Studio's FlowState holds it static. An eighth, a OneR clip from 2021 whose gyroscope reads about 0.002 rad/s throughout, was left out.
+
+### The gyroscope shares the accelerometer's axes
+
+Fitting angular velocity from the Studio track against the gyroscope over all 48 signed permutations, then asking which rotation takes the prediction "the accelerometer's map, applied to the gyroscope" into Studio's frame:
+
+| Camera | Residual with the predicted map | Without the reflection sign | Studio's frame from ours |
+|---|---|---|---|
+| X5 | 0.16 | 1.92 | identity, within 1.4° |
+| OneR | 0.58 | 1.75 | yaw 180°, roll −90° (the mounting angle) |
+
+So no new constants: the measured gravity maps carry over. The one twist is that all three cameras' maps are reflections (determinant −1), and an angular velocity is an axial vector, so it changes sign under one. The units are radians per second: the fitted scale was 0.98 to 1.07. The OneR residual is higher because its clip moves little and FlowState's own smoothing shows up in the track. The X3's frame (yaw 180°) was confirmed by the horizon: the opening level matches Studio's FlowState frame 0 to 0.76° with it.
+
+⚠️ Measuring this from the record alone failed. Gravity seen from a turning body moves at the gyroscope's rate, but on a steady clip the accelerometer's noise (about 1°) swamps the motion, and on a carried one its direction swings about 9° in every window with walking. Neither fit explained the data (residual 0.64 to 0.97).
+
+### When each frame was captured
+
+- Metadata field 24 is frame 0's timecode on the record's clock. Against Studio, frame 0 fitted within 4 ms of it on an X5 clip and 7 ms on a OneR clip, by cross-correlating the size of the rotation per frame (which needs no axis map).
+- Record `0x0400` is the frame log: 16-byte entries, an `int64` timecode on the same clock and a `float64` that reads as the exposure time in seconds (1/1,144 s on a bright X3 clip). It holds 7 to 35 more entries than the video has frames; one clip that continues a split 30-minute recording holds about 600 more, starting 16.7 s before its record.
+- On every X3 and X5 clip, field 24 equals one of the log's entries exactly, and the entries from there on are the frames. On a OneR it sits 6 to 11 ms after an entry. golblick takes frame *k*'s time as field 24 plus the log's spacing from that entry on, and refuses when field 24 is outside the record or more than half a frame from any entry.
+- A shift from field 24 was tried on the cleanest clip: 0 ms scored best, with ±10 ms within 0.1° and ±20 ms clearly worse.
+
+### The method
+
+[`golblick.stabilise`](../../src/golblick/stabilise.py) has the details. In outline: integrate the gyroscope; express each accelerometer reading that is within 0.1 g of 1 g in that frame; average it over a centred window (σ = 2 s); turn the attitude so the average is up. The view keeps the horizon level, and its heading follows the camera's twist about the vertical, smoothed with σ = 2 s.
+
+A filter that only looks back (the usual complementary filter) started 3.4° off on a clip that opens while moving, then lagged behind it. The centred window needs no opening estimate. Both windows were chosen on one X5 clip and checked on the rest.
+
+### Against Studio's FlowState
+
+Per frame: the tilt between the two steadied horizons, and the yaw shake left (yaw difference minus its own 0.5 s smoothing). "Unstabilised" is the clip levelled once at its opening, as the Nextcloud app rendered it before.
+
+| Clip | Camera | Horizon vs Studio, median (p95) | Yaw shake left, rms |
+|---|---|---|---|
+| 1 (tuning) | X5 | 9.5° (26.6°) → 0.6° (2.3°) | 3.5° → 0.3° |
+| 2 | X5 | 6.9° (16.5°) → 2.3° (3.4°) | 2.6° → 0.6° |
+| 3 | X5 | 11.8° (27.2°) → 1.4° (2.8°) | 3.8° → 0.7° |
+| 4 | OneR | 3.2° (21.5°) → 1.4° (2.7°) | 6.6° → 0.9° |
+| 5 | OneR | 0.7° (3.7°) → 0.4° (1.0°) | 0.5° → 0.15° |
+| 6 | X3 | 1.1° (2.1°) → 1.0° (1.1°) | 0.14° → 0.08° |
+
+⚠️ On clip 2 the remaining horizon difference is a steady 1.3° about the lens axis, which fits a small fixed rotation between Studio's frame and ours (the X5 frame fit above left about that much). Studio is the reference here, not ground truth, so which of the two is level is not established.
+
+⚠️ The heading is not scored. The yaw shake is the difference left after removing its own 0.5 s smoothing, so it says nothing about where the view points over seconds, and there the two differ by design: FlowState follows turns much more slowly. Over three clips the slow heading difference spanned 134°, 137° and 229°, while the camera turned through 202°, 130° and 305°. So FlowState follows partly, somewhere between golblick's 2-second follow and a fixed direction. Which is better depends on the clip; golblick follows, so a walk keeps looking ahead.
+
+⚠️ What this doesn't do: correct rolling shutter. The sensor reads a frame line by line, so fast motion leaves a wobble within the frame that a rotation per frame cannot remove. Whether Studio corrects it was not checked.
 
 ## The embedded thumbnail
 
