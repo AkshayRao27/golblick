@@ -35,6 +35,11 @@ final class RemapTables {
 	/** The same feather rule as photos; see render.equirectangular(). */
 	private const FEATHER_DEGREES = 3.0;
 
+	/** The ring disagreement() samples; the same as render.BAND_* in the library. */
+	private const BAND_AROUND = 720;
+	private const BAND_ACROSS = 13;
+	private const BAND_DEGREES = 6.0;
+
 	/**
 	 * How big to scale each lens before remapping to $width.
 	 *
@@ -45,8 +50,9 @@ final class RemapTables {
 	 * bilinear render -- the nearest-pixel excess is aliasing, which shimmers
 	 * in motion -- at the same CPU cost.
 	 */
-	public static function lensSizeFor(Calibration $calibration, int $nativeLensSize, int $width, ?string $model): int {
-		[$fieldOfView] = LensProfile::for($model);
+	public static function lensSizeFor(Calibration $calibration, int $nativeLensSize, int $width, ?string $model,
+		bool $guards = false): int {
+		[$fieldOfView] = LensProfile::for($model, true, $guards);
 		$scale = $calibration->scaleFor(2 * $nativeLensSize);
 		$radius = $calibration->lenses[0][0] * $scale;
 		$wanted = 1.15 * ($width / 360.0) * ($fieldOfView / 2.0) / $radius * $nativeLensSize;
@@ -60,9 +66,9 @@ final class RemapTables {
 	 * @param int $lensSize the size each lens is scaled to before remapping
 	 */
 	public static function write(string $directory, Calibration $calibration, int $lensSize, int $width,
-		array $orientation, ?string $model): void {
+		array $orientation, ?string $model, bool $guards = false): void {
 		$height = intdiv($width, 2);
-		$lenses = self::lenses($calibration, $lensSize, $model);
+		$lenses = self::lenses($calibration, $lensSize, $model, $guards);
 		$thetaMax = $lenses['thetaMax'];
 		$feather = deg2rad(min(self::FEATHER_DEGREES, max(1.5, 4.0 * 180.0 / $height)));
 		$m = $orientation;
@@ -154,8 +160,8 @@ final class RemapTables {
 	 * is upscaled bilinearly, which smooths the rungs.
 	 */
 	public static function writeBalance(string $directory, Calibration $calibration, int $lensSize, int $width,
-		array $orientation, ?string $model): void {
-		$lenses = self::lenses($calibration, $lensSize, $model);
+		array $orientation, ?string $model, bool $guards = false): void {
+		$lenses = self::lenses($calibration, $lensSize, $model, $guards);
 		$band = rad2deg($lenses['thetaMax']) - 91.0;   // a degree inside each rim
 		if ($band <= 0.0) {
 			throw new FormatError('the lenses do not overlap, so there is nothing to compare');
@@ -235,8 +241,10 @@ final class RemapTables {
 	}
 
 	/** The pair's geometry at $lensSize, each lens in its own frame. */
-	private static function lenses(Calibration $calibration, int $lensSize, ?string $model): array {
-		[$fieldOfView, $radial] = LensProfile::for($model);
+	private static function lenses(Calibration $calibration, int $lensSize, ?string $model,
+		bool $guards = false, ?float $fieldOfView = null): array {
+		[$profileDegrees, $radial] = LensProfile::for($model, true, $guards);
+		$fieldOfView ??= $profileDegrees;
 		$scale = $calibration->scaleFor(2 * $lensSize);
 		$spin = deg2rad($calibration->relativeSpin());
 		$geometry = [];
@@ -258,6 +266,68 @@ final class RemapTables {
 			'radialLast' => \count($radialRad) - 1,
 			'perStep' => (180.0 / M_PI) / LensProfile::RADIAL_STEP,
 		];
+	}
+
+	/**
+	 * Mean |lens 0 - lens 1| in grey over a ring about the bisector, at
+	 * $fieldOfView: a port of render._band_disagreement(), which owns the
+	 * reasoning. The lower it is, the better the two lenses' copies of the
+	 * overlap agree, which is how a lens guard is told from none.
+	 *
+	 * @param \GdImage $lens0 lens 0 in its own frame, square
+	 * @param \GdImage $lens1 lens 1 likewise, the same size
+	 */
+	public static function disagreement(\GdImage $lens0, \GdImage $lens1, Calibration $calibration,
+		?string $model, float $fieldOfView): ?float {
+		$lenses = self::lenses($calibration, imagesx($lens0), $model, false, $fieldOfView);
+		$thetaMax = $lenses['thetaMax'];
+		$images = [$lens0, $lens1];
+		$total = 0.0;
+		$count = 0;
+		for ($j = 0; $j < self::BAND_ACROSS; $j++) {
+			$d = deg2rad(-self::BAND_DEGREES + 2 * self::BAND_DEGREES * $j / (self::BAND_ACROSS - 1));
+			$c = cos($d / 2);
+			$z = -sin($d / 2);
+			for ($i = 0; $i < self::BAND_AROUND; $i++) {
+				$phi = $i * 2 * M_PI / self::BAND_AROUND;
+				$x = $c * cos($phi);
+				$y = $c * sin($phi);
+				$grey = [];
+				foreach ([0, 1] as $index) {
+					[$u, $v, $theta] = self::locate($lenses, $index, $x, $y, $z);
+					if ($theta > $thetaMax) {
+						continue 2;
+					}
+					$grey[$index] = self::greyAt($images[$index], $u, $v);
+				}
+				$total += abs($grey[0] - $grey[1]);
+				$count++;
+			}
+		}
+
+		return 2 * $count >= self::BAND_AROUND * self::BAND_ACROSS ? $total / $count : null;
+	}
+
+	/** Bilinear grey (the mean of R, G and B) at index-space ($u, $v), as render._sample. */
+	private static function greyAt(\GdImage $image, float $u, float $v): float {
+		$w = imagesx($image) - 1;
+		$h = imagesy($image) - 1;
+		$x0 = (int)floor($u);
+		$y0 = (int)floor($v);
+		$fx = $u - $x0;
+		$fy = $v - $y0;
+		$x0 = max(0, min($w, $x0));
+		$y0 = max(0, min($h, $y0));
+		$x1 = min($w, $x0 + 1);
+		$y1 = min($h, $y0 + 1);
+		$at = static function (int $x, int $y) use ($image): float {
+			$rgb = imagecolorat($image, $x, $y);
+
+			return ((($rgb >> 16) & 0xFF) + (($rgb >> 8) & 0xFF) + ($rgb & 0xFF)) / 3.0;
+		};
+
+		return $at($x0, $y0) * (1 - $fx) * (1 - $fy) + $at($x1, $y0) * $fx * (1 - $fy)
+			+ $at($x0, $y1) * (1 - $fx) * $fy + $at($x1, $y1) * $fx * $fy;
 	}
 
 	/**

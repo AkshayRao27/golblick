@@ -201,12 +201,12 @@ def cmd_render(args: argparse.Namespace) -> int:
             f"{args.file}: no equidistant calibration, so the lens geometry is unknown"
         )
 
-    image, frame = _source_frame(vendor, args.file)
+    image, frame, video = _source_frame(vendor, args.file)
     reader = getattr(vendor, "lens_profile", None)
     profile = reader(args.file) if reader is not None else None
-    field_of_view = args.field_of_view or (profile.field_of_view if profile else 194.0)
     radial = profile.radial if profile is not None else ()
     lenses = render.lenses_from_calibration(model, image.shape[1], radial)
+    field_of_view, guards = _field_of_view(render, args, profile, image, lenses, video)
 
     width = args.width
     height = width // 2
@@ -233,13 +233,43 @@ def cmd_render(args: argparse.Namespace) -> int:
 
     print(f"{output}  ({_human(output.stat().st_size)})")
     print(f"  {width}x{height}  equirectangular  from {frame}")
-    print(f"  field of view  {field_of_view:g} degrees"
+    print(f"  field of view  {round(field_of_view, 1):g} degrees"
           + ("" if args.field_of_view else " (the camera's measured value)"))
+    if guards is not None:
+        print(f"  lens guards    {guards}")
     print(f"  lens model     {'equidistant, measured correction' if radial else 'equidistant'}")
     print(f"  levelling      {levelling}")
     if score is not None:
         print(f"  lens agreement {score:+.3f}  (a wrong convention scores about +0.02)")
     return 0
+
+
+def _field_of_view(render, args, profile, image, lenses, video: bool):
+    """The angle to render with, and a line about lens guards (None if not modelled).
+
+    A clip-on guard narrows what the lens sees, and the file does not say
+    whether one was fitted, so ``auto`` asks the picture: the right angle is
+    the one at which the two lenses agree where they overlap.  Undecided means
+    no guards, the camera's bare state.
+    """
+    if args.field_of_view:
+        return args.field_of_view, None
+    if profile is None:
+        return 194.0, None
+    bare = profile.field_of_view_for(video)
+    if not profile.guard_factor:
+        return bare, None
+    guarded = profile.field_of_view_for(video, guards=True)
+    if args.lens_guards == "on":
+        return guarded, "on (--lens-guards on)"
+    if args.lens_guards == "off":
+        return bare, "off (--lens-guards off)"
+    picked = render.pick_field_of_view([image], lenses, (guarded, bare))
+    if picked == guarded:
+        return guarded, f"detected: the lenses agree at {guarded:.1f} degrees, not {bare:g}"
+    if picked == bare:
+        return bare, "none detected"
+    return bare, "undecided from this picture, so none assumed (--lens-guards on to override)"
 
 
 def _levelling(render, vendor, path: str, calibration, mode: str):
@@ -383,7 +413,11 @@ def cmd_report(args: argparse.Namespace) -> int:
         add(f"{'lens':<12} not measured for this camera")
     else:
         correction = f", radial correction ({len(profile.radial)} terms)" if profile.radial else ""
-        add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees{correction}")
+        video = f", {profile.video_field_of_view:g} in video" if profile.video_field_of_view else ""
+        guards = (f", divided by {profile.guard_factor:g} with lens guards"
+                  if profile.guard_factor else "")
+        add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees"
+            f"{video}{guards}{correction}")
 
     for label, name in (("preview", "extract_preview"), ("source", "extract_source")):
         extract = getattr(vendor, name, None)
@@ -551,7 +585,7 @@ def _version() -> str:
 
 
 def _source_frame(vendor, path: str):
-    """The lens pair to project, decoded, and a line saying what it was.
+    """The lens pair to project, decoded, a line saying what it was, and whether it is video.
 
     A still wraps a JPEG.  A video has no single frame, but a OneR or X3
     stores its opening frame in the trailer as one compressed keyframe per
@@ -571,8 +605,8 @@ def _source_frame(vendor, path: str):
                 f"{path}: no frame to project ({still}; and as a video: {video})") from video
         image = _decode_keyframes(keyframes)
         size = f"{image.shape[1]}x{image.shape[0]}"
-        return image, f"the video's opening frame, {size} ({keyframes.codec} keyframes)"
-    return _decode_jpeg(source.data), f"{source.width}x{source.height}"
+        return image, f"the video's opening frame, {size} ({keyframes.codec} keyframes)", True
+    return _decode_jpeg(source.data), f"{source.width}x{source.height}", False
 
 
 def _decode_keyframes(keyframes):
@@ -709,8 +743,13 @@ def build_parser() -> argparse.ArgumentParser:
                       help="JPEG quality (default: %(default)s)")
     pano.add_argument("-f", "--field-of-view", type=float, default=None,
                       help="full angle each lens sees, in degrees. Not carried in the file; "
-                           "defaults to the camera's measured value (194 on a OneR and X5, "
-                           "192 on an X3), or 194 for a camera nobody has measured")
+                           "defaults to the camera's measured value (194 on a OneR, 192 on an "
+                           "X3, 197.5 on an X5 photo and 195.3 on an X5 video, less with lens "
+                           "guards), or 194 for a camera nobody has measured")
+    pano.add_argument("--lens-guards", choices=("auto", "on", "off"), default="auto",
+                      help="whether clip-on lens guards were fitted, which narrows the field "
+                           "of view (X5 only so far). auto decides from how well the two lenses "
+                           "agree, and assumes none when it cannot tell (default: %(default)s)")
     pano.add_argument("--level", choices=("auto", "stitch", "imu", "calibration", "none"),
                       default="auto",
                       help="auto aligns to the camera's own levelled stitch where the file "

@@ -103,6 +103,44 @@ final class VideoDecoder {
 		}
 	}
 
+	/**
+	 * One frame of each lens, $at seconds in, scaled to $size square: for
+	 * scoring the lens geometry (VideoRenderer::lensGuards), not for display.
+	 *
+	 * @param list<string> $inputs the clip's files
+	 * @param list<array{int, int}> $lenses [input, stream] for lens 0 and lens 1
+	 * @return array{\GdImage, \GdImage}
+	 * @throws FormatError when ffmpeg is missing or fails
+	 */
+	public function lensFrames(array $inputs, array $lenses, float $at, int $size): array {
+		$binary = $this->binary();
+		if ($binary === null) {
+			throw new FormatError('ffmpeg is not installed');
+		}
+		$frames = [];
+		$temporary = [];
+		try {
+			foreach ($lenses as [$input, $stream]) {
+				$output = $this->temporaryFile('.png');
+				$temporary[] = $output;
+				$this->run([$binary, '-v', 'error', '-nostdin', '-y', '-threads', '1',
+					'-ss', \sprintf('%.3f', $at), '-i', $inputs[$input], '-map', "0:v:$stream",
+					'-frames:v', '1', '-vf', "scale=$size:$size", '-f', 'image2', '-c:v', 'png', $output]);
+				$image = @imagecreatefrompng($output);
+				if ($image === false) {
+					throw new FormatError('ffmpeg did not produce a readable frame');
+				}
+				$frames[] = $image;
+			}
+		} finally {
+			foreach ($temporary as $path) {
+				@unlink($path);
+			}
+		}
+
+		return [$frames[0], $frames[1]];
+	}
+
 	private function temporaryFile(string $suffix): string {
 		$path = $this->tempManager->getTemporaryFile($suffix);
 		if ($path === false) {

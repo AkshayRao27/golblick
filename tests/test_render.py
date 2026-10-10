@@ -371,6 +371,28 @@ def test_field_of_view_is_fitted_not_assumed():
     assert best == pytest.approx(194.0, abs=2.0)
 
 
+@pytest.mark.parametrize("shot_at", [194.0 / 1.0225, 194.0])
+def test_the_field_of_view_the_lenses_agree_on_is_picked(shot_at):
+    """A lens guard narrows the angle by a known factor; the picture says which.
+
+    Lopsided on purpose: the two candidates are not symmetric about the truth,
+    so picking the nearer one cannot happen by accident of averaging.
+    """
+    image, lenses = synthetic_pair(size=512, field_of_view=shot_at)
+
+    picked = render.pick_field_of_view([image], lenses, (194.0 / 1.0225, 194.0))
+
+    assert picked == shot_at
+
+
+def test_picking_a_field_of_view_declines_on_a_featureless_picture():
+    """The decline has to be reachable: with nothing to compare, no answer."""
+    image, lenses = synthetic_pair(size=512)
+    image[:] = 128
+
+    assert render.pick_field_of_view([image], lenses, (190.0, 194.0)) is None
+
+
 def test_no_overlap_reports_none():
     """Below 180 degrees the lenses cannot see the same thing at all."""
     image, lenses = synthetic_pair()

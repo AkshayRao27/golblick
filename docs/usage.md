@@ -147,7 +147,9 @@ Two lines in that output are worth reading:
 
 `--level` forces the choice. `stitch`, `imu` and `calibration` fail rather than quietly falling back, which is what you want when comparing them.
 
-The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR and an X5, 192° for an X3, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the first. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
+The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3, 197.5° for an X5 photo and 195.3° for an X5 video, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
+
+Clip-on lens guards narrow that angle by about 2%, and the file does not record whether they were fitted. On an X5, `render` works it out from the picture: it tries both angles and keeps the one at which the two lenses agree clearly better where they overlap, and assumes no guards when neither wins. The output's `lens guards` line says what it decided. `--lens-guards on` or `off` overrides it.
 
 ### What the metadata does and does not claim
 

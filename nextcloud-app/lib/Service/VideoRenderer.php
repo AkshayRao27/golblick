@@ -12,6 +12,7 @@ use OCA\Golblick\Insta360\Calibration;
 use OCA\Golblick\Insta360\FormatError;
 use OCA\Golblick\Insta360\Imu;
 use OCA\Golblick\Insta360\Keyframes;
+use OCA\Golblick\Insta360\LensProfile;
 use OCA\Golblick\Insta360\Protobuf;
 use OCA\Golblick\Insta360\Trailer;
 use OCA\Golblick\Render\Orientation;
@@ -40,6 +41,12 @@ final class VideoRenderer {
 	/** 20 Mbit/s at 3840x1920, in proportion for other widths. */
 	private const BITS_PER_PIXEL_SECOND = 20e6 / (3840 * 1920);
 
+	/** How clearly the guarded field of view has to win; render.PICK_MARGIN in the library. */
+	private const PICK_MARGIN = 0.15;
+
+	/** Lens size the guard check decodes at: about 8 MB a lens in GD. */
+	private const GUARD_PROBE_SIZE = 1440;
+
 	public function __construct(
 		private VideoDecoder $decoder,
 		private VideoStore $store,
@@ -50,7 +57,7 @@ final class VideoRenderer {
 	/**
 	 * Start rendering $file, a video's master file, and return the entry name.
 	 *
-	 * @return array{name: string, deadline: int}
+	 * @return array{name: string, deadline: int, guards: bool} guards: whether lens guards were detected
 	 * @throws FormatError if the file can't be rendered; nothing is left running
 	 */
 	public function start(File $file): array {
@@ -76,13 +83,14 @@ final class VideoRenderer {
 		}
 
 		[$calibration, $model, $orientation] = $this->geometry($file);
-		$lensSize = RemapTables::lensSizeFor($calibration, $native, $width, $model);
+		$guards = $this->lensGuards($inputs, $lenses, $calibration, $model, $probe['duration']);
+		$lensSize = RemapTables::lensSizeFor($calibration, $native, $width, $model, $guards);
 		$tables = "$root/$name.tables";
 		if (!is_dir($tables) && !mkdir($tables, 0770, true)) {
 			throw new FormatError('could not create the table directory');
 		}
-		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model);
-		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model);
+		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards);
+		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model, $guards);
 
 		$bitrate = (int)round(self::BITS_PER_PIXEL_SECOND * $width * intdiv($width, 2));
 		// 🔴 Memory, not speed, sets these. With ffmpeg's defaults (threads from
@@ -124,7 +132,7 @@ final class VideoRenderer {
 		exec('nohup sh -c ' . escapeshellarg($script) . ' > /dev/null 2>&1 < /dev/null &');
 
 		// Twelve times the clip's length, an hour at least: four cores run at about a fifth of real time.
-		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration']))];
+		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards];
 	}
 
 	/**
@@ -304,6 +312,46 @@ final class VideoRenderer {
 		}
 
 		return ['streams' => $streams, 'duration' => (float)($info['format']['duration'] ?? 0)];
+	}
+
+	/**
+	 * Whether the lenses wore clip-on guards, which narrow what they see: a
+	 * port of render.pick_field_of_view() in the library, which owns the
+	 * reasoning. Three frames are scored at both fields of view, and the
+	 * guarded one has to make the lenses agree clearly better. False when it
+	 * can't tell, or the camera has no guards modelled.
+	 *
+	 * @param list<string> $inputs
+	 * @param list<array{int, int}> $lenses
+	 */
+	private function lensGuards(array $inputs, array $lenses, Calibration $calibration, ?string $model,
+		float $duration): bool {
+		if (!LensProfile::hasGuards($model) || $duration <= 0) {
+			return false;
+		}
+		[$bare] = LensProfile::for($model, true);
+		[$guarded] = LensProfile::for($model, true, true);
+		$ratios = [];
+		foreach ([0.2, 0.5, 0.8] as $share) {
+			try {
+				[$lens0, $lens1] = $this->decoder->lensFrames($inputs, $lenses, $share * $duration, self::GUARD_PROBE_SIZE);
+			} catch (FormatError $e) {
+				continue;
+			}
+			$withGuards = RemapTables::disagreement($lens0, $lens1, $calibration, $model, $guarded);
+			$without = RemapTables::disagreement($lens0, $lens1, $calibration, $model, $bare);
+			if ($withGuards !== null && $without !== null && $without > 0.0) {
+				$ratios[] = $withGuards / $without;
+			}
+		}
+		if ($ratios === []) {
+			return false;
+		}
+		sort($ratios);
+		$middle = intdiv(\count($ratios), 2);
+		$median = \count($ratios) % 2 === 1 ? $ratios[$middle] : ($ratios[$middle - 1] + $ratios[$middle]) / 2.0;
+
+		return $median < 1.0 - self::PICK_MARGIN;
 	}
 
 	/** @return array{Calibration, ?string, array} */

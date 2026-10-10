@@ -30,6 +30,18 @@ class LensProfile:
     radial: tuple[float, ...] = ()
     #: Where the numbers came from, for anyone deciding whether to trust them.
     basis: str = ""
+    #: The same lens in a video, where it differs.  The calibration describes
+    #: the still sensor's frame, and a video's lens image is not an exact
+    #: scaled copy of it, so the fitted angle comes out different.
+    video_field_of_view: float | None = None
+    #: How much a clip-on lens guard narrows the field of view, as a divisor,
+    #: where measured.  None means guards are not modelled for this camera.
+    guard_factor: float | None = None
+
+    def field_of_view_for(self, video: bool = False, guards: bool = False) -> float:
+        """The angle to render with, for a still or a video, with or without guards."""
+        degrees = self.video_field_of_view if video and self.video_field_of_view else self.field_of_view
+        return degrees / self.guard_factor if guards and self.guard_factor else degrees
 
 
 PROFILES: dict[str, LensProfile] = {
@@ -72,9 +84,21 @@ PROFILES: dict[str, LensProfile] = {
         "Insta360 Studio exports, 2 scenes",
     ),
     "Insta360 X5": LensProfile(
-        field_of_view=194.0,
-        basis="field of view fitted by overlap_agreement; lens agreement prefers "
-        "198 and the embedded stitch puts the rim at 194, unresolved",
+        # 🔴 Without lens guards.  Fitted by lens agreement file by file, one
+        # camera's files fall into two tight groups -- stills 193-195 and
+        # 196.5-198, videos about 191 and 195.3 -- split by whether guards were
+        # fitted when they were shot.  The earlier single value, 194, was
+        # fitted on stills shot WITH guards.  Checked against Insta360 Studio exports at
+        # the seam: an unguarded clip kinks at 194 and is continuous at 195.3,
+        # an unguarded still lands where Studio puts it at 197.5 and not at 194.
+        field_of_view=197.5,
+        video_field_of_view=195.3,
+        # Studio's "Standard lens guards" setting, against its "off", is a pure
+        # radial scale of 2.25%, the same on three clips; the two groups above
+        # are 2.1% apart.
+        guard_factor=1.0225,
+        basis="field of view fitted by lens agreement per file, checked against "
+        "Insta360 Studio exports; lens guard factor measured from Studio's own setting",
     ),
 }
 

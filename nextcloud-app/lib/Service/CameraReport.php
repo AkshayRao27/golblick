@@ -132,7 +132,10 @@ final class CameraReport {
 
 		[$fieldOfView, $radial] = LensProfile::for($model);
 		$add('lens', LensProfile::isMeasured($model)
-			? sprintf('measured: field of view %g degrees', $fieldOfView) . ($radial ? sprintf(', radial correction (%d terms)', \count($radial)) : '')
+			? sprintf('measured: field of view %g degrees', $fieldOfView)
+				. (LensProfile::videoFieldOfView($model) !== null ? sprintf(', %g in video', LensProfile::videoFieldOfView($model)) : '')
+				. (LensProfile::guardFactor($model) !== null ? sprintf(', divided by %g with lens guards', LensProfile::guardFactor($model)) : '')
+				. ($radial ? sprintf(', radial correction (%d terms)', \count($radial)) : '')
 			: sprintf('not measured for this camera; assuming %g degrees', $fieldOfView));
 
 		$preview = null;

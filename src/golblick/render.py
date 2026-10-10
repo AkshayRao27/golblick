@@ -40,7 +40,8 @@ Confirmed by measurement across three cameras:
 
 * ``theta_max``, the angle the image circle's rim corresponds to.  It is not in
   the file.  :func:`fit_field_of_view` recovers it by scoring, and it differs
-  per camera (194 degrees on an X5 and a OneR, 192 on an X3).
+  per camera (194 degrees on a OneR, 192 on an X3, 197.5 on an X5 photo), and
+  clip-on lens guards narrow it; :func:`pick_field_of_view` tells which.
 * The camera's attitude when the shutter fired.  :func:`body_orientation`
   removes the mounting angle, but a camera that was genuinely tilted stays
   tilted; that needs :func:`fit_orientation` or the IMU.  See
@@ -628,6 +629,78 @@ def fit_field_of_view(image, lenses, candidates=None, size=(1024, 512)):
         raise ValueError("no candidate field of view produced an overlap")
     best = max(scored, key=lambda pair: pair[1])
     return best[0], scored
+
+
+#: How much better one field of view has to make the lenses agree before it is
+#: chosen over the other.  See :func:`pick_field_of_view`.
+PICK_MARGIN = 0.15
+
+
+#: The ring :func:`_band_disagreement` samples: directions round the lens
+#: axis, and offsets across the bisector within this many degrees of ``d``.
+BAND_AROUND = 720
+BAND_ACROSS = 13
+BAND_DEGREES = 6.0
+
+
+def _band_disagreement(image, lenses, field_of_view):
+    """Mean |lens 0 - lens 1| in grey over a ring about the bisector.
+
+    Sampled evenly round the lens axis and across the band, so every part of
+    the seam counts the same; an equirectangular grid would crowd samples where
+    the seam crosses its poles.  ``d = theta_0 - theta_1`` as in the seam
+    routing, so a direction at ``d`` is ``-sin(d/2)`` along the lens axis.
+    """
+    numpy = _numpy()
+    phi = numpy.arange(BAND_AROUND) * (2 * numpy.pi / BAND_AROUND)
+    d = numpy.deg2rad(numpy.linspace(-BAND_DEGREES, BAND_DEGREES, BAND_ACROSS))
+    phi, d = numpy.meshgrid(phi, d)
+    rays = numpy.stack([numpy.cos(d / 2) * numpy.cos(phi), numpy.cos(d / 2) * numpy.sin(phi),
+                        -numpy.sin(d / 2)], axis=-1)
+    theta_max = numpy.deg2rad(field_of_view / 2)
+    sampled = []
+    for index, lens in enumerate(lenses):
+        u, v, theta = _project(rays, lens, index, theta_max)
+        valid = theta <= theta_max
+        sampled.append((_sample(image, u, v, valid).mean(axis=-1), valid))
+    both = sampled[0][1] & sampled[1][1]
+    if both.sum() < both.size // 2:
+        return None
+    return float(numpy.abs(sampled[0][0] - sampled[1][0])[both].mean())
+
+
+def pick_field_of_view(images, lenses, candidates, margin=PICK_MARGIN):
+    """Which of two fields of view the lenses agree on, or None if neither clearly.
+
+    For a choice between known states rather than a free fit -- a lens with or
+    without a clip-on guard, which narrows what it sees by a measured factor.
+    A wrong angle pulls the two lenses' copies of the overlap apart, so the
+    right one leaves them agreeing better.  ``images`` are one or more lens
+    pairs from the same file (frames of a video), scored at both candidates;
+    the median ratio decides, and it has to clear ``margin`` either way.
+
+    ⚠️ Lens agreement also rewards an angle that suits a near subject, which is
+    why this picks between two values rather than fitting one: a free fit
+    wanders with the scene, a choice of two separated by 4 degrees does not.
+    Returns the chosen candidate, or None -- the caller then falls back to its
+    default rather than trusting a coin toss.
+    """
+    numpy = _numpy()
+    first, second = candidates
+    ratios = []
+    for image in images:
+        a = _band_disagreement(image, lenses, first)
+        b = _band_disagreement(image, lenses, second)
+        if a is not None and b is not None and b > 0:
+            ratios.append(a / b)
+    if not ratios:
+        return None
+    ratio = float(numpy.median(ratios))
+    if ratio < 1.0 - margin:
+        return first
+    if ratio > 1.0 / (1.0 - margin):
+        return second
+    return None
 
 
 def rotation(yaw: float, pitch: float, roll: float):
