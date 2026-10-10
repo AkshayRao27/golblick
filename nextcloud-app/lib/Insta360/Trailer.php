@@ -33,6 +33,8 @@ final class Trailer {
 	public const METADATA = 0x0101;
 	public const PREVIEW = 0x0200;
 	public const IMU = 0x0300;
+	/** In a video, one 16-byte entry per frame: timecode on the inertial clock, then exposure. */
+	public const FRAMES = 0x0400;
 	/** In a OneR or X3 video, the keyframe of lens 1; PREVIEW holds lens 0's. See Keyframes. */
 	public const SECOND_KEYFRAME = 0x0500;
 

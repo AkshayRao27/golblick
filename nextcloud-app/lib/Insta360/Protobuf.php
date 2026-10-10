@@ -21,6 +21,8 @@ final class Protobuf {
 	public const MODEL = 2;
 	public const FIRMWARE = 3;
 	public const CALIBRATION_EQUIDISTANT = 5;
+	/** In a video, frame 0's timecode on the inertial clock. */
+	public const FIRST_FRAME = 24;
 	public const CALIBRATION_POLY = 53;
 
 	/**

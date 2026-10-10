@@ -40,6 +40,9 @@ final class Imu {
 
 	private const TIMECODE_BYTES = 8;
 
+	/** The share of timecodes that may repeat the one before (imu.py, _REPEATS_ALLOWED). */
+	private const REPEATS_ALLOWED = 0.001;
+
 	/**
 	 * How much of a video's record levels its opening frame: imu.py's
 	 * OPENING_SAMPLES, which says why. Pass it as $first for a video.
@@ -57,11 +60,10 @@ final class Imu {
 	 * 🔴 The X5's map is a REFLECTION, determinant -1. That is not a mistake
 	 * and must not be "corrected" by flipping a sign back; it says the stored
 	 * triple, as this code labels it, is not right-handed on that camera.
-	 *
-	 * ⛔ The X3 is deliberately absent. Its readings cannot be reconciled with
-	 * the camera's attitude -- two sessions that both render level give median
-	 * readings 26 degrees apart -- so it is refused rather than guessed.
-	 * history/08_IMU_AXES.md has the evidence.
+	 * ⚠️ So are the OneR's and the X3's: it is the vendor's convention. It
+	 * matters for rotation as well as gravity, because the gyroscope shares
+	 * these axes and an angular velocity changes sign under a reflection
+	 * (motionAxes).
 	 */
 	private const AXES = [
 		'Insta360 X5' => [[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
@@ -95,6 +97,118 @@ final class Imu {
 	private const VIDEO_AXES = [
 		'Insta360 X5' => [[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
 	];
+
+	/**
+	 * Seconds per raw timecode unit, by entry stride: imu.py's _CLOCK, which
+	 * says how it was measured. Milliseconds in the 56-byte form,
+	 * microseconds in the 20-byte one.
+	 */
+	public const CLOCK = [20 => 1e-6, 56 => 1e-3];
+
+	/**
+	 * The map that turns the gyroscope's readings into the render's frame, in
+	 * radians per second: the gravity map, negated where it is a reflection,
+	 * because an angular velocity is an axial vector. imu.py's motion() has
+	 * the measurement against Insta360 Studio.
+	 *
+	 * @return array<int, array<int, float>>
+	 */
+	public static function motionAxes(string $model): array {
+		$axes = self::VIDEO_AXES[$model] ?? self::AXES[$model] ?? null;
+		if ($axes === null) {
+			throw new FormatError(sprintf(
+				'the inertial axis mapping for "%s" has not been measured; stabilising it would be a guess', $model));
+		}
+
+		return $axes;
+	}
+
+	/** -1.0 where the map is a reflection, else 1.0. */
+	public static function handedness(array $axes): float {
+		[[$a, $b, $c], [$d, $e, $f], [$g, $h, $i]] = $axes;
+
+		return $a * ($e * $i - $f * $h) - $b * ($d * $i - $f * $g) + $c * ($d * $h - $e * $g) < 0 ? -1.0 : 1.0;
+	}
+
+	/**
+	 * The record's entry stride, checked exactly as entries() checks it but
+	 * keeping nothing, so a half-hour record costs no memory.
+	 */
+	public static function stride(string $record): int {
+		$fits = [];
+		foreach (array_keys(self::LAYOUTS) as $stride) {
+			if (self::decode($record, $stride, 0) !== null) {
+				$fits[] = $stride;
+			}
+		}
+		if (\count($fits) !== 1) {
+			throw new FormatError(sprintf('inertial record of %d bytes fits %d of the known strides, not one',
+				\strlen($record), \count($fits)));
+		}
+
+		return $fits[0];
+	}
+
+	/**
+	 * When each video frame was captured, in seconds from the record's first
+	 * sample: imu.py's motion(), which says how the rule was measured. Frame 0
+	 * is metadata field 24, which must fall inside the record and on (or
+	 * within half a frame of) an entry of the frame log, 0x0400; the frames
+	 * after it follow at the log's spacing.
+	 *
+	 * @return list<float>
+	 */
+	public static function frameTimes(string $record, int $stride, string $log, int $first): array {
+		$length = \strlen($record);
+		$start = unpack('P', $record, 0)[1];
+		$end = unpack('P', $record, $length - $stride)[1];
+		if ($first < $start || $first > $end) {
+			throw new FormatError("the first frame's time falls outside the inertial record");
+		}
+		if (\strlen($log) < 32 || \strlen($log) % 16 !== 0) {
+			throw new FormatError('no readable frame log (0x0400)');
+		}
+		$stamps = [];
+		for ($at = 0; $at < \strlen($log); $at += 16) {
+			$stamps[] = unpack('P', $log, $at)[1];
+		}
+		$steps = [];
+		for ($i = 1; $i < \count($stamps); ++$i) {
+			if ($stamps[$i] <= $stamps[$i - 1]) {
+				throw new FormatError("the frame log's timecodes do not rise");
+			}
+			$steps[] = $stamps[$i] - $stamps[$i - 1];
+		}
+		sort($steps);
+		$spacing = $steps[intdiv(\count($steps), 2)];
+		$nearest = 0;
+		foreach ($stamps as $i => $stamp) {
+			if (abs($stamp - $first) < abs($stamps[$nearest] - $first)) {
+				$nearest = $i;
+			}
+		}
+		if (abs($stamps[$nearest] - $first) > $spacing / 2) {
+			throw new FormatError("the first frame's time is not in the frame log");
+		}
+		$shift = $first - $stamps[$nearest];
+		$unit = self::CLOCK[$stride];
+		$out = [];
+		for ($i = $nearest; $i < \count($stamps); ++$i) {
+			$out[] = ($stamps[$i] + $shift - $start) * $unit;
+		}
+
+		return $out;
+	}
+
+	/** One entry's timecode and six values, decoded: [timecode, ax, ay, az, gx, gy, gz]. */
+	public static function entryAt(string $record, int $stride, int $offset): array {
+		[$format, $scale, $bias] = self::LAYOUTS[$stride];
+		$entry = unpack('Pt/' . $format . 'v', $record, $offset);
+
+		return [$entry['t'],
+			($entry['v1'] - $bias) * $scale, ($entry['v2'] - $bias) * $scale, ($entry['v3'] - $bias) * $scale,
+			($entry['v4'] - $bias) * $scale, ($entry['v5'] - $bias) * $scale, ($entry['v6'] - $bias) * $scale];
+	}
 
 	public static function gravityUp(string $record, string $model, ?int $first = null, bool $video = false): array {
 		$axes = ($video ? (self::VIDEO_AXES[$model] ?? null) : null) ?? self::AXES[$model] ?? null;
@@ -200,6 +314,8 @@ final class Imu {
 		[$format, $scale, $bias] = self::LAYOUTS[$stride];
 		$samples = [];
 		$previous = null;
+		$repeats = 0;
+		$allowed = (int)floor(intdiv($length, $stride) * self::REPEATS_ALLOWED);
 
 		for ($offset = 0; $offset < $length; $offset += $stride) {
 			// 64-bit little-endian signed; PHP's 'q' is machine order, and
@@ -211,8 +327,12 @@ final class Imu {
 			$timecode = $time[1];
 
 			// A wrong stride slices the payload of one entry as the timecode
-			// of the next, which does not stay ordered for long.
-			if ($previous !== null && $timecode <= $previous) {
+			// of the next, which does not stay ordered for long. A timecode
+			// repeated now and then is the camera's clock (imu.py, _decode).
+			if ($previous !== null && $timecode < $previous) {
+				return null;
+			}
+			if ($previous !== null && $timecode === $previous && ++$repeats > $allowed) {
 				return null;
 			}
 			$previous = $timecode;

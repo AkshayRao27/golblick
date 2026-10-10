@@ -5,11 +5,11 @@
  * button in Nextcloud's Viewer, and the button in Memories, for a signed-in
  * user or on a public share link.
  */
-import { mdiClose, mdiPause, mdiPlay, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js';
+import { mdiClose, mdiPause, mdiPlay, mdiVideoStabilization, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js';
 import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
 
-import type { SphereView } from './sphere';
+import type { Motion, SphereView } from './sphere';
 
 /** Which buttons to add, and the token when this page is a public share link. */
 export const config = loadState<{ files: boolean; viewer: boolean; memories: boolean; share: string | null }>(
@@ -50,6 +50,42 @@ async function previewUrl(fileId: number, etag: string): Promise<string | null> 
 
 const videoUrl = (fileId: number, etag: string) => generateUrl(config.share
   ? `/apps/golblick/s/${config.share}/video/${fileId}` : `/apps/golblick/video/${fileId}`) + `?etag=${encodeURIComponent(etag)}`;
+
+const motionUrl = (fileId: number, etag: string) => generateUrl(config.share
+  ? `/apps/golblick/s/${config.share}/motion/${fileId}` : `/apps/golblick/motion/${fileId}`) + `?etag=${encodeURIComponent(etag)}`;
+
+/** The steadying track for a video, or null where the server has none (lib/Service/MotionStore). */
+async function loadMotion(fileId: number, etag: string): Promise<Motion | null> {
+  try {
+    const response = await fetch(motionUrl(fileId, etag), { credentials: 'same-origin' });
+    if (!response.ok) return null;
+    const data = await response.json() as { period: number; frames: number; q: string };
+    const bytes = Uint8Array.from(atob(data.q), (c) => c.charCodeAt(0));
+    const view = new DataView(bytes.buffer);
+    const q = new Int16Array(bytes.length / 2);
+    for (let i = 0; i < q.length; i++) q[i] = view.getInt16(2 * i, true);
+    return q.length >= 4 * data.frames && data.period > 0 ? { period: data.period, frames: data.frames, q } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the viewer last left steadying on. A convenience only, so storage may fail. */
+function steadyPreference(): boolean {
+  try {
+    return localStorage.getItem('golblick-steady') !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function rememberSteady(on: boolean) {
+  try {
+    localStorage.setItem('golblick-steady', on ? '1' : '0');
+  } catch {
+    // Private window or blocked storage: it just won't be remembered.
+  }
+}
 
 let open: (() => void) | null = null;
 
@@ -185,6 +221,34 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
         return player.play();
       }).catch(() => {});
     }, { once: true });
+    // Steadying arrives separately and switches on when it does; the video
+    // doesn't wait for it, since a long clip takes the server a few seconds
+    // the first time.
+    void loadMotion(fileId, answer.videoEtag).then((motion) => {
+      if (closed || !motion || !view) return;
+      const on = steadyPreference();
+      view.setMotion(motion);
+      view.setSteady(on);
+      const steady = document.createElement('button');
+      steady.type = 'button';
+      steady.style.cssText = 'flex:none;width:36px;height:36px;border:0;border-radius:50%;color:#fff;'
+        + 'cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;';
+      steady.innerHTML = svgIcon(mdiVideoStabilization, 20);
+      const show = (state: boolean) => {
+        steady.title = state ? 'Steadied: click for the camera\'s own movement' : 'Not steadied: click to steady';
+        steady.setAttribute('aria-label', steady.title);
+        steady.setAttribute('aria-pressed', String(state));
+        steady.style.background = state ? 'rgba(255,255,255,.25)' : 'transparent';
+      };
+      show(on);
+      steady.addEventListener('click', () => {
+        const next = steady.getAttribute('aria-pressed') !== 'true';
+        view?.setSteady(next);
+        rememberSteady(next);
+        show(next);
+      });
+      controls.insertBefore(steady, controls.lastChild);
+    });
     player.addEventListener('error', () => {
       if (!closed) status.textContent = 'The stitched video could not be played; showing the first frame.';
     }, { once: true });

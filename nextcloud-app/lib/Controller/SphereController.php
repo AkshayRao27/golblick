@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace OCA\Golblick\Controller;
 
 use OCA\Golblick\Service\CameraReport;
+use OCA\Golblick\Service\MotionStore;
 use OCA\Golblick\Http\RangeFileResponse;
 use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\VideoStore;
@@ -41,6 +42,7 @@ final class SphereController extends Controller {
 		private PanoramaStore $store,
 		private CameraReport $report,
 		private VideoStore $videos,
+		private MotionStore $motion,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -102,6 +104,26 @@ final class SphereController extends Controller {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
 		}
 		$response = new RangeFileResponse($path, 'video/mp4', $this->request->getHeader('Range') ?: null);
+		$response->cacheFor(3600 * 24, false, false);
+
+		return $response;
+	}
+
+	/**
+	 * The rotation that steadies each frame of a video (MotionStore), for a
+	 * clip or a copy saved next to one. 404 where there is none to give.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/motion/{fileId}', requirements: ['fileId' => '\d+'])]
+	public function motion(int $fileId): JSONResponse {
+		$file = $this->file($fileId);
+		$clip = $file === null ? null : MotionStore::clipFor($file);
+		$track = $clip === null ? null : $this->motion->track($clip);
+		if ($track === null) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		$response = new JSONResponse($track);
 		$response->cacheFor(3600 * 24, false, false);
 
 		return $response;

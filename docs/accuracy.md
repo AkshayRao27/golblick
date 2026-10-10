@@ -11,6 +11,8 @@ This page says how that was checked, and what the *lens agreement* number that `
 | Horizon level, OneR and X3 | median error 1.0–1.2° | Insta360 Studio's levelled exports of the same photos |
 | Horizon level, X5 | median 0.4°, 90% within 1.2°, worst 3.0°, over 47 photos | the panorama the X5 stores, which the render is aligned to; the 48th is an all-black exposure and is levelled from the motion sensor instead |
 | Photos levelled | 1,432 of 1,438 (the other 6 have no trailer to read) | |
+| Steadied video, horizon | median 0.4–2.3° from Studio's, on six clips from all three cameras (unsteadied: 0.7–11.8°) | Insta360 Studio's FlowState exports of the same clips |
+| Steadied video, shake left | 0.08–0.9° rms of yaw (unsteadied: 0.14–6.6°) | the same |
 | Where each lens's picture lands, OneR | median 3.0 px off at 2048 px wide (9.8 px before the lens correction) | Insta360 Studio's exports, on scenes not used to measure the correction |
 | Same, X3 | about 1 px (about 3–4 px before) | the same, but only two scenes |
 | Same, X5 | 5.5–6.7 px, with no correction; a fixed correction doesn't improve it (see below) | the panorama the X5 stores, and Studio's exports, all 48 photos |

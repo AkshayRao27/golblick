@@ -24,6 +24,12 @@ import {
   WebGLRenderer,
 } from 'three';
 
+/**
+ * The rotation that steadies each frame of a video (lib/Service/MotionStore):
+ * one quaternion (w, x, y, z) per frame, scaled by 32767, `period` seconds apart.
+ */
+export type Motion = { period: number; frames: number; q: Int16Array };
+
 export class SphereView {
   private disposers: (() => void)[] = [];
   private destroyed = false;
@@ -32,6 +38,12 @@ export class SphereView {
   /** While a video plays, every animation frame draws; otherwise only changes do. */
   private video: HTMLVideoElement | null = null;
   private invalidate: (() => void) | null = null;
+
+  /** Steadying for the video, if the server had a track, and whether it is on. */
+  private motion: Motion | null = null;
+  private steady = true;
+  /** Media time of the frame on screen, from requestVideoFrameCallback where the browser has it. */
+  private frameTime: number | null = null;
 
   /** Current view direction and vertical field of view, degrees. */
   private longitude = 0;
@@ -73,7 +85,8 @@ export class SphereView {
     const geometry = new SphereGeometry(100, 64, 48, -Math.PI / 2);
     geometry.scale(-1, 1, 1);
     const material = new MeshBasicMaterial({ map: texture });
-    scene.add(new Mesh(geometry, material));
+    const mesh = new Mesh(geometry, material);
+    scene.add(mesh);
 
     let needsRender = true;
 
@@ -105,6 +118,17 @@ export class SphereView {
       previous?.dispose();
       this.video = video;
       needsRender = true;
+      // Steadying has to turn the sphere for the frame actually on screen,
+      // which the playback clock runs slightly ahead of.
+      if ('requestVideoFrameCallback' in video) {
+        const onFrame = (_now: number, frame: VideoFrameCallbackMetadata) => {
+          if (this.destroyed || this.video !== video) return;
+          this.frameTime = frame.mediaTime;
+          needsRender = true;
+          video.requestVideoFrameCallback(onFrame);
+        };
+        video.requestVideoFrameCallback(onFrame);
+      }
     };
 
     const resize = () => {
@@ -129,6 +153,19 @@ export class SphereView {
 
       camera.fov = this.fov;
       camera.updateProjectionMatrix();
+
+      // The track is in golblick's frame, whose x is this sphere's -x (see
+      // the geometry): conjugating by that reflection keeps w and x and
+      // negates y and z.
+      const motion = this.motion;
+      if (motion && this.steady && this.video) {
+        const time = this.frameTime ?? this.video.currentTime;
+        const k = Math.min(motion.frames - 1, Math.max(0, Math.round(time / motion.period)));
+        const q = motion.q;
+        mesh.quaternion.set(q[4 * k + 1], -q[4 * k + 2], -q[4 * k + 3], q[4 * k]).normalize();
+      } else {
+        mesh.quaternion.identity();
+      }
 
       // Same convention as the geometry: x negated, longitude from the middle
       // column of the image.
@@ -299,6 +336,17 @@ export class SphereView {
   /** Show a video on the sphere instead of the still it opened with. */
   public attachVideo(video: HTMLVideoElement) {
     this.swapVideo?.(video);
+  }
+
+  /** Steady the video with this track; null to stop. */
+  public setMotion(motion: Motion | null) {
+    this.motion = motion;
+    this.invalidate?.();
+  }
+
+  public setSteady(on: boolean) {
+    this.steady = on;
+    this.invalidate?.();
   }
 
   /** Draw once more, e.g. when a paused video has shown a new frame after a seek. */

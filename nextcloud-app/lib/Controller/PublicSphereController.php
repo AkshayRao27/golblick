@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace OCA\Golblick\Controller;
 
 use OCA\Golblick\Http\RangeFileResponse;
+use OCA\Golblick\Service\MotionStore;
 use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\VideoStore;
 use OCA\Golblick\Service\Settings;
@@ -54,6 +55,7 @@ final class PublicSphereController extends PublicShareController {
 		private PanoramaStore $store,
 		private Settings $settings,
 		private VideoStore $videos,
+		private MotionStore $motion,
 	) {
 		parent::__construct($appName, $request, $session);
 	}
@@ -106,6 +108,24 @@ final class PublicSphereController extends PublicShareController {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
 		}
 		$response = new RangeFileResponse($path, 'video/mp4', $this->request->getHeader('Range') ?: null);
+		$response->cacheFor(3600 * 24, false, false);
+
+		return $response;
+	}
+
+	/** The steadying track (MotionStore), when the clip it comes from is in the share too. */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/motion/{fileId}', requirements: ['fileId' => '\d+'])]
+	public function motion(string $token, int $fileId): JSONResponse {
+		[$file] = $this->file($fileId);
+		$clip = $file === null ? null : MotionStore::clipFor($file);
+		$shared = $clip !== null && ($clip->getId() === $file->getId() || $this->file($clip->getId())[0] !== null);
+		$track = $shared ? $this->motion->track($clip) : null;
+		if ($track === null) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		$response = new JSONResponse($track);
 		$response->cacheFor(3600 * 24, false, false);
 
 		return $response;
