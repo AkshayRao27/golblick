@@ -50,7 +50,7 @@ def test_the_preview_provider_carries_the_same_table():
     text = php.read_text()
     for model, profile in lens.PROFILES.items():
         match = re.search(re.escape(f"'{model}' => [")
-                          + r"([\d.]+), \[([^\]]*)\](?:, ([\d.]+), ([\d.]+))?\]", text)
+                          + r"([\d.]+), \[([^\]]*)\](?:, ([\d.]+))?(?:, ([\d.]+))?\]", text)
         assert match, f"{model} missing from {php.name}"
         assert float(match.group(1)) == profile.field_of_view
         values = tuple(float(v) for v in match.group(2).split(",") if v.strip())

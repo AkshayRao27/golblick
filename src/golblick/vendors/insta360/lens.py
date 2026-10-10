@@ -81,7 +81,17 @@ PROFILES: dict[str, LensProfile] = {
             -0.456,
         ),
         basis="field of view fitted by lens agreement; radial measured against "
-        "Insta360 Studio exports, 2 scenes",
+        "Insta360 Studio exports, 2 scenes; video field of view checked at the seam",
+        # 🔴 Video is about 6.5 degrees narrower than a still, as the X5's is
+        # 2.2.  At 192 a far pole and a mountain ridge step where they cross
+        # the seam on two clips, at 188 they still do, at 185 and 186 they run
+        # straight, at 187 they start to step.  The seam planner says the same
+        # from the other side: at 192 it "lined up" about 6 degrees of parallax
+        # in every direction in every frame -- the angle error, not a near
+        # subject -- at 186 still about 0.5 on one clip, at 185 and 185.5
+        # nothing on either.  The radial table, fitted on stills at 192, is
+        # kept: dropping it changed nothing visible.
+        video_field_of_view=185.5,
     ),
     "Insta360 X5": LensProfile(
         # 🔴 Without lens guards.  Fitted by lens agreement file by file, one

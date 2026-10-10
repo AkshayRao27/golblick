@@ -331,12 +331,26 @@ The seventh to ninth values of each lens block in field 53 are a position. Lens 
 
 Read as metres, that is the two lenses' separation through the body, almost entirely along the lens axis, which is the shape a back-to-back camera has.
 
-What is verified is the **direction and its sign**. Near the seam a subject at distance r is seen by the two lenses about b/r radians apart, across the seam. Aiming both lenses at a common point along this direction lines such subjects up (a goggle strap and a skier's leg that broke at the seam become continuous, measured on held-out frames as 17–46% less disagreement in the overlap on two clips), and flipping the sign cannot: the search then finds no parallax at all. ⚠️ **The unit is not verified**, and the renderer does not need it: it searches in parallax angle, so only the direction enters.
+What is verified is the **direction and its sign**. Near the seam a subject at distance r is seen by the two lenses about b/r radians apart, across the seam. Aiming both lenses at a common point along this direction lines such subjects up (a goggle strap that broke at the seam on an X5 clip becomes continuous, 19% less disagreement in the overlap on held-out frames), and flipping the sign cannot: the search then finds no parallax at all. ⚠️ **The unit is not verified**, and the renderer does not need it: it searches in parallax angle, so only the direction enters.
 
 Two limits follow from the geometry, not from the method:
 
 - **A blind zone.** The lenses overlap by about 15°, so anything closer than roughly b / 15° (about 12 cm on an X5) is never seen by both lenses at the same point. A hand or a glove that close cannot be stitched by anything, Insta360 Studio included.
 - **A OneR carries no field 53.** Assuming an axial baseline found nothing on the one OneR clip tried, where the cost was dominated by the lenses' exposure difference in video; not measured further.
+
+⚠️ **Correction (2026-10-10): a wrong field of view looks like a near subject to that search.** A first version also claimed a skier's leg on an X3 clip and 46% less disagreement there. That was mostly the X3's video field of view being 6.5° off (next section): an across-the-seam shift is what both an angle error and parallax produce, so the search "lined up" about 6° of parallax in every direction in every frame, and the warp that did it bent straight lines across the seam. With the angle corrected, both X3 clips have nothing left to line up. Check the angle before trusting a parallax that is the same everywhere.
+
+### Video sees less than the still says (X3, X5)
+
+The calibration is quoted against the still sensor's frame, and a video's lens image is not an exact scaled copy of it, so the field of view that makes the lenses meet at the seam differs between photo and video. Measured at the seam on far straight things (a pole, a mountain ridge), which have no parallax and only line up at the right angle:
+
+| Model | Photo | Video | How |
+|---|---|---|---|
+| X5 | 197.5 | 195.3 | Studio exports and lens agreement (see the lens guards section) |
+| X3 | 192 | 185.5 | two clips: steps at 192, 188 and 187; straight at 185 and 186 |
+| OneR | 194 | 194 | one clip: straight at 190 and 194, a gap opens at 186 |
+
+Lens agreement on a ring about the seam can NOT settle this: on every camera, OneR included, it keeps falling as the angle shrinks, because the samples move towards the rims, where both lenses are darker and softer. The X3 case was found by the seam planner instead, which kept finding the same parallax everywhere; at 185 and 185.5 it finds none on either clip.
 
 ### What is *not* verified
 

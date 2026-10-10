@@ -592,9 +592,14 @@ def plan_seam(images, lenses, field_of_view, direction):
     frames it was chosen on, a plan always looks good -- an optimum against one
     of its own feasible solutions -- and a clip filmed from a stand, where
     people walk past, passed that check and then did worse than the bisector
-    on a third of the frames it had not seen.  Measured on held-out frames of
-    two clips with the holder near the seam: 19% and 45% less disagreement than
-    the bisector, never worse on any frame.
+    on a third of the frames it had not seen.  Measured on held-out frames of a
+    clip with the holder near the seam: 19% less disagreement than the
+    bisector, never worse on any frame.
+
+    ⚠️ An across-the-seam shift is what a wrong field of view produces too, so
+    this will "line up" an angle error with a warp that bends straight lines
+    crossing the seam.  It did, on X3 video, at 6 degrees in every direction;
+    a parallax that is the same everywhere means check the angle.
 
     ``images`` are lens pairs side by side, as for :func:`equirectangular`;
     ``direction`` is the baseline from lens 0 to lens 1 in any unit, or None
