@@ -21,6 +21,7 @@ final class Protobuf {
 	public const MODEL = 2;
 	public const FIRMWARE = 3;
 	public const CALIBRATION_EQUIDISTANT = 5;
+	public const CALIBRATION_POLY = 53;
 
 	/**
 	 * @return array<int, list<string|int>> field number => values, in order

@@ -71,7 +71,7 @@ final class VideoRender extends TimedJob {
 		$this->startNext();
 	}
 
-	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool}|null */
+	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool, seam?: string}|null */
 	public function current(): ?array {
 		$state = json_decode($this->appConfig->getValueString(Application::APP_ID, 'video_current', ''), true);
 
@@ -105,7 +105,8 @@ final class VideoRender extends TimedJob {
 			try {
 				$this->renderer->finish($current['name'], $current['fileid']);
 				$this->logger->info('golblick: stitched video ' . $current['name']
-					. (!empty($current['guards']) ? ' (lens guards detected)' : ''), ['app' => 'golblick']);
+					. (!empty($current['guards']) ? ' (lens guards detected)' : '')
+					. (isset($current['seam']) ? ', seam: ' . $current['seam'] : ''), ['app' => 'golblick']);
 			} catch (FormatError $e) {
 				$this->fail($current['name'], $e->getMessage());
 			}
@@ -149,6 +150,7 @@ final class VideoRender extends TimedJob {
 				'started' => time(),
 				'attempts' => $retry === $started['name'] ? 2 : 1,
 				'guards' => $started['guards'],
+				'seam' => $started['seam'],
 			]));
 			$this->appConfig->deleteKey(Application::APP_ID, 'video_retry');
 

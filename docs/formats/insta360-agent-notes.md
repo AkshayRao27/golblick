@@ -319,11 +319,30 @@ For every (camera, field) pair there is **exactly one** distinct calibration str
 
 ⚠️ The library holds **one body of each model**, with one serial number per model across all 1,415 files. So this measures "constant per body", and cannot distinguish a per-unit factory calibration from a per-model constant. The parameters are lens-specific measurements, which makes per-unit the more likely reading, but that is reasoning, not evidence. Either way the practical consequence stands: 1,415 files provide only **three** independent calibration samples, so agreement across the library is not corroboration.
 
+### Field 53 says where the two lenses sit
+
+The seventh to ninth values of each lens block in field 53 are a position. Lens 0 reads zero on every camera; lens 1 reads:
+
+| Model | Lens 1 relative to lens 0 |
+|---|---|
+| X5 | (−0.000868, 0.000085, −0.032509) |
+| X3 | (−0.000972, 0.000006, −0.027296) |
+| OneR | no field 53 |
+
+Read as metres, that is the two lenses' separation through the body, almost entirely along the lens axis, which is the shape a back-to-back camera has.
+
+What is verified is the **direction and its sign**. Near the seam a subject at distance r is seen by the two lenses about b/r radians apart, across the seam. Aiming both lenses at a common point along this direction lines such subjects up (a goggle strap and a skier's leg that broke at the seam become continuous, measured on held-out frames as 17–46% less disagreement in the overlap on two clips), and flipping the sign cannot: the search then finds no parallax at all. ⚠️ **The unit is not verified**, and the renderer does not need it: it searches in parallax angle, so only the direction enters.
+
+Two limits follow from the geometry, not from the method:
+
+- **A blind zone.** The lenses overlap by about 15°, so anything closer than roughly b / 15° (about 12 cm on an X5) is never seen by both lenses at the same point. A hand or a glove that close cannot be stitched by anything, Insta360 Studio included.
+- **A OneR carries no field 53.** Assuming an axial baseline found nothing on the one OneR clip tried, where the cost was dominated by the lenses' exposure difference in video; not measured further.
+
 ### What is *not* verified
 
 Field 5's six per-lens values *are* identified: radius, centre x, centre y, roll, pitch, yaw. The convention for roll and pitch is still open, as noted above.
 
-The **interior layout of fields 53, 54 and 111 is inferred from shape**, not confirmed. The names above describe how many numbers appear where; they are not claims about which coefficient means what, and which model Insta360 Studio actually uses is unknown. This library therefore exposes those parameters as a raw tuple rather than as named attributes. Identifying them is the first task of the rendering work.
+The **interior layout of fields 53, 54 and 111 is inferred from shape**, not confirmed, apart from field 53's lens offset (above). The names above describe how many numbers appear where; they are not claims about which coefficient means what, and which model Insta360 Studio actually uses is unknown. This library therefore exposes those parameters as a raw tuple rather than as named attributes. Identifying them is the first task of the rendering work.
 
 ## Record `0x0200` — the camera's own preview
 
@@ -667,6 +686,7 @@ The orientation correction was found by grid search, not derived. The ceiling is
 
 - The camera does **horizon levelling** on its output, using gravity. A raw stitch does not, so a handheld shot shows a visibly curved horizon.
 - **Parallax at the seam** duplicates or tears objects close to the camera where the hemispheres meet. No amount of calibration fixes this; it needs optical-flow blending.
+  - ⚠️ Correction: the calibration does carry what parallax depends on. Field 53 states the lens baseline (see "Field 53 says where the two lenses sit"), and aiming both lenses at a chosen distance per azimuth lines up subjects beyond the blind zone. Choosing that distance is a search, not a calibration value.
 
 `v360` and `remap` are **CPU-only** in ffmpeg and do not compose with NVENC, so GPU acceleration applies to encoding, not to the projection.
 

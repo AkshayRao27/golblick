@@ -700,3 +700,134 @@ def test_remap_tables_reproduce_the_photo_projection():
 
     assert numpy.abs(got - expected).mean() < 0.5
     assert 0.0 < share.mean() < 1.0
+
+
+def parallax_pair(size=256, field_of_view=194.0, near=True, baseline=(0.0, 0.0, -0.03),
+                  distance=0.25, around=(-40.0, 80.0)):
+    """Two lenses a baseline apart, looking at a near band in front of a far scene.
+
+    Unlike :func:`synthetic_pair`, the lenses do not share a centre: lens 1
+    sits at ``baseline`` from lens 0, as a real camera's do.  The near band is
+    a sphere of radius ``distance`` about their midpoint, covering azimuths
+    ``around`` about the lens axis within 30 degrees of the seam -- lopsided on
+    purpose, so a sign or wrap error cannot cancel.  Everything else is far.
+    """
+    t = numpy.asarray(baseline, numpy.float64)
+    centres = (numpy.zeros(3), t)
+    middle = t / 2
+    image = numpy.zeros((size, 2 * size, 3), numpy.uint8)
+    theta_max = numpy.deg2rad(field_of_view / 2)
+    radius = size / 2 - 2
+    ys, xs = numpy.mgrid[0:size, 0:size]
+    low, high = numpy.deg2rad(around)
+
+    def texture(v, fine):
+        lon = numpy.arctan2(v[..., 0], v[..., 2])
+        lat = numpy.arcsin(numpy.clip(v[..., 1], -1, 1))
+        k = 14 if fine else 5
+        red = (numpy.sin(lon * k) * numpy.cos(lat * k) * 0.5 + 0.5) * 255
+        green = (numpy.sin(lat * k + 1.0) * 0.5 + 0.5) * 255
+        blue = (numpy.cos(lon * (k - 2) - lat) * 0.5 + 0.5) * 255
+        return numpy.stack([red, green, blue], -1)
+
+    for index in range(2):
+        dx = xs - (size - 1) / 2
+        dy = -(ys - (size - 1) / 2)
+        r = numpy.hypot(dx, dy)
+        theta = numpy.clip(r / radius * theta_max, 0, numpy.pi)
+        phi = numpy.arctan2(dy, dx)
+        v = numpy.stack([numpy.sin(theta) * numpy.cos(phi), numpy.sin(theta) * numpy.sin(phi),
+                         numpy.cos(theta)], -1)
+        if index == 1:
+            v[..., 0], v[..., 2] = -v[..., 0], -v[..., 2]
+        pixels = texture(v, fine=False)
+        if near:
+            # Where this lens's ray meets the sphere about the midpoint.
+            offset = centres[index] - middle
+            b = (v * offset).sum(-1)
+            s = -b + numpy.sqrt(numpy.maximum(b * b - offset @ offset + distance ** 2, 0))
+            u = (centres[index] + s[..., None] * v - middle) / distance
+            azimuth = numpy.arctan2(u[..., 1], u[..., 0])
+            hit = (azimuth > low) & (azimuth < high) & (numpy.abs(u[..., 2]) < numpy.sin(numpy.deg2rad(30)))
+            pixels = numpy.where(hit[..., None], texture(u, fine=True), pixels)
+        pixels[r > radius] = 0
+        image[:, index * size:(index + 1) * size] = pixels.astype(numpy.uint8)
+
+    lenses = (render.Lens(radius, (size - 1) / 2, (size - 1) / 2),
+              render.Lens(radius, size + (size - 1) / 2, (size - 1) / 2))
+    return image, lenses
+
+
+def test_a_clip_plan_finds_the_parallax_of_a_near_subject():
+    """The planner should aim both lenses at the near band, and leave the far scene alone.
+
+    30 mm apart and 25 cm away is about 6.9 degrees of parallax.
+    """
+    image, lenses = parallax_pair()
+    plan = render.plan_seam([image, image], lenses, 194.0, (0.0, 0.0, -0.03))
+
+    assert plan is not None
+    assert plan.direction == pytest.approx((0.0, 0.0, -1.0))
+    parallax = numpy.asarray(plan.parallax)
+    azimuth = (numpy.arange(render._SEAM_COLUMNS) + 0.5) * 360.0 / render._SEAM_COLUMNS - 180.0
+    inside = (azimuth > -25) & (azimuth < 65)
+    outside = (azimuth < -60) | (azimuth > 100)
+    assert 5.0 <= numpy.median(parallax[inside]) <= 9.0
+    assert numpy.median(parallax[outside]) == 0.0
+
+
+def test_a_clip_plan_declines_when_nothing_is_near():
+    """🔴 The decline has to be reachable: a scene at infinity has no parallax to fix."""
+    image, lenses = parallax_pair(near=False)
+    assert render.plan_seam([image, image], lenses, 194.0, (0.0, 0.0, -0.03)) is None
+
+
+def test_planned_tables_bring_the_lenses_together_at_the_seam():
+    """Through the tables a video is rendered with, the near band should agree across the seam."""
+    image, lenses = parallax_pair()
+    plan = render.plan_seam([image, image], lenses, 194.0, (0.0, 0.0, -0.03))
+    assert plan is not None
+
+    size = (512, 256)
+    rays = render._rays(*size)
+    d = 2 * numpy.arccos(numpy.clip(rays[..., 2], -1, 1)) - numpy.pi
+    near_seam = numpy.abs(d) < numpy.deg2rad(2.0)
+    halves = (image[:, :256], image[:, 256:])
+
+    def disagreement(maps):
+        (x0, y0, v0), (x1, y1, v1) = maps
+        a = render._sample(halves[0], x0, y0, v0).mean(-1)
+        b = render._sample(halves[1], x1, y1, v1).mean(-1)
+        keep = near_seam & v0 & v1
+        return numpy.abs(a - b)[keep].mean()
+
+    plain, _ = render.remap_tables(lenses, size, 194.0, lens_size=256)
+    planned, share = render.remap_tables(lenses, size, 194.0, lens_size=256, plan=plan)
+    assert disagreement(planned) < 0.6 * disagreement(plain)
+    assert 0.0 < share.mean() < 1.0
+
+
+def test_the_app_plans_a_seam_with_the_same_constants():
+    """The PHP port restates the planner's constants; a drift is a different estimator.
+
+    Ported values were checked equal plan for plan on three clips, which only
+    holds while these agree.
+    """
+    import re
+    from pathlib import Path
+
+    text = (Path(__file__).parents[1] / "nextcloud-app/lib/Render/SeamPlan.php").read_text()
+
+    def constant(name):
+        match = re.search(rf"const {name} = ([^;]+);", text)
+        assert match, f"{name} missing from SeamPlan.php"
+        return match.group(1)
+
+    levels = tuple(float(v) for v in constant("LEVELS").strip("[]").split(","))
+    assert levels == render.DEPTH_LEVELS
+    pairs = {"INNER": render._DEPTH_INNER, "OUTER": render._DEPTH_OUTER, "BAND": render._DEPTH_BAND,
+             "JUMP": render._DEPTH_JUMP, "GAIN": render._DEPTH_GAIN, "RUN": render._DEPTH_RUN,
+             "NEAR_WHITE": render._NEAR_WHITE, "PER_COLUMN": render._RING_PER_COLUMN,
+             "STEP": render._RING_STEP}
+    for name, value in pairs.items():
+        assert float(constant(name)) == value, name

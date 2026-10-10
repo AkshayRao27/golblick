@@ -26,7 +26,7 @@ use OCA\Golblick\Insta360\Calibration;
  */
 final class Seam {
 	public const COLUMNS = 256;
-	private const ROWS = 48;
+	public const ROWS = 48;
 
 	/**
 	 * Width of the probe render the seam is chosen from.
@@ -52,10 +52,10 @@ final class Seam {
 	 * bisector, so there is nothing to route around and the straight seam is
 	 * the better answer for being the simpler one.
 	 */
-	private const FLOOR = 2.0;
+	public const FLOOR = 2.0;
 
 	/** Route only for a material gain, not for a rounding difference. */
-	private const MARGIN = 0.9;
+	public const MARGIN = 0.9;
 
 	/**
 	 * @param array<int, array{float, float, float, float, array<int, array<int, float>>, float[]}> $geometry
@@ -242,7 +242,7 @@ final class Seam {
 	 * @param array<int, array<int, float>> $grid
 	 * @return array<int, array<int, float>>
 	 */
-	private static function widen(array $grid, float $feather, float $room): array {
+	public static function widen(array $grid, float $feather, float $room): array {
 		$step = 2.0 * $room / (self::ROWS - 1);
 		$span = max(1, (int)round(2.0 * $feather / $step));
 		$half = intdiv($span, 2);
@@ -281,7 +281,7 @@ final class Seam {
 	 * @param array<int, array<int, float>> $grid
 	 * @return int[]|null
 	 */
-	private static function cheapestCycle(array $grid): ?array {
+	public static function cheapestCycle(array $grid): ?array {
 		$work = [];
 		for ($r = 0; $r < self::ROWS; ++$r) {
 			for ($c = 0; $c < self::COLUMNS; ++$c) {

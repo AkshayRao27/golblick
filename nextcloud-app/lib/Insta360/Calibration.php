@@ -54,6 +54,28 @@ final class Calibration {
 	}
 
 	/**
+	 * Where lens 1 sits relative to lens 0, from field 53, the polynomial
+	 * model: the seventh to ninth values of each of its 16-value lens blocks.
+	 * Only the direction is used and only the direction is verified (see
+	 * calibration.Calibration.lens_offset in the library). Null when the
+	 * string is not that shape -- a OneR carries no field 53 at all.
+	 *
+	 * @return array{float, float, float}|null
+	 */
+	public static function lensOffset(string $polynomial): ?array {
+		$values = array_map('floatval', explode('_', trim($polynomial)));
+		if (\count($values) !== 1 + 2 * 16 + 1 || (int)$values[0] !== 2) {
+			return null;
+		}
+		$offset = [];
+		for ($k = 0; $k < 3; ++$k) {
+			$offset[] = $values[1 + 16 + 6 + $k] - $values[1 + 6 + $k];
+		}
+
+		return $offset;
+	}
+
+	/**
 	 * The frame the parameters are quoted against, which is usually not the
 	 * image size and is per camera -- so it is read, never assumed.
 	 */

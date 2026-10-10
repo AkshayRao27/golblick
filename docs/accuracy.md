@@ -19,7 +19,7 @@ Insta360 Studio exports were made with its stitching optimisation switched off, 
 
 ## What's still visible
 
-- **Near objects at the seam.** The two lenses don't sit at the same point, so they see something a metre away from slightly different angles, and no fixed projection can make both views line up. golblick moves the seam, per photo, to where the two lenses agree best, which can steer it around a nearby subject, but anything close that the seam can't avoid will still show a break. Insta360 Studio's *Optical Flow* stitching handles this somewhat better.
+- **Near objects at the seam.** The two lenses don't sit at the same point, so they see something a metre away from slightly different angles, and no fixed projection can make both views line up. golblick moves the seam, per photo, to where the two lenses agree best, which can steer it around a nearby subject, but anything close that the seam can't avoid will still show a break. Insta360 Studio's *Optical Flow* stitching handles this somewhat better. For videos, the Nextcloud app chooses how the lenses meet once per clip, and on an X3 or X5 it can line up a subject that stays near the camera for the whole clip. Anything closer than about 12 cm is seen by only one lens at a time, and no stitching can join it.
 - **Brightness differences between the lenses.** Each lens exposes slightly differently. golblick blends across the seam but doesn't correct the exposure.
 
 ## The *lens agreement* line

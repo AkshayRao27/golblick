@@ -384,6 +384,315 @@ def _seam_offset(a, b, both, d, phi, feather, half):
     return rowwise / (_SEAM_ROWS - 1) * (2 * room) - room
 
 
+#: Parallax the depth search tries, degrees: how far apart the two lenses see a
+#: point on the seam.  0 is the far scene; a point at distance r behind a
+#: baseline b shows about b/r radians, so with the lenses 30 mm apart the last
+#: level is about 15 cm.  Searching in parallax rather than distance means only
+#: the baseline's DIRECTION is needed, never its length or unit.
+DEPTH_LEVELS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.5, 11.0)
+
+#: The warp is full strength this close to the bisector and gone by the
+#: second, degrees of ``d``: it bends single-lens content between them, so it
+#: is kept to about the band the vendor's own stitcher reworks.
+_DEPTH_INNER = 4.0
+_DEPTH_OUTER = 12.0
+
+#: How close to the bisector agreement is judged at each parallax, degrees.
+_DEPTH_BAND = 3.0
+
+#: Grey levels per degree of parallax change between neighbouring columns.
+_DEPTH_JUMP = 0.65
+
+#: A column leaves the far scene only to cut its own disagreement by this much.
+_DEPTH_GAIN = 0.10
+
+#: Narrowest stretch of seam, in columns of :data:`_SEAM_COLUMNS`, that keeps
+#: a parallax of its own (about 11 degrees).
+_DEPTH_RUN = 8
+
+#: Grey at or above which a sample says nothing about alignment.
+_NEAR_WHITE = 245.0
+
+#: Steps of the ring the seam is chosen on: round the lens axis per column, and
+#: across the band in degrees of ``d``.
+_RING_PER_COLUMN = 2
+_RING_STEP = 0.25
+
+
+@dataclass(frozen=True)
+class SeamPlan:
+    """Where and how two lenses hand over, chosen once for a whole clip.
+
+    ``direction`` is the unit vector from lens 0 to lens 1 in the camera frame.
+    ``parallax`` holds degrees per column of :data:`_SEAM_COLUMNS` round the
+    lens axis (see :data:`DEPTH_LEVELS`), and ``offset`` radians of ``d`` by
+    which the hand-over moves off the bisector; either may be None.
+    """
+
+    direction: tuple[float, float, float]
+    parallax: object = None
+    offset: object = None
+
+
+def _around(values, phi):
+    """Per-column values read at azimuth ``phi``, linearly, wrapping."""
+    numpy = _numpy()
+    columns = len(values)
+    position = ((phi + numpy.pi) / (2 * numpy.pi) * columns) % columns
+    low = numpy.floor(position).astype(numpy.int32) % columns
+    fraction = position - numpy.floor(position)
+    return values[low] * (1 - fraction) + values[(low + 1) % columns] * fraction
+
+
+def _depth_taper(d):
+    numpy = _numpy()
+    inner, outer = numpy.deg2rad(_DEPTH_INNER), numpy.deg2rad(_DEPTH_OUTER)
+    return numpy.clip((outer - numpy.abs(d)) / (outer - inner), 0, 1)
+
+
+def _aimed(rays, d, parallax, direction, index):
+    """Lens ``index``'s ray for output rays aimed at a point with that parallax.
+
+    A point at distance r from the midpoint of the lenses is seen by lens i
+    along ``r*w + m - c_i``; scaled by 1/r that is ``w + (m - c_i)/r``, and
+    ``|c_1 - c_0|/r`` is the parallax.  So lens 0 looks half the parallax along
+    the baseline and lens 1 half against it, and at zero parallax both look
+    along ``w``.  ``parallax`` is radians per ray, already tapered.
+    """
+    numpy = _numpy()
+    sign = 0.5 if index == 0 else -0.5
+    aimed = rays + (sign * parallax)[..., None] * numpy.asarray(direction, numpy.float64)
+    return aimed / numpy.linalg.norm(aimed, axis=-1, keepdims=True)
+
+
+def _ring(half):
+    """Directions round the seam, evenly in azimuth and in ``d`` out to ``half``."""
+    numpy = _numpy()
+    phi = (numpy.arange(_SEAM_COLUMNS * _RING_PER_COLUMN) + 0.5) * (
+        2 * numpy.pi / (_SEAM_COLUMNS * _RING_PER_COLUMN)) - numpy.pi
+    steps = int(numpy.floor(numpy.rad2deg(half) / _RING_STEP))
+    d = numpy.deg2rad(numpy.arange(-steps, steps + 1) * _RING_STEP)
+    phi, d = numpy.meshgrid(phi, d)
+    rays = numpy.stack([numpy.cos(d / 2) * numpy.cos(phi), numpy.cos(d / 2) * numpy.sin(phi),
+                        -numpy.sin(d / 2)], axis=-1)
+    return rays, d, phi
+
+
+def _grey_pair(image, lenses, rays, d, theta_max, parallax=None, direction=None):
+    """Both lenses' grey at ``rays``, aimed at ``parallax`` if given, and validity."""
+    out = []
+    for index, lens in enumerate(lenses):
+        aimed = rays if parallax is None else _aimed(rays, d, parallax, direction, index)
+        u, v, theta = _project(aimed, lens, index, theta_max)
+        valid = theta <= theta_max
+        p = _sample(image, u, v, valid)
+        out.append((p[..., 0] * 0.299 + p[..., 1] * 0.587 + p[..., 2] * 0.114, valid))
+    return out
+
+
+def _mean_finite(grids):
+    numpy = _numpy()
+    stacked = numpy.stack(grids)
+    finite = numpy.isfinite(stacked)
+    total = numpy.where(finite, stacked, 0).sum(axis=0)
+    count = finite.sum(axis=0)
+    return numpy.where(count > 0, total / numpy.maximum(count, 1), numpy.inf)
+
+
+def _parallax_cost(a, b, both, d, phi):
+    """Mean |a - b| per column, within :data:`_DEPTH_BAND` of the bisector."""
+    numpy = _numpy()
+    keep = both & (numpy.abs(d) < numpy.deg2rad(_DEPTH_BAND)) & (a < _NEAR_WHITE) & (b < _NEAR_WHITE)
+    column = (((phi[keep] + numpy.pi) / (2 * numpy.pi) * _SEAM_COLUMNS)
+              .astype(numpy.int32) % _SEAM_COLUMNS)
+    total = numpy.bincount(column, weights=numpy.abs(a[keep] - b[keep]), minlength=_SEAM_COLUMNS)
+    count = numpy.bincount(column, minlength=_SEAM_COLUMNS)
+    return numpy.where(count >= _RING_PER_COLUMN * 4, total / numpy.maximum(count, 1), numpy.inf)
+
+
+def _cheapest_parallax(grid):
+    """Parallax level per column: a cyclic path with a cost per degree of change.
+
+    Unlike the routing path, any jump is allowed, because distance is
+    discontinuous at the edge of a near subject; a path limited to one level
+    per column leaked near parallax 17 degrees either side of one and bent the
+    far scene there.
+
+    Two guards, each from an artefact the disagreement score could not see:
+
+    * 🔴 A column whose agreement is still improving at the last parallax the
+      overlap can measure has its subject at or past that limit -- the blind
+      zone, closer than the lenses can both see.  Any parallax there is a guess,
+      and the warp bent a glove into a swirl.  Only a minimum INSIDE the range is
+      a measurement.
+    * 🔴 Spikes narrower than :data:`_DEPTH_RUN` columns are removed afterwards.
+      The one that prompted it was the sun: sliding one lens 9 degrees laid its
+      flare over the other lens's sun, halved the disagreement, and sheared the
+      sky into a swirl.  A near subject worth stitching for spans far more.
+    """
+    numpy = _numpy()
+    levels = numpy.asarray(DEPTH_LEVELS)
+    rows, columns = grid.shape
+    finite = numpy.isfinite(grid)
+    work = numpy.where(finite, grid, 1e3)
+    base = numpy.where(finite[0], grid[0], 0.0)
+    work = work + _DEPTH_GAIN * base[None, :] * (levels[:, None] > 0)
+    last = numpy.where(finite.any(axis=0), rows - 1 - numpy.argmax(finite[::-1], axis=0), 0)
+    best = numpy.argmin(numpy.where(finite, grid, numpy.inf), axis=0)
+    work[1:, (best == last) & (last > 0)] = 1e3
+    step = _DEPTH_JUMP * numpy.abs(levels[:, None] - levels[None, :])
+
+    def sweep(initial):
+        cost = initial.copy()
+        back = numpy.zeros((columns, rows), numpy.int32)
+        for column in range(1, columns):
+            total = cost[:, None] + step
+            back[column] = numpy.argmin(total, axis=0)
+            cost = total[back[column], numpy.arange(rows)] + work[:, column]
+        return cost, back
+
+    def unwind(back, end):
+        path = numpy.empty(columns, numpy.int32)
+        path[-1] = end
+        for column in range(columns - 1, 0, -1):
+            path[column - 1] = back[column][path[column]]
+        return path
+
+    # The same two-pass treatment of the wrap as _cheapest_cycle.
+    cost, back = sweep(work[:, 0])
+    start = int(unwind(back, int(numpy.argmin(cost)))[0])
+    pinned = numpy.full(rows, numpy.inf)
+    pinned[start] = work[start, 0]
+    cost, back = sweep(pinned)
+    path = unwind(back, int(numpy.argmin(cost + step[:, start])))
+
+    # Grey-scale opening, cyclic: erode then dilate over the run length.
+    run = _DEPTH_RUN
+    index = numpy.arange(columns)
+    eroded = path[(index[:, None] + numpy.arange(run)[None, :]) % columns].min(axis=1)
+    return eroded[(index[:, None] - numpy.arange(run)[None, :]) % columns].max(axis=1)
+
+
+def plan_seam(images, lenses, field_of_view, direction):
+    """Choose one hand-over for a whole clip from a few of its frames, or None.
+
+    Two moves, in this order, each chosen on the disagreement averaged over the
+    frames.  First a parallax per azimuth, so a subject near the camera lines
+    up across the seam instead of breaking: the cut cannot be routed round
+    something wider than the overlap, like the body of whoever holds the
+    camera.  Then the cut is routed, on the lenses as aimed, round what still
+    disagrees -- which also moves it off a flare that only one lens has.
+
+    One plan per clip because a video's tables are written once.  It pays
+    where the near subject stays put relative to the camera, and has to
+    decline where nothing does.
+
+    🔴 So the plan is chosen on every other frame and checked on the rest,
+    and declined unless it clears routing's margin THERE.  Checked on the
+    frames it was chosen on, a plan always looks good -- an optimum against one
+    of its own feasible solutions -- and a clip filmed from a stand, where
+    people walk past, passed that check and then did worse than the bisector
+    on a third of the frames it had not seen.  Measured on held-out frames of
+    two clips with the holder near the seam: 19% and 45% less disagreement than
+    the bisector, never worse on any frame.
+
+    ``images`` are lens pairs side by side, as for :func:`equirectangular`;
+    ``direction`` is the baseline from lens 0 to lens 1 in any unit, or None
+    if the camera does not say, in which case only the route is planned.
+    """
+    numpy = _numpy()
+    if len(lenses) != 2 or len(images) < 2:
+        return None
+    theta_max = numpy.deg2rad(field_of_view / 2)
+    feather = numpy.deg2rad(1.5)
+    half = 2 * theta_max - numpy.pi
+    room = half - 2 * feather
+    if room <= 0:
+        return None
+    rays, d, phi = _ring(half)
+    if direction is not None:
+        direction = numpy.asarray(direction, numpy.float64)
+        norm = float(numpy.linalg.norm(direction))
+        direction = direction / norm if norm > 0 else None
+    columns = numpy.arange(_SEAM_COLUMNS)
+    middle = (_SEAM_ROWS - 1) // 2
+
+    def aimed_by(profile):
+        if profile is None:
+            return None
+        return numpy.deg2rad(_around(numpy.asarray(profile, numpy.float64), phi)) * _depth_taper(d)
+
+    def routed(frames, profile):
+        """The widened routing grid over ``frames``, lenses aimed by ``profile``."""
+        grids = []
+        for image in frames:
+            (a, va), (b, vb) = _grey_pair(image, lenses, rays, d, theta_max, aimed_by(profile), direction)
+            grid = _seam_cost(a, b, va & vb, d, phi, room)
+            if grid is not None:
+                grids.append(_widen(grid, feather, room))
+        return _mean_finite(grids) if grids else None
+
+    def ratio(grid, straight, path):
+        along = grid[middle] if path is None else grid[path, columns]
+        ok = numpy.isfinite(along) & numpy.isfinite(straight)
+        return along[ok].mean() / straight[ok].mean() if ok.any() else None
+
+    choose, check = images[0::2], images[1::2]
+
+    profile = None
+    if direction is not None:
+        grids = []
+        for image in choose:
+            grid = numpy.full((len(DEPTH_LEVELS), _SEAM_COLUMNS), numpy.inf)
+            for row, level in enumerate(DEPTH_LEVELS):
+                aimed = numpy.full(d.shape, numpy.deg2rad(level)) * _depth_taper(d)
+                (a, va), (b, vb) = _grey_pair(image, lenses, rays, d, theta_max, aimed, direction)
+                grid[row] = _parallax_cost(a, b, va & vb, d, phi)
+            grids.append(grid)
+        chosen = numpy.asarray(DEPTH_LEVELS)[_cheapest_parallax(_mean_finite(grids))]
+        if chosen.any():
+            profile = chosen
+
+    flat = routed(choose, None)
+    if flat is None:
+        return None
+    best = None
+    for candidate in ([None, profile] if profile is not None else [None]):
+        grid = flat if candidate is None else routed(choose, candidate)
+        if grid is None:
+            continue
+        for path in (None, _cheapest_cycle(grid)):
+            if candidate is None and path is None:
+                continue
+            score = ratio(grid, flat[middle], path)
+            if score is not None and (best is None or score < best[0]):
+                best = (score, candidate, path)
+    if best is None:
+        return None
+    _, profile, path = best
+
+    # The same margin and floor as a photo's routing, applied to frames the
+    # choice never saw.
+    straight = routed(check, None)
+    if straight is None:
+        return None
+    finite = straight[middle][numpy.isfinite(straight[middle])]
+    if finite.size == 0 or finite.mean() < _SEAM_FLOOR:
+        return None
+    verified = ratio(straight if profile is None else routed(check, profile), straight[middle], path)
+    if verified is None or verified >= _SEAM_MARGIN:
+        return None
+
+    # Aimed but not routed still hands over on d, as it was scored.
+    offset = numpy.zeros(_SEAM_COLUMNS)
+    if path is not None:
+        extended = numpy.concatenate([path[-8:], path, path[:8]]).astype(numpy.float64)
+        smoothed = numpy.convolve(extended, numpy.ones(9) / 9, mode="same")[8:-8]
+        offset = smoothed / (_SEAM_ROWS - 1) * (2 * room) - room
+    return SeamPlan(tuple(float(x) for x in direction) if profile is not None else (0.0, 0.0, 0.0),
+                    profile, offset)
+
+
 def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
                     orientation=None):
     """Project a dual-fisheye ``image`` into an equirectangular frame.
@@ -516,7 +825,7 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     return blended.astype(numpy.float32), hemispheres
 
 
-def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None):
+def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, plan=None):
     """Where each output pixel comes from, for a video renderer that remaps every frame.
 
     A video is the same projection applied to every frame, so it is computed
@@ -527,9 +836,10 @@ def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None):
     streams, not halves of one frame), and ``share`` is how much of each output
     pixel comes from lens 1, 0 to 1.
 
-    The hand-over is the plain cross-fade about the bisector, not a routed
-    seam: a route is chosen from one frame's content, and a video's content
-    moves.  ``lenses`` come from :func:`lenses_from_calibration` at twice
+    The hand-over is the cross-fade about the bisector unless ``plan``, from
+    :func:`plan_seam`, says otherwise: a seam chosen per frame would have to be
+    re-chosen as the content moves, so a video gets one plan for the whole clip.
+    ``lenses`` come from :func:`lenses_from_calibration` at twice
     ``lens_size``, as if the lenses sat side by side.
     """
     numpy = _numpy()
@@ -542,12 +852,32 @@ def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None):
     if lens_size is None:
         lens_size = int(round(lenses[0].centre_x * 2))
 
+    # The plan is in the camera frame, where d and the azimuth are measured.
+    z = numpy.clip(rays[..., 2], -1, 1)
+    d = 2 * numpy.arccos(z) - numpy.pi
+    phi = numpy.arctan2(rays[..., 1], rays[..., 0])
+    aimed = None
+    if plan is not None and plan.parallax is not None:
+        aimed = numpy.deg2rad(_around(numpy.asarray(plan.parallax, numpy.float64), phi)) * _depth_taper(d)
+
     maps, thetas = [], []
     for index, lens in enumerate(lenses):
-        u, v, theta = _project(rays, lens, index, theta_max)
+        looking = rays if aimed is None else _aimed(rays, d, aimed, plan.direction, index)
+        u, v, theta = _project(looking, lens, index, theta_max)
         valid = theta <= theta_max
         maps.append((u - index * lens_size, v, valid))
         thetas.append(numpy.where(valid, theta, theta_max + feather))
+
+    if plan is not None and plan.offset is not None:
+        # The routed hand-over, weighted exactly as a photo's routed seam is.
+        offset = _around(numpy.asarray(plan.offset, numpy.float64), phi)
+        to_first = numpy.clip((feather - (d - offset)) / (2 * feather), 0, 1)
+        weights = [(to_first if index == 0 else 1.0 - to_first)
+                   * numpy.clip((theta_max - theta) / feather, 0, 1) * valid
+                   for index, (theta, (_, _, valid)) in enumerate(zip(thetas, maps, strict=True))]
+        total = weights[0] + weights[1]
+        share = numpy.where(total > 0, weights[1] / numpy.maximum(total, 1e-9), 0.0)
+        return maps, share
 
     closest = numpy.minimum.reduce(thetas)
     weights = [numpy.clip((closest + feather - theta) / feather, 0, 1)

@@ -124,6 +124,27 @@ class Calibration:
             raise CalibrationError(f"field {self.field}: lens 0 carries no yaw")
         return (90.0 - self.lenses[0][5] + 180.0) % 360.0 - 180.0
 
+    @property
+    def lens_offset(self) -> tuple[float, float, float]:
+        """Where lens 1 sits relative to lens 0, from the polynomial model.
+
+        The seventh to ninth values of each of its lens blocks.  Lens 0 reads
+        zero on every file measured, and lens 1 reads about 0.0325 along the lens
+        axis on an X5 and 0.0273 on an X3, under 0.001 sideways -- the two
+        lenses' separation through the body, if the unit is metres.
+        The DIRECTION is what is verified: aiming both lenses at a common point
+        along it lines up near subjects across the seam, and the opposite sign
+        cannot.  ⚠️ The unit is not verified, and nothing here depends on it.
+        A OneR carries no polynomial model and so no offset.
+        """
+        if self.field != metadata.CALIBRATION_POLY:
+            raise CalibrationError(
+                f"field {self.field}: the lens offset is read from the polynomial model only")
+        if self.lens_count != 2 or any(len(block) < 9 for block in self.lenses):
+            raise CalibrationError(f"field {self.field}: no lens offsets in this string")
+        first, second = (tuple(block[6:9]) for block in self.lenses)
+        return tuple(b - a for a, b in zip(first, second, strict=True))
+
     def scale_for(self, width: int) -> float:
         """Factor converting stored parameters to an image ``width`` pixels wide."""
         reference_width = self.reference_frame[0]

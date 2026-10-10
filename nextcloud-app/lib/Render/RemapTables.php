@@ -28,8 +28,9 @@ use OCA\Golblick\Insta360\LensProfile;
  * scaled down to the output's density first ({@see lensSizeFor}), which is
  * what keeps nearest sampling from shimmering.
  *
- * The hand-over is the plain cross-fade about the bisector, not a routed
- * seam: a route is chosen from one frame's content, and a video's moves.
+ * The hand-over is the cross-fade about the bisector unless a SeamPlan, chosen
+ * once for the whole clip, aims the lenses and routes the cut: a seam chosen
+ * per frame would have to follow the content, and these are written once.
  */
 final class RemapTables {
 	/** The same feather rule as photos; see render.equirectangular(). */
@@ -66,7 +67,7 @@ final class RemapTables {
 	 * @param int $lensSize the size each lens is scaled to before remapping
 	 */
 	public static function write(string $directory, Calibration $calibration, int $lensSize, int $width,
-		array $orientation, ?string $model, bool $guards = false): void {
+		array $orientation, ?string $model, bool $guards = false, ?SeamPlan $plan = null): void {
 		$height = intdiv($width, 2);
 		$lenses = self::lenses($calibration, $lensSize, $model, $guards);
 		$thetaMax = $lenses['thetaMax'];
@@ -98,19 +99,14 @@ final class RemapTables {
 					$y = $m[0][1] * $ox + $m[1][1] * $oy + $m[2][1] * $oz;
 					$z = $m[0][2] * $ox + $m[1][2] * $oy + $m[2][2] * $oz;
 
-					$thetas = [];
-					$coords = [];
-					for ($index = 0; $index < 2; ++$index) {
-						[$u, $v, $thetas[$index]] = self::locate($lenses, $index, $x, $y, $z);
-						$coords[$index] = [$u, $v];
-					}
+					[$thetas, $coords, $share] = self::through($lenses, $plan, $x, $y, $z, $feather);
 
 					for ($index = 0; $index < 2; ++$index) {
 						$seen = $thetas[$index] <= $thetaMax;
 						$rows['x' . $index][] = $seen ? max(0, min($last, (int)round($coords[$index][0]))) : 0;
 						$rows['y' . $index][] = $seen ? max(0, min($last, (int)round($coords[$index][1]))) : 0;
 					}
-					$mask .= \chr((int)round(255.0 * self::share($thetas, $thetaMax, $feather)));
+					$mask .= \chr((int)round(255.0 * $share));
 				}
 				foreach ($rows as $name => $values) {
 					fwrite($files[$name], pack('n*', ...$values));
@@ -160,7 +156,7 @@ final class RemapTables {
 	 * is upscaled bilinearly, which smooths the rungs.
 	 */
 	public static function writeBalance(string $directory, Calibration $calibration, int $lensSize, int $width,
-		array $orientation, ?string $model, bool $guards = false): void {
+		array $orientation, ?string $model, bool $guards = false, ?SeamPlan $plan = null): void {
 		$lenses = self::lenses($calibration, $lensSize, $model, $guards);
 		$band = rad2deg($lenses['thetaMax']) - 91.0;   // a degree inside each rim
 		if ($band <= 0.0) {
@@ -224,8 +220,7 @@ final class RemapTables {
 					$azimuth = atan2($y, $x);
 					$k = (int)floor(($azimuth < 0 ? $azimuth + 2 * M_PI : $azimuth) / (2 * M_PI) * self::STRIP_AROUND);
 					$fade = max(0.0, 1.0 - abs(acos(max(-1.0, min(1.0, $z))) - M_PI / 2) / $reach);
-					$thetas = [self::locate($lenses, 0, $x, $y, $z)[2], self::locate($lenses, 1, $x, $y, $z)[2]];
-					$weight = $fade * (1.0 - 2.0 * self::share($thetas, $thetaMax, $feather));
+					$weight = $fade * (1.0 - 2.0 * self::through($lenses, $plan, $x, $y, $z, $feather)[2]);
 					$row = (int)round(($weight + 1.0) / 2.0 * (self::LADDER - 1));
 					$rows['fx'][] = min(self::STRIP_AROUND - 1, $k);
 					$rows['fy'][] = max(0, min(self::LADDER - 1, $row));
@@ -241,7 +236,7 @@ final class RemapTables {
 	}
 
 	/** The pair's geometry at $lensSize, each lens in its own frame. */
-	private static function lenses(Calibration $calibration, int $lensSize, ?string $model,
+	public static function lenses(Calibration $calibration, int $lensSize, ?string $model,
 		bool $guards = false, ?float $fieldOfView = null): array {
 		[$profileDegrees, $radial] = LensProfile::for($model, true, $guards);
 		$fieldOfView ??= $profileDegrees;
@@ -336,7 +331,7 @@ final class RemapTables {
 	 *
 	 * @return array{float, float, float} [x, y, theta]
 	 */
-	private static function locate(array $lenses, int $index, float $x, float $y, float $z): array {
+	public static function locate(array $lenses, int $index, float $x, float $y, float $z): array {
 		[$radius, $centreX, $centreY, $lensSpin, $t] = $lenses['geometry'][$index];
 		// Lens 1 faces the other way; then undo the lens's own tilt.
 		[$lx, $ly, $lz] = $index === 1 ? [-$x, $y, -$z] : [$x, $y, $z];
@@ -356,6 +351,46 @@ final class RemapTables {
 		$r = $radius * $theta / $lenses['thetaMax'];
 
 		return [$centreX + $r * cos($phi), $centreY - $r * sin($phi), $theta];
+	}
+
+	/**
+	 * Where camera-frame direction (x, y, z) lands in each lens, and how much
+	 * of it comes from lens 1: as render.remap_tables(), with or without a
+	 * clip's seam plan. With one, each lens looks at the planned parallax and
+	 * the hand-over follows the planned route; the weights are a photo's
+	 * routed seam's.
+	 *
+	 * @return array{array{float, float}, array{array{float, float}, array{float, float}}, float}
+	 */
+	private static function through(array $lenses, ?SeamPlan $plan, float $x, float $y, float $z, float $feather): array {
+		$thetaMax = $lenses['thetaMax'];
+		$d = 0.0;
+		$phi = 0.0;
+		$parallax = 0.0;
+		if ($plan !== null) {
+			$d = 2.0 * acos(max(-1.0, min(1.0, $z))) - M_PI;
+			$phi = atan2($y, $x);
+			$parallax = $plan->parallaxAt($d, $phi);
+		}
+		$thetas = [];
+		$coords = [];
+		for ($index = 0; $index < 2; ++$index) {
+			[$lx, $ly, $lz] = $parallax === 0.0 ? [$x, $y, $z] : SeamPlan::aim($x, $y, $z, $parallax, $plan->direction, $index);
+			[$u, $v, $thetas[$index]] = self::locate($lenses, $index, $lx, $ly, $lz);
+			$coords[$index] = [$u, $v];
+		}
+		if ($plan === null) {
+			return [$thetas, $coords, self::share($thetas, $thetaMax, $feather)];
+		}
+		$toFirst = max(0.0, min(1.0, ($feather - ($d - Seam::offsetAt($plan->offset, $phi))) / (2.0 * $feather)));
+		$weights = [];
+		foreach ($thetas as $index => $theta) {
+			$weights[$index] = $theta > $thetaMax ? 0.0
+				: ($index === 0 ? $toFirst : 1.0 - $toFirst) * max(0.0, min(1.0, ($thetaMax - $theta) / $feather));
+		}
+		$total = $weights[0] + $weights[1];
+
+		return [$thetas, $coords, $total > 0.0 ? $weights[1] / $total : 0.0];
 	}
 
 	/**

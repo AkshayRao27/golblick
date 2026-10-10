@@ -155,9 +155,27 @@ def test_body_roll_stays_in_the_short_half_turn():
 
 
 def test_body_roll_refuses_a_model_whose_interior_is_unknown():
-    # Field 53's parameters are not identified, so nothing may read a yaw out
-    # of them by position.
+    # Field 53's angles are not identified (only its lens offset is), so
+    # nothing may read a yaw out of them by position.
     model = parse(POLYNOMIAL, metadata.CALIBRATION_POLY)
 
     with pytest.raises(CalibrationError):
         model.body_roll  # noqa: B018 -- the access is what raises
+
+
+def test_the_lens_offset_is_lens_one_less_lens_zero():
+    """The seventh to ninth values of field 53's lens blocks place the lenses.
+
+    On this X5 lens 1 sits 0.0325 along the lens axis behind lens 0, which is
+    the direction that lines near subjects up across the seam.
+    """
+    model = parse(POLYNOMIAL, metadata.CALIBRATION_POLY)
+
+    assert model.lens_offset == pytest.approx((-0.000868, 0.000085, -0.032509))
+
+
+def test_the_lens_offset_is_only_read_where_it_is_stored():
+    model = parse(EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
+
+    with pytest.raises(CalibrationError):
+        model.lens_offset  # noqa: B018 -- the access is what raises

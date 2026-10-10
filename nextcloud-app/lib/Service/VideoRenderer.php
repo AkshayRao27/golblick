@@ -17,6 +17,7 @@ use OCA\Golblick\Insta360\Protobuf;
 use OCA\Golblick\Insta360\Trailer;
 use OCA\Golblick\Render\Orientation;
 use OCA\Golblick\Render\RemapTables;
+use OCA\Golblick\Render\SeamPlan;
 use OCP\Files\File;
 use OCP\Files\Folder;
 
@@ -36,6 +37,11 @@ use OCP\Files\Folder;
  *
  * The camera doesn't match a video's lenses to each other, so each frame is
  * also evened out along the seam (RemapTables::writeBalance, balance()).
+ *
+ * Where the lenses hand over is planned once per clip from a few frames
+ * (SeamPlan): each lens aimed so a subject near the camera lines up, and the
+ * cut routed round what still disagrees -- or the bisector, when the plan
+ * can't show a clear gain on frames it wasn't chosen on.
  */
 final class VideoRenderer {
 	/** 20 Mbit/s at 3840x1920, in proportion for other widths. */
@@ -47,6 +53,14 @@ final class VideoRenderer {
 	/** Lens size the guard check decodes at: about 8 MB a lens in GD. */
 	private const GUARD_PROBE_SIZE = 1440;
 
+	/**
+	 * Frames, and the lens size, the seam plan is chosen and checked on. In
+	 * the library 720 chose the same plans as 1440 on three clips; eight
+	 * frames gives four to choose on and four to check against. About 5 s.
+	 */
+	private const SEAM_PROBE_FRAMES = 8;
+	private const SEAM_PROBE_SIZE = 720;
+
 	public function __construct(
 		private VideoDecoder $decoder,
 		private VideoStore $store,
@@ -57,7 +71,8 @@ final class VideoRenderer {
 	/**
 	 * Start rendering $file, a video's master file, and return the entry name.
 	 *
-	 * @return array{name: string, deadline: int, guards: bool} guards: whether lens guards were detected
+	 * @return array{name: string, deadline: int, guards: bool, seam: string} guards: whether lens guards
+	 *                                                                         were detected; seam: how the lenses hand over
 	 * @throws FormatError if the file can't be rendered; nothing is left running
 	 */
 	public function start(File $file): array {
@@ -82,15 +97,16 @@ final class VideoRenderer {
 			throw new FormatError('not enough free space in the data directory');
 		}
 
-		[$calibration, $model, $orientation] = $this->geometry($file);
+		[$calibration, $model, $orientation, $baseline] = $this->geometry($file);
 		$guards = $this->lensGuards($inputs, $lenses, $calibration, $model, $probe['duration']);
+		[$plan, $seam] = $this->seamPlan($inputs, $lenses, $calibration, $model, $guards, $baseline, $probe['duration']);
 		$lensSize = RemapTables::lensSizeFor($calibration, $native, $width, $model, $guards);
 		$tables = "$root/$name.tables";
 		if (!is_dir($tables) && !mkdir($tables, 0770, true)) {
 			throw new FormatError('could not create the table directory');
 		}
-		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards);
-		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model, $guards);
+		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
+		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
 
 		$bitrate = (int)round(self::BITS_PER_PIXEL_SECOND * $width * intdiv($width, 2));
 		// 🔴 Memory, not speed, sets these. With ffmpeg's defaults (threads from
@@ -132,7 +148,8 @@ final class VideoRenderer {
 		exec('nohup sh -c ' . escapeshellarg($script) . ' > /dev/null 2>&1 < /dev/null &');
 
 		// Twelve times the clip's length, an hour at least: four cores run at about a fifth of real time.
-		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards];
+		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards,
+			'seam' => $seam];
 	}
 
 	/**
@@ -354,7 +371,41 @@ final class VideoRenderer {
 		return $median < 1.0 - self::PICK_MARGIN;
 	}
 
-	/** @return array{Calibration, ?string, array} */
+	/**
+	 * One hand-over for the whole clip, or null for the bisector, and a word on
+	 * which; SeamPlan has the reasoning. Frames spread over the clip, so a plan
+	 * has to hold for all of it. Anything that goes wrong here costs the plan,
+	 * never the render, and says why in the word, which the job logs.
+	 *
+	 * @param list<string> $inputs
+	 * @param list<array{int, int}> $lenses
+	 * @param float[]|null $baseline
+	 * @return array{?SeamPlan, string}
+	 */
+	private function seamPlan(array $inputs, array $lenses, Calibration $calibration, ?string $model, bool $guards,
+		?array $baseline, float $duration): array {
+		if ($duration <= 0) {
+			return [null, 'bisector'];
+		}
+		$frames = [];
+		for ($k = 0; $k < self::SEAM_PROBE_FRAMES; ++$k) {
+			$at = $duration * (0.03 + 0.94 * $k / (self::SEAM_PROBE_FRAMES - 1));
+			try {
+				$frames[] = $this->decoder->lensFrames($inputs, $lenses, $at, self::SEAM_PROBE_SIZE);
+			} catch (FormatError $e) {
+				continue;
+			}
+		}
+		try {
+			$plan = SeamPlan::choose($frames, $calibration, $model, $guards, $baseline);
+		} catch (\Throwable $e) {
+			return [null, 'bisector (seam plan failed: ' . $e->getMessage() . ')'];
+		}
+
+		return [$plan, $plan === null ? 'bisector' : ($plan->parallax !== null ? 'aimed and routed' : 'routed')];
+	}
+
+	/** @return array{Calibration, ?string, array, ?array} the last is lens 1's offset from lens 0, if stated */
 	private function geometry(File $file): array {
 		$handle = $file->fopen('r');
 		if ($handle === false) {
@@ -375,6 +426,8 @@ final class VideoRenderer {
 			throw new FormatError('no equidistant calibration');
 		}
 		$calibration = Calibration::parse($text);
+		$polynomial = Protobuf::firstText($fields, Protobuf::CALIBRATION_POLY);
+		$baseline = $polynomial === null ? null : Calibration::lensOffset($polynomial);
 		$model = Protobuf::firstText($fields, Protobuf::MODEL);
 		$orientation = Orientation::fromRoll($calibration->bodyRoll());
 		$imu = $trailer->get(Trailer::IMU);
@@ -386,6 +439,6 @@ final class VideoRenderer {
 			}
 		}
 
-		return [$calibration, $model, $orientation];
+		return [$calibration, $model, $orientation, $baseline];
 	}
 }
