@@ -707,7 +707,7 @@ def cmd_stabilise(args: argparse.Namespace) -> int:
     motion = reader(args.file)
     reference = stabilise.level(gravity(args.file))
     try:
-        rotations = stabilise.track(motion, reference)
+        rotations = stabilise.track(motion, reference, lock=args.lock)
     except ValueError as exc:
         raise GolblickError(f"{args.file}: {exc}") from exc
 
@@ -716,6 +716,7 @@ def cmd_stabilise(args: argparse.Namespace) -> int:
         "about": "Per video frame, the rotation (w, x, y, z) from the frame as rendered at "
                  "`reference` (the opening's level) to the steadied view. Column convention, "
                  "in golblick's render frame: y up, z forward.",
+        "direction": "locked" if args.lock else "follows the camera's turns",
         "reference": [list(row) for row in reference],
         "frame_times": [round(t, 6) for t in motion.frame_times],
         "rotations": [[round(c, 6) for c in q] for q in rotations],
@@ -810,6 +811,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     steady.add_argument("file")
     steady.add_argument("-o", "--output", help="where to write (default: next to the file, .stabilise.json)")
+    steady.add_argument("--lock", action="store_true",
+                        help="keep the direction the clip opens in, instead of following the camera's turns")
     steady.set_defaults(func=cmd_stabilise)
 
     listing = sub.add_parser("vendors", help="list supported formats")

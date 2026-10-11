@@ -113,15 +113,20 @@ final class PublicSphereController extends PublicShareController {
 		return $response;
 	}
 
-	/** The steadying track (MotionStore), when the clip it comes from is in the share too. */
+	/**
+	 * The steadying track (MotionStore), wherever the share plays the video:
+	 * the same rule as video(). A copy shared on its own is steadied from the
+	 * clip beside it in the owner's files, which reveals only how the camera
+	 * turned while filming.
+	 */
 	#[PublicPage]
 	#[NoCSRFRequired]
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/motion/{fileId}', requirements: ['fileId' => '\d+'])]
 	public function motion(string $token, int $fileId): JSONResponse {
 		[$file] = $this->file($fileId);
-		$clip = $file === null ? null : MotionStore::clipFor($file);
-		$shared = $clip !== null && ($clip->getId() === $file->getId() || $this->file($clip->getId())[0] !== null);
-		$track = $shared ? $this->motion->track($clip) : null;
+		$allowed = $file !== null && (strcasecmp($file->getExtension(), 'insv') !== 0 || $this->masterShared($file));
+		$clip = $allowed ? MotionStore::clipFor($file) : null;
+		$track = $clip === null ? null : $this->motion->track($clip);
 		if ($track === null) {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
 		}

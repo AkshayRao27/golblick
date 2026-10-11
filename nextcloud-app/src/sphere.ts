@@ -27,8 +27,10 @@ import {
 /**
  * The rotation that steadies each frame of a video (lib/Service/MotionStore):
  * one quaternion (w, x, y, z) per frame, scaled by 32767, `period` seconds apart.
+ * `turn` is how far that view's heading has turned since frame 0 (radians,
+ * scaled by 32767 / pi); turning back by it locks the direction.
  */
-export type Motion = { period: number; frames: number; q: Int16Array };
+export type Motion = { period: number; frames: number; q: Int16Array; turn: Int16Array };
 
 export class SphereView {
   private disposers: (() => void)[] = [];
@@ -42,6 +44,7 @@ export class SphereView {
   /** Steadying for the video, if the server had a track, and whether it is on. */
   private motion: Motion | null = null;
   private steady = true;
+  private locked = false;
   /** Media time of the frame on screen, from requestVideoFrameCallback where the browser has it. */
   private frameTime: number | null = null;
 
@@ -162,7 +165,16 @@ export class SphereView {
         const time = this.frameTime ?? this.video.currentTime;
         const k = Math.min(motion.frames - 1, Math.max(0, Math.round(time / motion.period)));
         const q = motion.q;
-        mesh.quaternion.set(q[4 * k + 1], -q[4 * k + 2], -q[4 * k + 3], q[4 * k]).normalize();
+        let [w, x, y, z] = [q[4 * k], q[4 * k + 1], q[4 * k + 2], q[4 * k + 3]];
+        if (this.locked) {
+          // Turn back about the vertical by how far the heading has turned:
+          // (cos h, 0, sin h, 0) times q, with h half the turn.
+          const half = (motion.turn[k] / 32767) * Math.PI / 2;
+          const c = Math.cos(half);
+          const s = Math.sin(half);
+          [w, x, y, z] = [c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x];
+        }
+        mesh.quaternion.set(x, -y, -z, w).normalize();
       } else {
         mesh.quaternion.identity();
       }
@@ -346,6 +358,12 @@ export class SphereView {
 
   public setSteady(on: boolean) {
     this.steady = on;
+    this.invalidate?.();
+  }
+
+  /** Keep the direction the video opens in, instead of following the camera's turns. */
+  public setLocked(on: boolean) {
+    this.locked = on;
     this.invalidate?.();
   }
 

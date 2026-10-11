@@ -5,7 +5,7 @@
  * button in Nextcloud's Viewer, and the button in Memories, for a signed-in
  * user or on a public share link.
  */
-import { mdiClose, mdiPause, mdiPlay, mdiVideoStabilization, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js';
+import { mdiClose, mdiCompassOutline, mdiPause, mdiPlay, mdiVideoStabilization, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js';
 import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
 
@@ -59,32 +59,63 @@ async function loadMotion(fileId: number, etag: string): Promise<Motion | null> 
   try {
     const response = await fetch(motionUrl(fileId, etag), { credentials: 'same-origin' });
     if (!response.ok) return null;
-    const data = await response.json() as { period: number; frames: number; q: string };
-    const bytes = Uint8Array.from(atob(data.q), (c) => c.charCodeAt(0));
-    const view = new DataView(bytes.buffer);
-    const q = new Int16Array(bytes.length / 2);
-    for (let i = 0; i < q.length; i++) q[i] = view.getInt16(2 * i, true);
-    return q.length >= 4 * data.frames && data.period > 0 ? { period: data.period, frames: data.frames, q } : null;
+    const data = await response.json() as { period: number; frames: number; q: string; turn: string };
+    const q = int16(data.q);
+    const turn = int16(data.turn ?? '');
+    return q.length >= 4 * data.frames && turn.length >= data.frames && data.period > 0
+      ? { period: data.period, frames: data.frames, q, turn } : null;
   } catch {
     return null;
   }
 }
 
-/** Whether the viewer last left steadying on. A convenience only, so storage may fail. */
-function steadyPreference(): boolean {
+/** Little-endian int16s from base64. */
+function int16(base64: string): Int16Array {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  const out = new Int16Array(bytes.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = view.getInt16(2 * i, true);
+  return out;
+}
+
+/** The viewer's last choice for a player toggle. A convenience only, so storage may fail. */
+function preference(key: string, fallback: boolean): boolean {
   try {
-    return localStorage.getItem('golblick-steady') !== '0';
+    const stored = localStorage.getItem(key);
+    return stored === null ? fallback : stored === '1';
   } catch {
-    return true;
+    return fallback;
   }
 }
 
-function rememberSteady(on: boolean) {
+function remember(key: string, on: boolean) {
   try {
-    localStorage.setItem('golblick-steady', on ? '1' : '0');
+    localStorage.setItem(key, on ? '1' : '0');
   } catch {
     // Private window or blocked storage: it just won't be remembered.
   }
+}
+
+/** A round on/off button for the video controls. */
+function toggleButton(icon: string, title: (on: boolean) => string, on: boolean, change: (on: boolean) => void) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.style.cssText = 'flex:none;width:36px;height:36px;border:0;border-radius:50%;color:#fff;'
+    + 'cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;';
+  button.innerHTML = svgIcon(icon, 20);
+  const show = (state: boolean) => {
+    button.title = title(state);
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-pressed', String(state));
+    button.style.background = state ? 'rgba(255,255,255,.25)' : 'transparent';
+  };
+  show(on);
+  button.addEventListener('click', () => {
+    const next = button.getAttribute('aria-pressed') !== 'true';
+    show(next);
+    change(next);
+  });
+  return { button, show };
 }
 
 let open: (() => void) | null = null;
@@ -226,28 +257,31 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
     // the first time.
     void loadMotion(fileId, answer.videoEtag).then((motion) => {
       if (closed || !motion || !view) return;
-      const on = steadyPreference();
+      const steadyOn = preference('golblick-steady', true);
+      const lockOn = preference('golblick-lock', false);
       view.setMotion(motion);
-      view.setSteady(on);
-      const steady = document.createElement('button');
-      steady.type = 'button';
-      steady.style.cssText = 'flex:none;width:36px;height:36px;border:0;border-radius:50%;color:#fff;'
-        + 'cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;';
-      steady.innerHTML = svgIcon(mdiVideoStabilization, 20);
-      const show = (state: boolean) => {
-        steady.title = state ? 'Steadied: click for the camera\'s own movement' : 'Not steadied: click to steady';
-        steady.setAttribute('aria-label', steady.title);
-        steady.setAttribute('aria-pressed', String(state));
-        steady.style.background = state ? 'rgba(255,255,255,.25)' : 'transparent';
-      };
-      show(on);
-      steady.addEventListener('click', () => {
-        const next = steady.getAttribute('aria-pressed') !== 'true';
-        view?.setSteady(next);
-        rememberSteady(next);
-        show(next);
-      });
-      controls.insertBefore(steady, controls.lastChild);
+      view.setSteady(steadyOn);
+      view.setLocked(lockOn);
+      // Direction Lock, as Insta360 Studio calls it, only means something
+      // while the video is steadied, so it is greyed out otherwise.
+      const lock = toggleButton(mdiCompassOutline,
+        (on) => on ? 'Direction locked: click to follow the camera\'s turns' : 'Following the camera\'s turns: click to lock the direction',
+        lockOn, (on) => {
+          view?.setLocked(on);
+          remember('golblick-lock', on);
+        });
+      const steady = toggleButton(mdiVideoStabilization,
+        (on) => on ? 'Steadied: click for the camera\'s own movement' : 'Not steadied: click to steady',
+        steadyOn, (on) => {
+          view?.setSteady(on);
+          remember('golblick-steady', on);
+          lock.button.disabled = !on;
+          lock.button.style.opacity = on ? '1' : '.4';
+        });
+      lock.button.disabled = !steadyOn;
+      lock.button.style.opacity = steadyOn ? '1' : '.4';
+      controls.insertBefore(steady.button, controls.lastChild);
+      controls.insertBefore(lock.button, controls.lastChild);
     });
     player.addEventListener('error', () => {
       if (!closed) status.textContent = 'The stitched video could not be played; showing the first frame.';

@@ -91,11 +91,20 @@ def reference_for(motion):
     return matrix(stabilise._level_quaternion(tuple(motion.up[:3])))
 
 
-def views(motion):
+def views(motion, lock=False):
     """Per frame, body to steadied view: the track composed with the reference."""
     reference = reference_for(motion)
     level = stabilise._quaternion(reference)
-    return [multiply(c, level) for c in stabilise.track(motion, reference)]
+    return [multiply(c, level) for c in stabilise.track(motion, reference, lock=lock)]
+
+
+def view_headings(motion, lock=False):
+    """Where the world's forward appears in the view, per frame, in degrees."""
+    out = []
+    for k, view in enumerate(views(motion, lock)):
+        world_to_view = multiply(view, conjugate(attitude(motion.frame_times[k])))
+        out.append(2 * math.atan2(world_to_view[2], world_to_view[0]))
+    return [math.degrees(h) for h in stabilise._unwrap(out)]
 
 
 def test_the_steadied_view_keeps_the_horizon_level():
@@ -144,3 +153,18 @@ def test_without_a_still_moment_it_declines():
     motion.gravity = array("d", [1.5] * len(motion.gravity))
     with pytest.raises(ValueError, match="1 g"):
         stabilise.track(motion, reference_for(motion))
+
+
+def test_a_locked_view_keeps_its_direction_through_the_pan():
+    """Like Studio's Direction Lock: the 40-degree pan doesn't turn the view."""
+    headings = view_headings(camera(), lock=True)
+    assert max(headings) - min(headings) < 0.5
+
+
+def test_locked_and_following_views_open_the_same_and_share_the_horizon():
+    motion = camera()
+    follow, locked = views(motion), views(motion, lock=True)
+    assert all(a == pytest.approx(b) for a, b in zip(follow[0], locked[0], strict=True))
+    for k, view in enumerate(locked):
+        body_up = rotate(conjugate(attitude(motion.frame_times[k])), (0.0, 1.0, 0.0))
+        assert math.degrees(math.acos(min(1.0, rotate(view, body_up)[1]))) < 0.5

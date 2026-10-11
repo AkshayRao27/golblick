@@ -34,7 +34,7 @@ use Psr\Log\LoggerInterface;
  */
 final class MotionStore {
 	/** Bump when the algorithm changes, so tracks made by the old one are not served. */
-	private const VERSION = 1;
+	private const VERSION = 2;
 
 	public function __construct(
 		private IAppData $appData,
@@ -67,11 +67,14 @@ final class MotionStore {
 
 	/**
 	 * The track for $clip, as the player takes it: `period` (seconds between
-	 * frames), `frames`, and `q`, base64 of little-endian int16 quaternions
-	 * (w, x, y, z) scaled by 32767. Null when the clip can't be stabilised:
-	 * an unmeasured camera, no first-frame time, an unreadable record.
+	 * frames), `frames`, `q`, base64 of little-endian int16 quaternions
+	 * (w, x, y, z) scaled by 32767, and `turn`, base64 of int16 angles scaled
+	 * by 32767 / pi: how far the following view has turned since frame 0,
+	 * which the player undoes for Direction Lock. Null when the clip can't be
+	 * stabilised: an unmeasured camera, no first-frame time, an unreadable
+	 * record.
 	 *
-	 * @return array{period: float, frames: int, q: string}|null
+	 * @return array{period: float, frames: int, q: string, turn: string}|null
 	 */
 	public function track(File $clip): ?array {
 		$name = sprintf('%d-%s-v%d.json', $clip->getId(), $clip->getEtag(), self::VERSION);
@@ -118,7 +121,7 @@ final class MotionStore {
 			$frames = Imu::frameTimes($record, $stride, $log, $first);
 			// The orientation VideoRenderer::geometry renders the copy with.
 			$reference = Orientation::level(Imu::gravityUp($record, $model, Imu::OPENING_SAMPLES, true));
-			$rotations = Stabilise::track($record, $stride, Imu::motionAxes($model), $frames, $reference);
+			$track = Stabilise::track($record, $stride, Imu::motionAxes($model), $frames, $reference);
 		} catch (FormatError|\InvalidArgumentException $e) {
 			$this->logger->debug('golblick: no stabilisation for ' . $clip->getName() . ': ' . $e->getMessage());
 
@@ -126,10 +129,16 @@ final class MotionStore {
 		}
 
 		$packed = '';
-		foreach ($rotations as $q) {
+		foreach ($track['rotations'] as $q) {
 			foreach ($q as $c) {
 				$packed .= pack('v', ((int)round($c * 32767)) & 0xFFFF);
 			}
+		}
+		// Only the angle matters, so wrap it into a half turn either way.
+		$turns = '';
+		foreach ($track['turns'] as $turn) {
+			$wrapped = atan2(sin($turn), cos($turn));
+			$turns .= pack('v', ((int)round($wrapped / M_PI * 32767)) & 0xFFFF);
 		}
 		$count = \count($frames);
 
@@ -137,6 +146,7 @@ final class MotionStore {
 			'period' => $count > 1 ? ($frames[$count - 1] - $frames[0]) / ($count - 1) : 1 / 30,
 			'frames' => $count,
 			'q' => base64_encode($packed),
+			'turn' => base64_encode($turns),
 		];
 	}
 

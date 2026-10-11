@@ -30,13 +30,16 @@ final class Stabilise {
 
 	/**
 	 * Per frame, the rotation from a frame rendered at $reference to the
-	 * steadied view.
+	 * steadied view that follows the camera's turns, and how far its heading
+	 * has turned since frame 0 (stabilise.py's steady()). Turning a rotation
+	 * back by its turn about the vertical gives the view with its direction
+	 * locked, so one track serves both.
 	 *
 	 * @param string $record the raw 0x0300 payload
 	 * @param array<int, array<int, float>> $axes Imu::motionAxes
 	 * @param list<float> $frameTimes Imu::frameTimes
 	 * @param array<int, array<int, float>> $reference the orientation the frames were rendered with
-	 * @return list<array{float, float, float, float}>
+	 * @return array{rotations: list<array{float, float, float, float}>, turns: list<float>}
 	 */
 	public static function track(string $record, int $stride, array $axes, array $frameTimes, array $reference,
 		float $upWindow = self::UP_WINDOW, float $follow = self::FOLLOW): array {
@@ -67,11 +70,13 @@ final class Stabilise {
 		// The first frame faces where the render's does: no twist at frame 0.
 		$twist = 2.0 * atan2($out[0][2], $out[0][0]);
 		$align = [cos($twist / 2.0), 0.0, -sin($twist / 2.0), 0.0];
+		$turns = [];
 		foreach ($out as $k => $q) {
 			$out[$k] = self::normalise(self::multiply($align, $q));
+			$turns[] = $smooth[$k] - $smooth[0];
 		}
 
-		return $out;
+		return ['rotations' => $out, 'turns' => $turns];
 	}
 
 	/** @return list<array{float, float, float, float}> body to world at each frame time */

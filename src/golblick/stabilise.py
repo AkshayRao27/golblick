@@ -55,7 +55,7 @@ STILL = 0.1
 BIN = 0.01
 
 
-def track(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLOW):
+def track(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLOW, lock: bool = False):
     """Per video frame, the rotation from a frame rendered at ``reference`` to the steadied view.
 
     ``motion`` is what a vendor's ``motion(path)`` returns.  ``reference`` is
@@ -63,9 +63,26 @@ def track(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLO
     opening's gravity, for a video), and the result starts close to the
     identity, so the steadied view opens facing where the render does.
 
+    With ``lock``, the view keeps the direction it opens in instead of
+    following the camera's turns, like Insta360 Studio's Direction Lock.
+
     Returns a list of unit quaternions ``(w, x, y, z)``, one per frame time.
     Raises ``ValueError`` if the accelerometer never reads close to 1 g, since
     then there is nothing to find up from.
+    """
+    rotations, turns = steady(motion, reference, up_window, follow)
+    if not lock:
+        return rotations
+    return [_normalise(_multiply(_yaw(turn), q)) for q, turn in zip(rotations, turns, strict=True)]
+
+
+def steady(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLOW):
+    """The following view's rotations, and per frame how far its heading has turned since frame 0.
+
+    Turning a frame's rotation back by its turn about the vertical (radians,
+    applied on the left) gives the locked view: both views are the same
+    attitude with different headings, and turns about the vertical commute.
+    A player can offer both from this one track.
     """
     attitudes = _attitudes(motion, up_window)
     times = motion.frame_times
@@ -80,15 +97,19 @@ def track(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLO
 
     out = []
     for q, heading in zip(attitudes, smooth, strict=True):
-        steady = _multiply((math.cos(heading / 2.0), 0.0, -math.sin(heading / 2.0), 0.0), q)
-        out.append(_multiply(steady, inverse_ref))
+        out.append(_multiply(_multiply(_yaw(-heading), q), inverse_ref))
 
     # Turn the steadied view so that its first frame faces where the render's
     # does: no twist about the vertical at frame 0.
     first = out[0]
-    twist = 2.0 * math.atan2(first[2], first[0])
-    align = (math.cos(twist / 2.0), 0.0, -math.sin(twist / 2.0), 0.0)
-    return [_normalise(_multiply(align, q)) for q in out]
+    align = _yaw(-2.0 * math.atan2(first[2], first[0]))
+    rotations = [_normalise(_multiply(align, q)) for q in out]
+    return rotations, [heading - smooth[0] for heading in smooth]
+
+
+def _yaw(angle):
+    """A turn about the vertical (+y) by ``angle`` radians, as a quaternion."""
+    return (math.cos(angle / 2.0), 0.0, math.sin(angle / 2.0), 0.0)
 
 
 def level(up):
