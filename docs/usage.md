@@ -1,11 +1,14 @@
 # Using the CLI
 
-Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra.
+Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra. golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
-uv tool install golblick              # or: pipx install golblick
-uv tool install 'golblick[render]'    # adds panorama rendering
+uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'   # with panorama rendering
+uv tool install 'golblick @ git+https://github.com/AkshayRao27/golblick'           # without it, no dependencies
+uv tool upgrade golblick                                                            # later, to update
 ```
+
+The command line doesn't stitch whole videos yet. For a video, `render` renders its opening frame and `stabilise` works out the steadying; the [Nextcloud app](../nextcloud-app/README.md#videos) stitches and plays whole clips.
 
 ## Find clips whose master has gone missing
 

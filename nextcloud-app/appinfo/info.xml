@@ -2,12 +2,14 @@
 <info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
     <id>golblick</id>
-    <name>Golblick: 360 photo previews</name>
-    <summary>Timeline thumbnails for 360 camera files that Nextcloud cannot otherwise see</summary>
+    <name>Golblick: 360 photos and videos</name>
+    <summary>Panoramas and sphere views for 360 camera files that Nextcloud can't otherwise show</summary>
     <description><![CDATA[
-Shows Insta360 `.insp` photos as levelled panoramas instead of a generic icon in Files and Memories.
+Shows Insta360 `.insp` photos as levelled panoramas instead of a generic icon in Files and Memories, with a button to look around each one as a sphere.
 
-The camera stores the two lenses' fisheye images rather than a panorama, so this app builds the panorama in plain PHP using GD, which Nextcloud already requires. No new server-side dependency, and no external programs.
+The camera stores the two lenses' fisheye images rather than a panorama, so this app builds the panorama in plain PHP using GD, which Nextcloud already requires. Photos need no new server-side dependency and no external programs.
+
+Optionally, it stitches `.insv` videos too, in the background with ffmpeg, into ordinary 360° MP4s that play as a sphere steadied by the camera's motion sensor and can show up in Memories. That's off until you switch it on.
 
 ⚠️ Needs `"insp": ["image/jpeg"]` added to `config/mimetypemapping.json`, which has side effects. Read the README before installing. The app's admin settings page can add it for you, and checks the rest of the setup.
     ]]></description>

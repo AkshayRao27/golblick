@@ -37,8 +37,10 @@ What I can say, however, is that
 - Of the 1,438 stills from three cameras (Insta360 OneR, X3 and X5) in my photo library, 1,432 render as level panoramas (the rest are empty, or had the camera's data stripped), both from the command line and as previews in Memories on throwaway Nextcloud 33 and 35 instances in Docker, running locally, **and on my prod Nextcloud AIO v14.2.0 server** without anything breaking.
     - The Nextcloud app only reads files and generates previews, but it needs a line in Nextcloud's config, and that line has side effects worth reading about in [the app's README](nextcloud-app/README.md) before you add it.
 - The code has not borked anything on my desktop running Kubuntu 26.04
-    - `probe`, `triage` and `vendors` only read files.
-    - `thumb`, `preview` and `render` write one new file, next to the original unless you pass `-o`. They will overwrite an existing file with that name, but refuse to write over the file they are reading.
+    - `probe`, `triage`, `report` and `vendors` only read files.
+    - `thumb`, `preview`, `render` and `stabilise` write one new file, next to the original unless you pass `-o`. They will overwrite an existing file with that name, but refuse to write over the file they are reading.
+    - `share` writes copies into a new folder, `golblick-share` unless you pass `-o`, and won't overwrite a copy that's already there.
+- The Nextcloud app's video support (stitching, steadying, Memories) has so far run only on test instances: the official Nextcloud Docker image and a copy of AIO v14.2.0.
 
 ### ⚠️ YMMV
 
@@ -61,8 +63,9 @@ What I can say, however, is that
 | 🔒 **Share** | Copies photos for sending to someone else, without the location, the dates or the camera's serial number, and otherwise unchanged |
 | 📝 **Report** | Summarises a file for an issue on GitHub, without its name, folder or the camera's serial number, and links to the right form: a problem with a photo, or a camera golblick hasn't been tested with |
 | 🖼️ **Previews** | Extracts the camera's own preview, if available (e.g. the Insta360 X5 already has a stitched pano) |
+| 🎯 **Stabilise** | Works out, from the camera's motion sensor, the rotation that steadies each frame of a 360 video, and writes it as JSON |
 | 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled against the camera's own stitch where the file has one (X5), otherwise from its motion sensor where possible. The seam between the lenses is placed per photo, where the two lenses agree best |
-| ☁️ **Nextcloud** | A preview app, so `.insp` stills show up as panoramas in Files, Photos and Memories, zoom included, and open as a sphere from a button. No extra server dependencies for photos. Optionally, `.insv` videos too: the server stitches them in the background with ffmpeg, and they play as a sphere from Files. Works alongside [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) |
+| ☁️ **Nextcloud** | A preview app, so `.insp` stills show up as panoramas in Files, Photos and Memories, zoom included, and open as a sphere from a button. No extra server dependencies for photos. Optionally, `.insv` videos too: the server stitches them in the background with ffmpeg into ordinary 360° MP4s, which play as a steadied sphere from Files and can show up in Memories' timeline. Works alongside [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) |
 
 ## Cameras
 
@@ -75,18 +78,20 @@ What I can say, however, is that
 
 ## Quick start
 
+golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
 ```sh
-uv tool install 'golblick[render]'      # or: pipx install 'golblick[render]'
+uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'
 golblick render IMG_20260314_090809_00_007.insp -o pano.jpg
 golblick triage ~/Photos
 ```
 
-Without `[render]` everything except rendering still works, with no dependencies at all.
+`uv tool upgrade golblick` updates it later. Without `[render]` everything except rendering still works, with no dependencies at all. Each [release](https://github.com/AkshayRao27/golblick/releases) also has a wheel to install from, and the Nextcloud app.
 
 ## More
 
 - [docs/usage.md](docs/usage.md): every command, with example output
-- [nextcloud-app/README.md](nextcloud-app/README.md): installing the Nextcloud app, and what it changes
+- [nextcloud-app/README.md](nextcloud-app/README.md): installing the Nextcloud app, what it changes, and setting up videos
 - [docs/formats/insta360.md](docs/formats/insta360.md): what is known about the Insta360 container, and how everything was measured
 - [docs/accuracy.md](docs/accuracy.md): how renders are checked, and the blind spot of each check
 - [CONTRIBUTING.md](CONTRIBUTING.md): reporting issues, and testing a camera I don't have

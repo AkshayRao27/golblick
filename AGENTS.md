@@ -4,7 +4,7 @@ This project was written almost entirely by LLM coding agents, and contributions
 
 ## What this is
 
-A Python library and CLI that reads 360-camera container files on Linux (Insta360 `.insp`, `.insv`, `.lrv` so far), extracts what the camera stored, and projects the dual-fisheye pair into an equirectangular panorama with GPano metadata. `nextcloud-app/` is a separate pure-PHP port that shows those files as panoramic previews in Nextcloud, plus a small browser-side sphere viewer.
+A Python library and CLI that reads 360-camera container files on Linux (Insta360 `.insp`, `.insv`, `.lrv` so far), extracts what the camera stored, and projects the dual-fisheye pair into an equirectangular panorama with GPano metadata. `nextcloud-app/` is a separate PHP port that shows those files as panoramic previews in Nextcloud, with a browser-side sphere viewer; optionally it also stitches videos with ffmpeg and plays them steadied.
 
 Read these first, in this order:
 

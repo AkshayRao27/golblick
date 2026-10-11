@@ -10,7 +10,7 @@ uv run ruff check src tests                                # lint
 
 Run it both ways. The library and CLI promise to run with no dependencies, and that promise is only real if the suite also passes without numpy installed. With numpy present, a test that should have been skipped looks the same as one that passed.
 
-There is no linter configured yet. Match the surrounding style.
+ruff is configured in `pyproject.toml` with a small rule set; it doesn't format code, so match the surrounding style. The Nextcloud app has no test suite: lint its PHP with `find nextcloud-app/lib -name '*.php' -exec php -l {} \;`, and type-check and build its scripts with `npm ci && npm run typecheck && npm run build` in `nextcloud-app/`.
 
 ## Layout
 
@@ -21,13 +21,15 @@ src/golblick/
   imaging.py           stdlib-only NV12 decode and PNG writing
   render.py            projection and its accuracy checks; numpy, behind the `render` extra
   gpano.py             GPano XMP: build the packet and embed it in JPEG or PNG; stdlib only
-  cli.py               probe, triage, thumb, preview, render, vendors
+  stabilise.py         the rotation that steadies each frame of a video, from its motion record; stdlib only
+  exif.py              clears location, dates and descriptions from EXIF in place, for `share`
+  cli.py               probe, triage, thumb, preview, render, report, share, stabilise, vendors
   vendors/
     __init__.py        the registry, detection, and the vendor contract (read this first)
-    insta360/          trailer, metadata, calibration, thumbnail, preview, source, imu, lens, naming
+    insta360/          trailer, metadata, calibration, thumbnail, preview, source, imu, lens, naming, keyframe, share
 tests/                 pytest; every fixture is synthesised, none is real media
 docs/formats/          what is known about each vendor's container, measured or marked unverified
-nextcloud-app/         the Nextcloud preview app, a pure-PHP port, and its sphere viewer (src/, built into js/)
+nextcloud-app/         the Nextcloud app: a PHP port, its sphere player (src/, built into js/), and the GPU worker (worker/)
 ```
 
 ## Rules for changes
@@ -50,7 +52,7 @@ Measured facts about a container go in `docs/formats/<vendor>.md`. Values that a
 
 ## The Nextcloud app
 
-`nextcloud-app/` is a separate implementation in PHP, using only GD, so that installing it adds no server-side dependency. It does not call the Python library. It ports the reader, the calibration parse, the projection, the seam routing and the per-camera lens tables. A test fails if the lens tables in the two implementations drift apart. Its sphere viewer is TypeScript in `nextcloud-app/src/`; build it with `npm ci && npm run build` in that folder and commit the result in `js/`, because the app installs by copying the folder.
+`nextcloud-app/` is a separate implementation in PHP. It does not call the Python library. Photos use only GD, so that installing it adds no server-side dependency; videos are stitched by ffmpeg from remap tables the PHP computes, and the optional GPU worker in `worker/` is a shell script and an OpenCL kernel run by ffmpeg in a container of its own. It ports the reader, the calibration parse, the projection, the seam routing, the steadying and the per-camera lens tables. A test fails if the lens tables in the two implementations drift apart. Its sphere viewer is TypeScript in `nextcloud-app/src/`; build it with `npm ci && npm run build` in that folder and commit the result in `js/`, because the app installs by copying the folder.
 
 When changing the projection, change both, then compare their output on the same file. A port can be correct arithmetic and still behave differently: the first PHP reader read the trailer with a single `fread`, which works on a local file and fails through Nextcloud's stream wrappers, which return one 8 KiB chunk per read.
 
