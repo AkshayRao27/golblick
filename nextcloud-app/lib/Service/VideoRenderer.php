@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace OCA\Golblick\Service;
 
+use OCA\Files_Versions\Versions\IVersionManager;
 use OCA\Golblick\Insta360\Calibration;
 use OCA\Golblick\Insta360\FormatError;
 use OCA\Golblick\Insta360\Imu;
@@ -21,6 +22,10 @@ use OCA\Golblick\Render\RemapTables;
 use OCA\Golblick\Render\SeamPlan;
 use OCP\Files\File;
 use OCP\Files\Folder;
+use OCP\IUser;
+use OCP\IUserSession;
+use OCP\Server;
+use Psr\Log\LoggerInterface;
 
 /**
  * Renders a stitched copy of an Insta360 video with ffmpeg, in the background.
@@ -71,6 +76,8 @@ final class VideoRenderer {
 		private VideoDecoder $decoder,
 		private VideoStore $store,
 		private Settings $settings,
+		private IUserSession $session,
+		private LoggerInterface $logger,
 	) {
 	}
 
@@ -261,14 +268,15 @@ final class VideoRenderer {
 	/**
 	 * Move the finished copy $name of $master out of the app's data and into
 	 * the clip's folder, as an ordinary file (VideoStore::BESIDE), through the
-	 * storage layer so the file cache, quota, versions and sharing all apply.
-	 * An existing copy of the same name is replaced: it's an older render of
-	 * the same clip. Left where it was, still playable from Files, if the
-	 * folder can't take it.
+	 * storage layer so the file cache, quota, sharing and previews all apply.
+	 * An existing copy of the same name is replaced, and its old renders
+	 * dropped from its versions (dropVersions()): it's an older render of the
+	 * same clip. Left where it was, still playable from Files, if the folder
+	 * can't take it. $user is who the job opened $master as.
 	 *
 	 * @throws FormatError
 	 */
-	public function publish(File $master, string $name): void {
+	public function publish(File $master, string $name, ?IUser $user = null): void {
 		$path = $this->store->root() . "/$name.mp4";
 		$source = @fopen($path, 'rb');
 		if ($source === false) {
@@ -283,6 +291,7 @@ final class VideoRenderer {
 					throw new FormatError("$target exists next to the clip and isn't a file");
 				}
 				$node->putContent($source);
+				$this->dropVersions($node, $user);
 			} else {
 				$folder->newFile($target, $source);
 			}
@@ -297,6 +306,44 @@ final class VideoRenderer {
 		}
 		$this->store->markBeside($name);
 		@unlink($path);
+	}
+
+	/**
+	 * Delete a replaced copy's versions: they're older renders, worth nothing.
+	 *
+	 * 🔴 Without this the versions app keeps every previous render, and with
+	 * Nextcloud's default retention the last one can stay until versions run
+	 * into their space limit: three re-renders on the dev instance left 400 MB
+	 * of versions beside 145 MB of copies. Writing past the versions app
+	 * (through the storage) was tried first and is worse: its records still
+	 * name the replaced render as a version, with nothing behind it, and the
+	 * preview and Memories never hear of the change. So the copy is written
+	 * normally and its versions deleted through the version manager, which
+	 * has a backend for home folders and one for group folders. Deleting
+	 * checks the current user's permissions and this runs from cron, so it
+	 * acts as the user the job opened the clip as, for the length of the
+	 * call. The version manager belongs to the versions app, not the public
+	 * API; without that app there are no versions to drop.
+	 */
+	private function dropVersions(File $node, ?IUser $user): void {
+		if ($user === null || !interface_exists(IVersionManager::class)) {
+			return;
+		}
+		$previous = $this->session->getUser();
+		$this->session->setVolatileActiveUser($user);
+		try {
+			$versions = Server::get(IVersionManager::class);
+			foreach ($versions->getVersionsForFile($user, $node) as $version) {
+				// The list includes the current content, as the version at its mtime.
+				if ((int)$version->getTimestamp() !== $node->getMTime()) {
+					$versions->deleteVersion($version);
+				}
+			}
+		} catch (\Throwable $e) {
+			$this->logger->warning('golblick: could not drop the old versions of ' . $node->getPath() . ': ' . $e->getMessage(), ['app' => 'golblick']);
+		} finally {
+			$this->session->setVolatileActiveUser($previous);
+		}
 	}
 
 	private function cleanUp(string $name, bool $withVideo): void {

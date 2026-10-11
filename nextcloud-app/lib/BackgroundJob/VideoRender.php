@@ -23,6 +23,7 @@ use OCP\Files\IMimeTypeLoader;
 use OCP\Files\IRootFolder;
 use OCP\IAppConfig;
 use OCP\IDBConnection;
+use OCP\IUser;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -196,12 +197,12 @@ final class VideoRender extends TimedJob {
 		if (!$this->settings->flag('video_beside')) {
 			return;
 		}
-		$file = $this->open($fileId);
+		$file = $this->open($fileId, $user);
 		if ($file === null) {
 			return;
 		}
 		try {
-			$this->renderer->publish($file, $name);
+			$this->renderer->publish($file, $name, $user);
 		} catch (FormatError $e) {
 			$this->logger->warning("golblick: kept $name in app data: " . $e->getMessage(), ['app' => 'golblick']);
 		}
@@ -304,11 +305,13 @@ final class VideoRender extends TimedJob {
 		return $rows;
 	}
 
-	private function open(int $id): ?File {
+	/** The file $id, as the first user it's mounted for sees it; $user is set to that user. */
+	private function open(int $id, ?IUser &$user = null): ?File {
 		foreach ($this->mounts->getMountsForFileId($id) as $mount) {
 			try {
 				$node = $this->rootFolder->getUserFolder($mount->getUser()->getUID())->getFirstNodeById($id);
 				if ($node instanceof File) {
+					$user = $mount->getUser();
 					return $node;
 				}
 			} catch (\Throwable $e) {
