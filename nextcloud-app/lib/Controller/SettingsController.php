@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace OCA\Golblick\Controller;
 
 use OCA\Golblick\BackgroundJob\VideoRender;
+use OCA\Golblick\Service\BakeQueue;
 use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\Settings;
 use OCA\Golblick\Service\SetupCheck;
@@ -32,6 +33,7 @@ final class SettingsController extends Controller {
 		private PanoramaStore $store,
 		private VideoStore $videos,
 		private VideoRender $videoJob,
+		private BakeQueue $bake,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -57,7 +59,9 @@ final class SettingsController extends Controller {
 			'usable' => $this->videos->isUsable(),
 			'clips' => \count($this->videoJob->candidates()),
 			'cache' => $this->videos->stats(),
-			'rendering' => $current === null ? null : ['fileid' => $current['fileid'], 'started' => $current['started'] ?? null],
+			'rendering' => $current === null ? null : ['fileid' => $current['fileid'], 'started' => $current['started'] ?? null,
+				'baking' => ($current['phase'] ?? '') === 'bake'],
+			'worker' => $this->bake->worker(),
 			'failed' => \count(array_filter(array_keys($failed), static fn (string $name): bool => str_ends_with($name, $width))),
 		];
 	}
@@ -74,7 +78,8 @@ final class SettingsController extends Controller {
 	#[FrontpageRoute(verb: 'PUT', url: '/settings')]
 	public function save(?int $zoom_width = null, ?bool $memories_zoom = null, ?bool $sphere_files = null,
 		?bool $sphere_viewer = null, ?bool $sphere_memories = null, ?bool $sphere_public = null, ?bool $prerender = null,
-		?int $video_width = null, ?bool $video_render = null, ?bool $video_beside = null): JSONResponse {
+		?int $video_width = null, ?bool $video_render = null, ?bool $video_beside = null,
+		?bool $video_bake = null): JSONResponse {
 		try {
 			if ($zoom_width !== null) {
 				$this->settings->setZoomWidth($zoom_width);
@@ -84,7 +89,8 @@ final class SettingsController extends Controller {
 			}
 			foreach (['memories_zoom' => $memories_zoom, 'sphere_files' => $sphere_files,
 				'sphere_viewer' => $sphere_viewer, 'sphere_memories' => $sphere_memories, 'sphere_public' => $sphere_public,
-				'prerender' => $prerender, 'video_render' => $video_render, 'video_beside' => $video_beside] as $name => $value) {
+				'prerender' => $prerender, 'video_render' => $video_render, 'video_beside' => $video_beside,
+				'video_bake' => $video_bake] as $name => $value) {
 				if ($value !== null) {
 					$this->settings->setFlag($name, $value);
 				}

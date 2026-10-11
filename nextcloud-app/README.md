@@ -30,6 +30,31 @@ The sphere player steadies the video as it plays, from the camera's own motion s
 
 To see the videos in Memories, switch on **Save each stitched copy next to its clip**. Each finished copy then moves into the clip's folder as an ordinary MP4 named after the clip, ending in `.360.mp4`, marked as a 360° video the same way Insta360 Studio marks its exports. Memories lists it like any other video, under the day the clip was recorded, and any player that understands 360° video plays it as one. Memories on its own would play it as a flat, stretched rectangle, so by default it opens as a sphere instead. Each user can change that on their personal settings page (see [Settings](#settings)), and the sphere button in Memories' viewer is there either way. Clicking the copy in Files plays it as a sphere. The copies count against that folder's storage and are synced to desktop clients like any other file. Deleting one doesn't bring it back.
 
+### Steady copies, with a GPU
+
+The copies can also have the steadying baked in, so they play steady in any app and when downloaded, the way Insta360 Studio's stabilised exports do. That needs a GPU, which Nextcloud's PHP can't use, so a small worker does it in a container of its own next to Nextcloud. It runs from the app's `worker/` folder in the image of the Memories transcoder (`radialapps/go-vod`), which already has ffmpeg with OpenCL and NVIDIA's video encoder, and it needs only the GPU and the app's video folder. With Docker Compose and NVIDIA's container toolkit installed:
+
+```yaml
+services:
+  golblick-worker:
+    image: radialapps/go-vod
+    runtime: nvidia
+    restart: unless-stopped
+    user: "33:33"   # the web server's user, www-data
+    entrypoint: ["/bin/bash", "/golblick/golblick-worker.sh", "/jobs"]
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+    volumes:
+      - <Nextcloud's apps folder>/golblick/worker:/golblick:ro
+      - <data directory>/appdata_<instance id>/golblick/videos:/jobs
+```
+
+Then switch on **Bake the steadying into each copy** in the Videos section, which also shows whether the worker is running. Each finished copy goes to the worker before it's saved next to its clip, which on the GPU it was tried on (a GeForce RTX 2070 Super) takes under half the clip's length, against several times its length to stitch. If the worker isn't running or fails, the copy is kept as stitched and the player steadies it as before. In the player, a baked copy still has both buttons: switching steadying off shows the camera's own movement again. Baking resamples the picture once more, so a baked copy is very slightly softer. Copies stitched before baking was switched on aren't changed. It has been tried with NVIDIA cards only.
+
 ## Viewing a photo as a sphere
 
 A **View as sphere** button opens the photo full-window as a sphere you can drag around, with the mouse wheel or a pinch to zoom. Escape closes it. You'll find it:

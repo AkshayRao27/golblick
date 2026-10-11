@@ -21,6 +21,7 @@ type SettingsState = {
   video_width: number;
   video_render: boolean;
   video_beside: boolean;
+  video_bake: boolean;
 };
 type Status = {
   settings: SettingsState;
@@ -31,8 +32,9 @@ type Status = {
     usable: boolean;
     clips: number;
     cache: { files: number; bytes: number; current: number };
-    rendering: { fileid: number; started: number | null } | null;
+    rendering: { fileid: number; started: number | null; baking: boolean } | null;
     failed: number;
+    worker: { alive: boolean; seen: number; device: string; encoder: string } | null;
   };
 };
 
@@ -211,6 +213,13 @@ function render(status: Status) {
   const v = status.videos;
   const videoNote = feedback('video_render');
   const besideNote = feedback('video_beside');
+  const bakeNote = feedback('video_bake');
+  const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const workerLine = v.worker === null
+    ? 'No GPU worker has been seen.'
+    : v.worker.alive
+      ? `GPU worker running: ${v.worker.device}, encoding with ${v.worker.encoder}.`
+      : `The GPU worker was last seen at ${clock(v.worker.seen)} and isn't running now.`;
   const videoWidthNote = feedback('video_width');
   const videoWidth = el('select', {}, ...[2880, 3840].map((w) =>
     el('option', { value: String(w), selected: w === s.video_width }, `${w} × ${w / 2}`)));
@@ -231,7 +240,7 @@ function render(status: Status) {
   });
   const since = v.rendering?.started ? new Date(v.rendering.started * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
   const videoProgress = `${v.cache.current} of ${v.clips} registered videos are stitched at this size, ${megabytes(v.cache.bytes)} in all.`
-    + (v.rendering ? ` One is being stitched now${since ? `, since ${since}` : ''}.` : '')
+    + (v.rendering ? (v.rendering.baking ? ' One is being steadied on the GPU now.' : ` One is being stitched now${since ? `, since ${since}` : ''}.`) : '')
     + (v.failed > 0 ? ` ${v.failed} couldn't be stitched; the server log says why.` : '');
 
   // ---- Integrations
@@ -280,6 +289,12 @@ function render(status: Status) {
       + 'It counts against that folder\'s storage and desktop clients sync it like any other file. Copies already stitched are moved over one at a time. Turning this off later leaves saved copies where they are.',
       s.video_beside, (on) => void save({ video_beside: on }, besideNote)),
     besideNote.node,
+    toggle('Bake the steadying into each copy',
+      'Copies then play steady in any app and when downloaded, not only in the sphere here. It needs golblick\'s GPU worker running next to Nextcloud (see the app\'s README); '
+      + 'without one, copies stay as stitched and are steadied as they play. Copies stitched before this was switched on aren\'t changed.',
+      s.video_bake, (on) => void save({ video_bake: on }, bakeNote)),
+    el('p', { className: 'golblick-progress' }, workerLine),
+    bakeNote.node,
     el('label', {}, 'Video size ', videoWidth), videoWidthNote.node,
     el('p', { className: 'golblick-progress' }, videoProgress),
     videoClear, videoClearNote.node,

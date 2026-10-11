@@ -11,6 +11,7 @@ namespace OCA\Golblick\BackgroundJob;
 use OCA\Golblick\AppInfo\Application;
 use OCA\Golblick\Insta360\FormatError;
 use OCA\Golblick\Preview\Insta360Video;
+use OCA\Golblick\Service\BakeQueue;
 use OCA\Golblick\Service\Settings;
 use OCA\Golblick\Service\VideoRenderer;
 use OCA\Golblick\Service\VideoStore;
@@ -48,6 +49,7 @@ final class VideoRender extends TimedJob {
 		private Settings $settings,
 		private VideoStore $store,
 		private VideoRenderer $renderer,
+		private BakeQueue $bake,
 		private IAppConfig $appConfig,
 		private IDBConnection $db,
 		private IMimeTypeLoader $mimeTypes,
@@ -71,7 +73,7 @@ final class VideoRender extends TimedJob {
 		$this->startNext();
 	}
 
-	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool, seam?: string}|null */
+	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool, seam?: string, phase?: string}|null */
 	public function current(): ?array {
 		$state = json_decode($this->appConfig->getValueString(Application::APP_ID, 'video_current', ''), true);
 
@@ -92,6 +94,9 @@ final class VideoRender extends TimedJob {
 
 	/** Returns whether the slot is free now. */
 	private function collect(array $current): bool {
+		if (($current['phase'] ?? 'render') === 'bake') {
+			return $this->collectBake($current);
+		}
 		$status = $this->renderer->status($current['name']);
 		if ($status['state'] === 'running') {
 			if (time() <= $current['deadline']) {
@@ -107,6 +112,9 @@ final class VideoRender extends TimedJob {
 				$this->logger->info('golblick: stitched video ' . $current['name']
 					. (!empty($current['guards']) ? ' (lens guards detected)' : '')
 					. (isset($current['seam']) ? ', seam: ' . $current['seam'] : ''), ['app' => 'golblick']);
+				if ($this->startBake($current)) {
+					return false;   // the slot stays taken until the worker is done
+				}
 				$this->besideClip($current['fileid'], $current['name']);
 			} catch (FormatError $e) {
 				$this->fail($current['name'], $e->getMessage());
@@ -118,6 +126,62 @@ final class VideoRender extends TimedJob {
 			$this->renderer->abandon($current['name']);
 			$this->fail($current['name'], $status['detail']);
 		}
+		$this->appConfig->deleteKey(Application::APP_ID, 'video_current');
+
+		return true;
+	}
+
+	/**
+	 * With baking on and a GPU worker there, hand it the finished copy and
+	 * keep the slot for it. Returns whether a bake was started.
+	 */
+	private function startBake(array $current): bool {
+		if (!$this->settings->flag('video_bake')) {
+			return false;
+		}
+		$file = $this->open($current['fileid']);
+		try {
+			if ($file === null || !$this->bake->start($current['name'], $file, $this->settings->videoWidth())) {
+				return false;
+			}
+		} catch (FormatError $e) {
+			$this->logger->warning('golblick: could not hand ' . $current['name'] . ' to the GPU worker: ' . $e->getMessage(), ['app' => 'golblick']);
+			return false;
+		}
+		// As long again as the render was allowed, which is far more than a GPU needs.
+		$span = max(3600, $current['deadline'] - ($current['started'] ?? $current['deadline']));
+		$this->appConfig->setValueString(Application::APP_ID, 'video_current', json_encode(
+			['phase' => 'bake', 'deadline' => time() + $span, 'baking' => time()] + $current));
+
+		return true;
+	}
+
+	/**
+	 * A bake that ends either way still leaves a playable copy: a failed one
+	 * keeps the copy as rendered, which the player steadies itself.
+	 */
+	private function collectBake(array $current): bool {
+		$name = $current['name'];
+		$status = $this->bake->status($name);
+		if ($status['state'] === 'running') {
+			if (time() <= $current['deadline']) {
+				return false;
+			}
+			$status = ['state' => 'failed', 'detail' => 'took longer than its time limit'];
+		}
+		if ($status['state'] === 'done') {
+			try {
+				$this->bake->finish($name);
+				$this->logger->info("golblick: baked the steadying into $name", ['app' => 'golblick']);
+			} catch (FormatError $e) {
+				$this->bake->abandon($name);
+				$this->logger->warning("golblick: kept $name unbaked: " . $e->getMessage(), ['app' => 'golblick']);
+			}
+		} else {
+			$this->bake->abandon($name);
+			$this->logger->warning("golblick: kept $name unbaked: " . $status['detail'], ['app' => 'golblick']);
+		}
+		$this->besideClip($current['fileid'], $name);
 		$this->appConfig->deleteKey(Application::APP_ID, 'video_current');
 
 		return true;

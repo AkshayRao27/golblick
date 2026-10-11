@@ -42,6 +42,7 @@ final class Settings {
 		'prerender' => false,
 		'video_render' => false,
 		'video_beside' => false,
+		'video_bake' => false,
 	];
 
 	public function __construct(

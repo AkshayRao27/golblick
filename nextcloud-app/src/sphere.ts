@@ -43,7 +43,8 @@ const TRACK_WIDTH = 4096;
 
 /**
  * 🔴 The copies carry each frame's number in their bottom 16 rows
- * (lib/Render/FrameCode.php): 20 bits, each cell next to its complement. The
+ * (lib/Render/FrameCode.php): 19 bits and a flag for a copy whose steadying is
+ * already baked in (worker/steady.cl), each cell next to its complement. The
  * vertex shader reads it from the same texture the fragment shader draws, so
  * the sphere turns for the frame on screen. The browser's clock can't be
  * trusted for that: in Firefox it runs a frame ahead of the drawn picture on
@@ -57,8 +58,7 @@ uniform bool uCoded;
 uniform float uCodeRow;
 uniform float uStripTop;
 uniform highp sampler2D uTrack;
-uniform int uFrames;
-uniform bool uSteady;
+uniform highp sampler2D uBakedTrack;
 varying float vStripTop;
 vec3 turnBy(vec4 q, vec3 v) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
@@ -70,19 +70,25 @@ vec4 steadyTurn = vec4(0.0, 0.0, 0.0, 1.0);
 if (uCoded) {
   float frameNumber = 0.0;
   bool valid = true;
+  bool baked = false;
   for (int i = 0; i < 20; i++) {
     float set = textureLod(uCode, vec2((float(2 * i) + 0.5) / 40.0, uCodeRow), 0.0).g;
     float clear = textureLod(uCode, vec2((float(2 * i) + 1.5) / 40.0, uCodeRow), 0.0).g;
     if (abs(set - clear) < 0.4) valid = false;
-    if (set > clear) frameNumber += exp2(float(i));
+    if (set > clear) {
+      if (i == 19) baked = true;
+      else frameNumber += exp2(float(i));
+    }
   }
   if (valid) {
     vStripTop = uStripTop;
-    int k = min(int(frameNumber), uFrames - 1);
-    steadyTurn = texelFetch(uTrack, ivec2(k % ${TRACK_WIDTH}, k / ${TRACK_WIDTH}), 0);
+    ivec2 size = baked ? textureSize(uBakedTrack, 0) : textureSize(uTrack, 0);
+    int k = min(int(frameNumber), size.x * size.y - 1);
+    ivec2 at = ivec2(k % size.x, k / size.x);
+    steadyTurn = baked ? texelFetch(uBakedTrack, at, 0) : texelFetch(uTrack, at, 0);
   }
 }
-if (uSteady) transformed = turnBy(steadyTurn, transformed);
+transformed = turnBy(steadyTurn, transformed);
 `;
 
 export class SphereView {
@@ -97,16 +103,21 @@ export class SphereView {
   /** Whether steadying is on and locked; the track itself is in `tracks`. */
   private steady = true;
   private locked = false;
-  /** The track as quaternions in this sphere's frame, following and locked, one texel a frame. */
-  private tracks: { follow: DataTexture; locked: DataTexture } | null = null;
+  /**
+   * The turn for each frame, as quaternions in this sphere's frame, one texel
+   * a frame: for a copy as rendered, following or locked; for a baked one,
+   * which is steady already, the lock's turn about the vertical, or the
+   * inverse that undoes the steadying.
+   */
+  private tracks: { follow: DataTexture; locked: DataTexture; yaw: DataTexture; undo: DataTexture } | null = null;
+  private static readonly unturned = SphereView.trackTexture(new Float32Array([0, 0, 0, 1]), 1);
   private readonly steadying = {
     uCode: { value: null as Texture | null },
     uCoded: { value: false },
     uCodeRow: { value: 0 },
     uStripTop: { value: 0 },
-    uTrack: { value: SphereView.trackTexture(new Float32Array([0, 0, 0, 1]), 1) },
-    uFrames: { value: 1 },
-    uSteady: { value: false },
+    uTrack: { value: SphereView.unturned },
+    uBakedTrack: { value: SphereView.unturned },
   };
 
   /** Current view direction and vertical field of view, degrees. */
@@ -237,8 +248,14 @@ export class SphereView {
 
       // The shader turns the sphere, by the frame code (CODE_VERTEX_BODY).
       const tracks = this.tracks;
-      this.steadying.uSteady.value = this.steady && tracks !== null;
-      if (tracks) this.steadying.uTrack.value = this.locked ? tracks.locked : tracks.follow;
+      const unturned = SphereView.unturned;
+      if (tracks && this.steady) {
+        this.steadying.uTrack.value = this.locked ? tracks.locked : tracks.follow;
+        this.steadying.uBakedTrack.value = this.locked ? tracks.yaw : unturned;
+      } else {
+        this.steadying.uTrack.value = unturned;
+        this.steadying.uBakedTrack.value = tracks ? tracks.undo : unturned;
+      }
 
       // Same convention as the geometry: x negated, longitude from the middle
       // column of the image.
@@ -418,22 +435,28 @@ export class SphereView {
     if (motion !== null) {
       const follow = new Float32Array(4 * motion.frames);
       const locked = new Float32Array(4 * motion.frames);
+      const yaw = new Float32Array(4 * motion.frames);
+      const undo = new Float32Array(4 * motion.frames);
       const q = motion.q;
       for (let k = 0; k < motion.frames; k++) {
         const [w, x, y, z] = [q[4 * k] / 32767, q[4 * k + 1] / 32767, q[4 * k + 2] / 32767, q[4 * k + 3] / 32767];
         // Turn back about the vertical by how far the heading has turned:
-        // (cos h, 0, sin h, 0) times q, with h half the turn.
+        // (cos h, 0, sin h, 0) times q, with h half the turn. A baked copy
+        // already shows q, so it takes that turn alone.
         const half = (motion.turn[k] / 32767) * Math.PI / 2;
         const c = Math.cos(half);
         const s = Math.sin(half);
         SphereView.toSphere(follow, k, w, x, y, z);
         SphereView.toSphere(locked, k, c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x);
+        SphereView.toSphere(yaw, k, c, 0, s, 0);
+        SphereView.toSphere(undo, k, w, -x, -y, -z);
       }
       this.tracks = {
         follow: SphereView.trackTexture(follow, motion.frames),
         locked: SphereView.trackTexture(locked, motion.frames),
+        yaw: SphereView.trackTexture(yaw, motion.frames),
+        undo: SphereView.trackTexture(undo, motion.frames),
       };
-      this.steadying.uFrames.value = motion.frames;
     }
     this.invalidate?.();
   }
@@ -449,18 +472,20 @@ export class SphereView {
   }
 
   private static trackTexture(data: Float32Array, frames: number): DataTexture {
-    const rows = Math.ceil(frames / TRACK_WIDTH);
-    const padded = new Float32Array(4 * TRACK_WIDTH * rows);
+    const width = Math.min(frames, TRACK_WIDTH);
+    const rows = Math.ceil(frames / width);
+    // Past the last frame, no turn: the shader clamps to the texture, not the track.
+    const padded = new Float32Array(4 * width * rows);
+    for (let i = 3; i < padded.length; i += 4) padded[i] = 1;
     padded.set(data);
-    const texture = new DataTexture(padded, TRACK_WIDTH, rows, RGBAFormat, FloatType);
+    const texture = new DataTexture(padded, width, rows, RGBAFormat, FloatType);
     texture.minFilter = texture.magFilter = NearestFilter;
     texture.needsUpdate = true;
     return texture;
   }
 
   private disposeTracks() {
-    this.tracks?.follow.dispose();
-    this.tracks?.locked.dispose();
+    for (const texture of Object.values(this.tracks ?? {})) texture.dispose();
     this.tracks = null;
   }
 

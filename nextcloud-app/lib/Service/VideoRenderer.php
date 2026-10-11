@@ -48,6 +48,11 @@ final class VideoRenderer {
 	/** 20 Mbit/s at 3840x1920, in proportion for other widths. */
 	private const BITS_PER_PIXEL_SECOND = 20e6 / (3840 * 1920);
 
+	/** The video bitrate of a copy $width wide; a baked copy is encoded at the same. */
+	public static function bitrate(int $width): int {
+		return (int)round(self::BITS_PER_PIXEL_SECOND * $width * intdiv($width, 2));
+	}
+
 	/** How clearly the guarded field of view has to win; render.PICK_MARGIN in the library. */
 	private const PICK_MARGIN = 0.15;
 
@@ -109,7 +114,7 @@ final class VideoRenderer {
 		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
 		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
 
-		$bitrate = (int)round(self::BITS_PER_PIXEL_SECOND * $width * intdiv($width, 2));
+		$bitrate = self::bitrate($width);
 		// 🔴 Memory, not speed, sets these. With ffmpeg's defaults (threads from
 		// the host's core count) a render peaked at 4 GB and was killed on a
 		// 3 GB container, and a production AIO box has 4 GB for everything.
