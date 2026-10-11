@@ -44,14 +44,22 @@ services:
     entrypoint: ["/bin/bash", "/golblick/golblick-worker.sh", "/jobs"]
     environment:
       NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    healthcheck:   # the image's own checks for the transcoder, which isn't running here
+      test: ["CMD-SHELL", "test -n \"$$(find /jobs/worker.json -mmin -1)\""]
+      start_period: 90s
     deploy:
       resources:
         reservations:
           devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
     volumes:
       - <Nextcloud's apps folder>/golblick/worker:/golblick:ro
-      - <data directory>/appdata_<instance id>/golblick/videos:/jobs
+      - type: bind
+        source: <data directory>/appdata_<instance id>/golblick/videos
+        target: /jobs
+        bind: { create_host_path: false }
 ```
+
+The video folder appears once the Videos section of the app's admin page has been opened, so open it before starting the worker. Docker would otherwise create the folder itself, owned by root, and Nextcloud couldn't write to it; with `create_host_path: false` it refuses to start instead.
 
 Then switch on **Bake the steadying into each copy** in the Videos section, which also shows whether the worker is running. Each finished copy goes to the worker before it's saved next to its clip, which on the GPU it was tried on (a GeForce RTX 2070 Super) takes under half the clip's length, against several times its length to stitch. If the worker isn't running or fails, the copy is kept as stitched and the player steadies it as before. In the player, a baked copy still has both buttons: switching steadying off shows the camera's own movement again. Baking resamples the picture once more, so a baked copy is very slightly softer. Copies stitched before baking was switched on aren't changed. It has been tried with NVIDIA cards only.
 
