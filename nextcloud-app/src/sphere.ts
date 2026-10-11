@@ -12,13 +12,19 @@
  * costs nothing on a page where nobody opens a sphere.
  */
 import {
+  DataTexture,
+  FloatType,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
+  NearestFilter,
   PerspectiveCamera,
+  RGBAFormat,
   SRGBColorSpace,
   Scene,
+  ShaderChunk,
   SphereGeometry,
+  type Texture,
   TextureLoader,
   VideoTexture,
   WebGLRenderer,
@@ -32,6 +38,53 @@ import {
  */
 export type Motion = { period: number; frames: number; q: Int16Array; turn: Int16Array };
 
+/** Rows of the track texture: 4096 frames a row, under every GPU's size limit. */
+const TRACK_WIDTH = 4096;
+
+/**
+ * 🔴 The copies carry each frame's number in their bottom 16 rows
+ * (lib/Render/FrameCode.php): 20 bits, each cell next to its complement. The
+ * vertex shader reads it from the same texture the fragment shader draws, so
+ * the sphere turns for the frame on screen. The browser's clock can't be
+ * trusted for that: in Firefox it runs a frame ahead of the drawn picture on
+ * 10-46% of renders, and steadying by it flickered. A frame whose pairs don't
+ * read as complements carries no code (an older copy, someone else's MP4) and
+ * isn't turned.
+ */
+const CODE_VERTEX_HEAD = `
+uniform sampler2D uCode;
+uniform bool uCoded;
+uniform float uCodeRow;
+uniform float uStripTop;
+uniform highp sampler2D uTrack;
+uniform int uFrames;
+uniform bool uSteady;
+varying float vStripTop;
+vec3 turnBy(vec4 q, vec3 v) {
+  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}
+`;
+const CODE_VERTEX_BODY = `
+vStripTop = 0.0;
+vec4 steadyTurn = vec4(0.0, 0.0, 0.0, 1.0);
+if (uCoded) {
+  float frameNumber = 0.0;
+  bool valid = true;
+  for (int i = 0; i < 20; i++) {
+    float set = textureLod(uCode, vec2((float(2 * i) + 0.5) / 40.0, uCodeRow), 0.0).g;
+    float clear = textureLod(uCode, vec2((float(2 * i) + 1.5) / 40.0, uCodeRow), 0.0).g;
+    if (abs(set - clear) < 0.4) valid = false;
+    if (set > clear) frameNumber += exp2(float(i));
+  }
+  if (valid) {
+    vStripTop = uStripTop;
+    int k = min(int(frameNumber), uFrames - 1);
+    steadyTurn = texelFetch(uTrack, ivec2(k % ${TRACK_WIDTH}, k / ${TRACK_WIDTH}), 0);
+  }
+}
+if (uSteady) transformed = turnBy(steadyTurn, transformed);
+`;
+
 export class SphereView {
   private disposers: (() => void)[] = [];
   private destroyed = false;
@@ -41,12 +94,20 @@ export class SphereView {
   private video: HTMLVideoElement | null = null;
   private invalidate: (() => void) | null = null;
 
-  /** Steadying for the video, if the server had a track, and whether it is on. */
-  private motion: Motion | null = null;
+  /** Whether steadying is on and locked; the track itself is in `tracks`. */
   private steady = true;
   private locked = false;
-  /** Media time of the frame on screen, from requestVideoFrameCallback where the browser has it. */
-  private frameTime: number | null = null;
+  /** The track as quaternions in this sphere's frame, following and locked, one texel a frame. */
+  private tracks: { follow: DataTexture; locked: DataTexture } | null = null;
+  private readonly steadying = {
+    uCode: { value: null as Texture | null },
+    uCoded: { value: false },
+    uCodeRow: { value: 0 },
+    uStripTop: { value: 0 },
+    uTrack: { value: SphereView.trackTexture(new Float32Array([0, 0, 0, 1]), 1) },
+    uFrames: { value: 1 },
+    uSteady: { value: false },
+  };
 
   /** Current view direction and vertical field of view, degrees. */
   private longitude = 0;
@@ -88,6 +149,19 @@ export class SphereView {
     const geometry = new SphereGeometry(100, 64, 48, -Math.PI / 2);
     geometry.scale(-1, 1, 1);
     const material = new MeshBasicMaterial({ map: texture });
+    const steadying = this.steadying;
+    material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, steadying);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${CODE_VERTEX_HEAD}`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\n${CODE_VERTEX_BODY}`);
+      // The code is never shown: the strip's rows sample the row above instead,
+      // which smears a cap 2 degrees across under the camera.
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vStripTop;')
+        .replace('#include <map_fragment>', ShaderChunk.map_fragment.replace(
+          'texture2D( map, vMapUv )', 'texture2D( map, vec2( vMapUv.x, max( vMapUv.y, vStripTop ) ) )'));
+    };
     const mesh = new Mesh(geometry, material);
     scene.add(mesh);
 
@@ -120,13 +194,17 @@ export class SphereView {
       material.needsUpdate = true;
       previous?.dispose();
       this.video = video;
+      // The strip is the bottom 16 rows; three flips video textures, so v runs up from them.
+      const height = video.videoHeight || video.videoWidth / 2 || 1440;
+      this.steadying.uCode.value = texture;
+      this.steadying.uCoded.value = true;
+      this.steadying.uCodeRow.value = 8 / height;
+      this.steadying.uStripTop.value = 16.5 / height;
       needsRender = true;
-      // Steadying has to turn the sphere for the frame actually on screen,
-      // which the playback clock runs slightly ahead of.
+      // Draw whenever a new frame arrives, so a seek while paused shows up.
       if ('requestVideoFrameCallback' in video) {
-        const onFrame = (_now: number, frame: VideoFrameCallbackMetadata) => {
+        const onFrame = () => {
           if (this.destroyed || this.video !== video) return;
-          this.frameTime = frame.mediaTime;
           needsRender = true;
           video.requestVideoFrameCallback(onFrame);
         };
@@ -157,27 +235,10 @@ export class SphereView {
       camera.fov = this.fov;
       camera.updateProjectionMatrix();
 
-      // The track is in golblick's frame, whose x is this sphere's -x (see
-      // the geometry): conjugating by that reflection keeps w and x and
-      // negates y and z.
-      const motion = this.motion;
-      if (motion && this.steady && this.video) {
-        const time = this.frameTime ?? this.video.currentTime;
-        const k = Math.min(motion.frames - 1, Math.max(0, Math.round(time / motion.period)));
-        const q = motion.q;
-        let [w, x, y, z] = [q[4 * k], q[4 * k + 1], q[4 * k + 2], q[4 * k + 3]];
-        if (this.locked) {
-          // Turn back about the vertical by how far the heading has turned:
-          // (cos h, 0, sin h, 0) times q, with h half the turn.
-          const half = (motion.turn[k] / 32767) * Math.PI / 2;
-          const c = Math.cos(half);
-          const s = Math.sin(half);
-          [w, x, y, z] = [c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x];
-        }
-        mesh.quaternion.set(x, -y, -z, w).normalize();
-      } else {
-        mesh.quaternion.identity();
-      }
+      // The shader turns the sphere, by the frame code (CODE_VERTEX_BODY).
+      const tracks = this.tracks;
+      this.steadying.uSteady.value = this.steady && tracks !== null;
+      if (tracks) this.steadying.uTrack.value = this.locked ? tracks.locked : tracks.follow;
 
       // Same convention as the geometry: x negated, longitude from the middle
       // column of the image.
@@ -203,6 +264,7 @@ export class SphereView {
       geometry.dispose();
       material.map?.dispose();
       material.dispose();
+      this.disposeTracks();
       renderer.dispose();
     });
   }
@@ -352,8 +414,54 @@ export class SphereView {
 
   /** Steady the video with this track; null to stop. */
   public setMotion(motion: Motion | null) {
-    this.motion = motion;
+    this.disposeTracks();
+    if (motion !== null) {
+      const follow = new Float32Array(4 * motion.frames);
+      const locked = new Float32Array(4 * motion.frames);
+      const q = motion.q;
+      for (let k = 0; k < motion.frames; k++) {
+        const [w, x, y, z] = [q[4 * k] / 32767, q[4 * k + 1] / 32767, q[4 * k + 2] / 32767, q[4 * k + 3] / 32767];
+        // Turn back about the vertical by how far the heading has turned:
+        // (cos h, 0, sin h, 0) times q, with h half the turn.
+        const half = (motion.turn[k] / 32767) * Math.PI / 2;
+        const c = Math.cos(half);
+        const s = Math.sin(half);
+        SphereView.toSphere(follow, k, w, x, y, z);
+        SphereView.toSphere(locked, k, c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x);
+      }
+      this.tracks = {
+        follow: SphereView.trackTexture(follow, motion.frames),
+        locked: SphereView.trackTexture(locked, motion.frames),
+      };
+      this.steadying.uFrames.value = motion.frames;
+    }
     this.invalidate?.();
+  }
+
+  /**
+   * The track is in golblick's frame, whose x is this sphere's -x (see the
+   * geometry): conjugating by that reflection keeps w and x and negates y
+   * and z. Stored x, y, z, w, as three and the shader take a quaternion.
+   */
+  private static toSphere(out: Float32Array, k: number, w: number, x: number, y: number, z: number) {
+    const n = Math.hypot(w, x, y, z) || 1;
+    out.set([x / n, -y / n, -z / n, w / n], 4 * k);
+  }
+
+  private static trackTexture(data: Float32Array, frames: number): DataTexture {
+    const rows = Math.ceil(frames / TRACK_WIDTH);
+    const padded = new Float32Array(4 * TRACK_WIDTH * rows);
+    padded.set(data);
+    const texture = new DataTexture(padded, TRACK_WIDTH, rows, RGBAFormat, FloatType);
+    texture.minFilter = texture.magFilter = NearestFilter;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private disposeTracks() {
+    this.tracks?.follow.dispose();
+    this.tracks?.locked.dispose();
+    this.tracks = null;
   }
 
   public setSteady(on: boolean) {

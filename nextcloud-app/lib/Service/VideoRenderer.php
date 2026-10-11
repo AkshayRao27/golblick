@@ -15,6 +15,7 @@ use OCA\Golblick\Insta360\Keyframes;
 use OCA\Golblick\Insta360\LensProfile;
 use OCA\Golblick\Insta360\Protobuf;
 use OCA\Golblick\Insta360\Trailer;
+use OCA\Golblick\Render\FrameCode;
 use OCA\Golblick\Render\Orientation;
 use OCA\Golblick\Render\RemapTables;
 use OCA\Golblick\Render\SeamPlan;
@@ -130,7 +131,7 @@ final class VideoRenderer {
 			. self::balance($table, $width)
 			. "[l0][{$table['x0']}][{$table['y0']}]remap,format=gbrp[a];[l1][{$table['x1']}][{$table['y1']}]remap,format=gbrp[b];"
 			. "[{$table['mask']}]format=gbrp[m];[a][b][m]maskedmerge[blended];"
-			. '[blended][correction]blend=all_mode=grainmerge,format=yuv420p[out]';
+			. '[blended][correction]blend=all_mode=grainmerge,format=yuv420p,' . FrameCode::filter($width) . '[out]';
 		array_push($command,
 			'-filter_threads', '1', '-filter_complex', $filter, '-map', '[out]', '-map', '0:a:0?',
 			'-c:v', 'libx264', '-preset', 'veryfast', '-threads', '2', '-x264-params', 'sliced-threads=1:rc-lookahead=0',
