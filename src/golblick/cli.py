@@ -192,6 +192,10 @@ def cmd_render(args: argparse.Namespace) -> int:
     vendor = _require_vendor(args.file)
     if not hasattr(vendor, "extract_source"):
         raise UnsupportedFile(f"{vendor.NAME} exposes no full-resolution frame to project")
+    # A video stitches whole unless an image is asked for, which renders its opening frame.
+    image_output = args.output and Path(args.output).suffix.lower() in (".jpg", ".jpeg", ".png")
+    if _is_mp4(Path(args.file)) and not image_output:
+        return _render_video(args, vendor)
 
     info = vendor.describe(args.file)
     calibrations = info["calibrations"]
@@ -208,7 +212,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     lenses = render.lenses_from_calibration(model, image.shape[1], radial)
     field_of_view, guards = _field_of_view(render, args, profile, image, lenses, video)
 
-    width = args.width
+    width = args.width or 4096
     height = width // 2
     orientation, levelling = _levelling(render, vendor, args.file, model,
                                         "auto" if args.level == "stitch" else args.level)
@@ -241,6 +245,23 @@ def cmd_render(args: argparse.Namespace) -> int:
     print(f"  levelling      {levelling}")
     if score is not None:
         print(f"  lens agreement {score:+.3f}  (a wrong convention scores about +0.02)")
+    return 0
+
+
+def _render_video(args: argparse.Namespace, vendor) -> int:
+    """Stitch a whole clip into a 360 MP4, steadied unless asked not to (golblick.video)."""
+    import time
+
+    from . import video
+
+    output = _output_path(args, ".360.mp4")
+    width = args.width or 2880
+    print(f"{output}")
+    started = time.monotonic()
+    video.stitch(vendor, args.file, output, width=width, steady=not args.no_steady, lock=args.lock,
+                 field_of_view=args.field_of_view, guards=args.lens_guards, jobs=args.jobs)
+    taken = int(time.monotonic() - started)
+    print(f"  done: {_human(output.stat().st_size)} in {taken // 60}:{taken % 60:02d}")
     return 0
 
 
@@ -842,13 +863,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     pano = sub.add_parser(
         "render",
-        help="project the lens pair into a viewable equirectangular panorama",
-        description="Needs the 'render' extra: pip install golblick[render]",
+        help="project the lens pair into a viewable equirectangular panorama, or stitch a whole video",
+        description="Needs the 'render' extra: pip install golblick[render]. A video is stitched "
+                    "whole into a 360 MP4, steadied, which also needs ffmpeg; give -o a .jpg or .png "
+                    "to render only its opening frame.",
     )
     pano.add_argument("file")
     pano.add_argument("-o", "--output", help="output path; .png writes PNG, anything else JPEG")
-    pano.add_argument("-w", "--width", type=int, default=4096,
-                      help="output width in pixels; height is half (default: %(default)s)")
+    pano.add_argument("-w", "--width", type=int, default=None,
+                      help="output width in pixels; height is half (default: 4096 for a photo, "
+                           "2880 for a video)")
     pano.add_argument("-q", "--quality", type=int, default=92,
                       help="JPEG quality (default: %(default)s)")
     pano.add_argument("-f", "--field-of-view", type=float, default=None,
@@ -866,6 +890,14 @@ def build_parser() -> argparse.ArgumentParser:
                            "has one (X5), else uses the inertial record, else the "
                            "calibration; stitch, imu and calibration force one and fail "
                            "rather than fall back (default: %(default)s)")
+    pano.add_argument("--no-steady", action="store_true",
+                      help="video: stitch without steadying, levelled at the start only")
+    pano.add_argument("--lock", action="store_true",
+                      help="video: keep the direction the clip opens in instead of following "
+                           "the camera's turns, like Insta360 Studio's Direction Lock")
+    pano.add_argument("--jobs", type=int, default=None,
+                      help="video: processes making the per-frame tables (default: every core "
+                           "but one, fewer if memory is short)")
     pano.set_defaults(func=cmd_render)
 
     report = sub.add_parser(

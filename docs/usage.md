@@ -1,6 +1,6 @@
 # Using the CLI
 
-Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra. golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra, and also [ffmpeg](https://ffmpeg.org/) for a video. golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
 uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'   # with panorama rendering
@@ -8,7 +8,7 @@ uv tool install 'golblick @ git+https://github.com/AkshayRao27/golblick'        
 uv tool upgrade golblick                                                            # later, to update
 ```
 
-The command line doesn't stitch whole videos yet. For a video, `render` renders its opening frame and `stabilise` works out the steadying; the [Nextcloud app](../nextcloud-app/README.md#videos) stitches and plays whole clips.
+For a video, `render` stitches the whole clip into a 360 MP4, steadied; see [Stitch a video](#stitch-a-video).
 
 ## Find clips whose master has gone missing
 
@@ -138,7 +138,7 @@ $ golblick render IMG_20260314_090809_00_007.insp -o pano.jpg -w 4096
 
 It projects from the full-resolution frame, not the embedded preview: on a OneR that is 6080×3040 rather than 1920×960. Output is JPEG unless the filename ends in `.png`.
 
-A OneR or X3 video (the `_00_` file) renders as its opening frame, which the camera stores in the file at full size. Decoding it needs [ffmpeg](https://ffmpeg.org/) on the PATH. An X5 video stores a stitched panorama of its opening frame instead, so `golblick preview` already gives you one.
+Given a video and an `-o` ending in `.jpg` or `.png`, `render` renders only the clip's opening frame. On a OneR or X3 the camera stores that frame in the `_00_` file at full size, and decoding it needs ffmpeg. An X5 video stores a stitched panorama of its opening frame instead, so `golblick preview` already gives you one.
 
 Two lines in that output are worth reading:
 
@@ -159,6 +159,26 @@ Clip-on lens guards narrow that angle by about 2%, and the file does not record 
 The geometry fields are written, including the cropped-area fields: a partial panorama without them gets stretched around the whole sphere, which looks plausible rather than broken.
 
 The pose fields are deliberately left out. `PoseHeadingDegrees` would state which compass direction the centre faces, and nothing in the file fixes that. `PosePitchDegrees` and `PoseRollDegrees` would assert the panorama is level, which is only as true as the levelling. A viewer that finds no pose fields assumes an unknown heading and a level horizon, which is the honest claim; a written `0.0` would look exactly like a measured one.
+
+## Stitch a video
+
+`render` on a video stitches the whole clip into a 360 MP4 next to it, steadied from the camera's motion sensor, with the sound copied across and the file marked as 360° video so that players and Memories treat it as one. It needs ffmpeg on the PATH as well as the `render` extra. On a OneR or X3, give it the `_00_` file; the `_10_` file holding the other lens has to be in the same folder.
+
+```sh
+$ golblick render VID_20260126_115034_00_011.insv
+VID_20260126_115034_00_011.360.mp4
+  lens guards    detected: the lenses agree at 191.0 degrees, not 195.3
+  field of view  191.0 degrees (the camera's measured value for video, less for lens guards)
+  seam           aimed and routed
+  levelling      from gravity at the opening (inertial record)
+  steadying      follows the camera's turns, 337 frames from the motion record
+  335 frames at 2880x1440, tables made by 8 processes
+  done: 15.3 MiB in 3:31
+```
+
+The stitch is the one the [Nextcloud app](../nextcloud-app/README.md#videos) makes: the same lens model, one seam chosen for the whole clip, and the two lenses' brightness evened out along it. The steadying is applied in the same pass, so the picture is resampled only once. `--no-steady` gives the plain stitch, levelled at the start only, and `--lock` keeps the direction the clip opens in instead of following the camera's turns. The default size is 2880 × 1440; `-w` changes it.
+
+It is slow, because every frame gets its own projection. On a desktop with 16 threads, at 2880, each second of video took 8 to 11 seconds on OneR and X3 clips and 19 on an X5 clip. The work is spread over half the machine's threads, fewer if memory is short, and `--jobs` sets the number.
 
 ## Steady a video
 

@@ -64,7 +64,7 @@ What I can say, however, is that
 | 📝 **Report** | Summarises a file for an issue on GitHub, without its name, folder or the camera's serial number, and links to the right form: a problem with a photo or a video, or a camera golblick hasn't been tested with |
 | 🖼️ **Previews** | Extracts the camera's own preview, if available (e.g. the Insta360 X5 already has a stitched pano) |
 | 🎯 **Stabilise** | Works out, from the camera's motion sensor, the rotation that steadies each frame of a 360 video, and writes it as JSON |
-| 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled against the camera's own stitch where the file has one (X5), otherwise from its motion sensor where possible. The seam between the lenses is placed per photo, where the two lenses agree best |
+| 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled against the camera's own stitch where the file has one (X5), otherwise from its motion sensor where possible. The seam between the lenses is placed per photo, where the two lenses agree best. A video is stitched whole into a 360 MP4, steadied |
 | ☁️ **Nextcloud** | A preview app, so `.insp` stills show up as panoramas in Files, Photos and Memories, zoom included, and open as a sphere from a button. No extra server dependencies for photos. Optionally, `.insv` videos too: the server stitches them in the background with ffmpeg into ordinary 360° MP4s, which play as a steadied sphere from Files and can show up in Memories' timeline. Works alongside [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) |
 
 ## Cameras
@@ -72,7 +72,7 @@ What I can say, however, is that
 | Camera | Status |
 |---|---|
 | Insta360 OneR, X3, X5, stills (`.insp`) | ✅ Read, rendered and levelled. Lens corrections measured per camera. The X5 doesn't need one: a fixed correction made its renders no closer to Insta360's own |
-| Insta360 video (`.insv`, `.lrv`) | 🟨 All three cameras. The Nextcloud app stitches whole clips in the background and plays them as a sphere, steadied from the camera's motion sensor as they play; `render` renders a clip's opening frame and `stabilise` writes the steadying rotation for every frame. People and things close to the camera can still break up where the two lenses meet |
+| Insta360 video (`.insv`, `.lrv`) | 🟨 All three cameras. `render` stitches a whole clip into a steadied 360 MP4 (it needs ffmpeg), and the Nextcloud app stitches clips in the background and plays them as a sphere, steadied from the camera's motion sensor as they play; `stabilise` writes the steadying rotation for every frame. People and things close to the camera can still break up where the two lenses meet |
 | Other Insta360 models | ❓ Untested. Other models may store things differently - if you have one [please consider contributing](CONTRIBUTING.md#testing-a-camera-i-dont-have) |
 | Other vendors | ❌ None yet - if you have a camera I do not, [please consider contributing](CONTRIBUTING.md#testing-a-camera-i-dont-have)  |
 

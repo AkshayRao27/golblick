@@ -25,6 +25,7 @@ The CLI hands the streams to ffmpeg.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,3 +92,33 @@ def extract(path: str | Path) -> Keyframes:
     if record0 is None:
         raise FormatError(f"{path}: no record 0x0200")
     return parse(record0.data, None if record1 is None else record1.data)
+
+
+def lens_streams(path: str | Path) -> list[tuple[Path, int]]:
+    """Where a video's two lenses are, as ``(file, video stream index)``.
+
+    A OneR or X3 records each lens to its own file, this ``_00_`` one and a
+    ``_10_`` one of the same name beside it; its trailer carries a keyframe
+    of each lens, which is how it is told apart.  An X5 records both lenses
+    as two streams of one file, and its trailer carries a stitched picture
+    instead.  A proxy (``LRV``) holds both lenses in one small frame and is
+    refused: it is not what to stitch from.
+
+    Raises :class:`FormatError` when the second file is missing or the name
+    gives no way to find it, rather than stitching one lens.
+    """
+    path = Path(path)
+    try:
+        keyframes = extract(path)
+    except FormatError:
+        return [(path, 0), (path, 1)]   # an X5: the streams are checked when the video is opened
+    if keyframes.layout == DUAL_FISHEYE:
+        raise FormatError(f"{path}: a low-resolution copy; stitch the clip's _00_ file instead")
+    match = re.match(r"^(.+_\d{8}_\d{6})_00_(\d+\.insv)$", path.name, re.IGNORECASE)
+    if match is None:
+        raise FormatError(f"{path}: the second lens is in another file, and this name "
+                          "isn't the camera's _00_ one, so it can't be found")
+    partner = path.with_name(f"{match[1]}_10_{match[2]}")
+    if not partner.is_file():
+        raise FormatError(f"{path}: the second lens file, {partner.name}, is not next to it")
+    return [(path, 0), (partner, 0)]

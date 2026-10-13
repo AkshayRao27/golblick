@@ -65,3 +65,40 @@ def test_the_cli_decodes_both_lenses_and_puts_lens_0_on_the_left():
     left, right = image[:, :64].mean(axis=(0, 1)), image[:, 64:].mean(axis=(0, 1))
     assert left[0] > 200 > left[2] and right[2] > 200 > right[0]
     assert numpy.all(image[:, :64, 0] > image[:, :64, 2])
+
+
+def _master(path, layout=LENS_PAIR):
+    second = HEADER + HEVC + (b"1" if layout == LENS_PAIR else b"0")
+    return write_file(path, [(0x0200, HEADER + HEVC + b"0"), (0x0500, second)], leading=b"mp4")
+
+
+def test_a_oner_or_x3_clip_finds_its_second_lens_beside_it(tmp_path):
+    from golblick.vendors.insta360 import lens_streams
+
+    master = _master(tmp_path / "VID_20200809_163437_00_026.insv")
+    partner = tmp_path / "VID_20200809_163437_10_026.insv"
+    partner.write_bytes(b"mp4")
+
+    assert lens_streams(master) == [(master, 0), (partner, 0)]
+
+
+def test_a_missing_second_lens_file_is_refused_not_stitched_from_one_lens(tmp_path):
+    from golblick.vendors.insta360 import lens_streams
+
+    master = _master(tmp_path / "VID_20200809_163437_00_026.insv")
+    with pytest.raises(FormatError, match="_10_026.insv, is not next to it"):
+        lens_streams(master)
+    renamed = _master(tmp_path / "holiday.insv")
+    with pytest.raises(FormatError, match="can't be found"):
+        lens_streams(renamed)
+
+
+def test_an_x5_clip_has_both_lenses_in_one_file_and_a_proxy_is_refused(tmp_path):
+    from golblick.vendors.insta360 import lens_streams
+
+    x5 = write_file(tmp_path / "VID_20260126_115034_00_011.insv", [(0x0200, b"\x01" * 40 + b"nv12")],
+                    leading=b"mp4")
+    assert lens_streams(x5) == [(x5, 0), (x5, 1)]
+    proxy = _master(tmp_path / "LRV_20200809_163437_01_026.lrv", layout=DUAL_FISHEYE)
+    with pytest.raises(FormatError, match="low-resolution copy"):
+        lens_streams(proxy)

@@ -21,7 +21,7 @@ For a problem with a photo or a video from one of the three tested cameras, use 
 
 `golblick probe -v` also prints the calibration values, which are specific to your camera body. They are very useful for working out how a new model stores its lenses, so share them if you're comfortable with that, but it's your call. `probe` prints the camera's serial number too, so delete that line before posting its output.
 
-For videos, the command line renders a clip's opening frame and works out its steadying (`golblick stabilise`), and the [Nextcloud app](nextcloud-app/README.md#videos) stitches whole clips. `report` works on a video's `_00_` file too, and reports on videos are welcome.
+For videos, `golblick render` stitches a whole clip, steadied (it needs ffmpeg), and so does the [Nextcloud app](nextcloud-app/README.md#videos). `report` works on a video's `_00_` file too, and reports on videos are welcome.
 
 ## Code
 

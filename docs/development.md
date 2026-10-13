@@ -22,6 +22,7 @@ src/golblick/
   render.py            projection and its accuracy checks; numpy, behind the `render` extra
   gpano.py             GPano XMP: build the packet and embed it in JPEG or PNG; stdlib only
   stabilise.py         the rotation that steadies each frame of a video, from its motion record; stdlib only
+  video.py             stitching a whole video, steadied, through ffmpeg; numpy, behind the `render` extra
   exif.py              clears location, dates and descriptions from EXIF in place, for `share`
   cli.py               probe, triage, thumb, preview, render, report, share, stabilise, vendors
   vendors/
