@@ -206,11 +206,25 @@ const MEMORIES_IS_VIDEO = 1 << 2;
  * this button.
  */
 function memoriesHasOwnSphere(fileId: number | null): boolean {
+  return memoriesPano(fileId) > 0;
+}
+
+/**
+ * Whether Memories opens its sphere by itself as the photo opens. It does so
+ * only for a confirmed sphere (pano 2: GPano says equirectangular); a .insp is
+ * a 2:1 lens pair with no GPano, so it gets pano 1 and only the action. The
+ * user's "open as a sphere" choice is then golblick's to carry out.
+ */
+function memoriesOpensOwnSphere(fileId: number | null): boolean {
+  return memoriesPano(fileId) === 2;
+}
+
+function memoriesPano(fileId: number | null): number {
   const photo = (globalThis as { _m?: MemoriesGlobal })._m?.viewer?.currentPhoto;
   // Its sphere is for photos only: it skips a video even when it has marked
   // it as a panorama, so a video keeps this button.
-  if (((photo?.flag ?? 0) & MEMORIES_IS_VIDEO) !== 0) return false;
-  return fileId !== null && photo?.fileid === fileId && (photo.pano ?? 0) > 0;
+  if (((photo?.flag ?? 0) & MEMORIES_IS_VIDEO) !== 0) return 0;
+  return fileId !== null && photo?.fileid === fileId ? photo.pano ?? 0 : 0;
 }
 
 /**
@@ -264,7 +278,7 @@ function decideMemories(fileId: number | null) {
     if (decided !== fileId) return;
     const isVideo = 'video' in answer;
     const choice = isVideo ? preferences.open_video : preferences.open_photo;
-    if (!answer.sphere || choice === 'play' || choice === 'flat' || (!isVideo && memoriesHasOwnSphere(fileId))) {
+    if (!answer.sphere || choice === 'play' || choice === 'flat' || (!isVideo && memoriesOpensOwnSphere(fileId))) {
       if (holding === fileId) {
         holding = null;
         if (held?.isConnected) void held.play().catch(() => {});

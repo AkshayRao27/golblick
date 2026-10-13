@@ -25,7 +25,7 @@ const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices
   {
     name: 'open_photo',
     title: '360° photos in Memories',
-    hint: 'Where Memories has its own panorama view for a photo, it decides instead.',
+    hint: 'Memories 10 also has its own "View panorama" button, which shows the same panorama.',
     choices: [
       ['flat', 'Show flat, with the sphere button'],
       ['sphere', 'Open as a sphere'],

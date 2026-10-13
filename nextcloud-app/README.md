@@ -24,7 +24,7 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
 |---|---|
 | Cameras | Insta360 OneR, X3 and X5: photos (`.insp`) and videos (`.insv`) |
 | Nextcloud | 33 to 35. Photos tested on 33 and 35.0.0, videos on 35.0.0; 34 is assumed to work |
-| Memories | Tested with 9.0.1 |
+| Memories | Tested with 9.0.1 and 10.0.0 |
 | PHP | Tested on 8.4 and 8.5 |
 | Server setups | Tested on the official `nextcloud` Docker image (Debian, Apache with PHP built in) and on Nextcloud AIO v14.2.0 (Alpine, PHP-FPM). On AIO, read [the note on RAW photos](#nextcloud-aio-and-raw-photos) |
 | For photos | Nothing beyond what Nextcloud already needs (PHP with GD) |
@@ -79,7 +79,7 @@ A **View as sphere** button opens the photo full-window as a sphere you can drag
 
 It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
 
-The buttons in the image viewer and in Memories are a stopgap. Neither app has a way for other apps to add buttons, so golblick inserts them into the page itself. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and each app's button can be switched off on the settings page. Memories releases after 9.1.0-alpha.2 have their own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama.
+The buttons in the image viewer and in Memories are a stopgap. Neither app has a way for other apps to add buttons, so golblick inserts them into the page itself. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and each app's button can be switched off on the settings page. Memories 10 has its own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama.
 
 Visitors to a public share link get the Files and image viewer buttons too, as long as the share lets them see its files and, if it has a password, once they've entered it. The first time someone opens a photo as a sphere the server renders its full-size panorama, so a visitor can make it do that for every `.insp` in a shared folder. If that's a concern, switch it off under **Public share links** on the settings page.
 
