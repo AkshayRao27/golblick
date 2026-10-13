@@ -1,0 +1,53 @@
+name: A video looks wrong or won't play
+description: For the cameras golblick has been tested with (Insta360 OneR, X3 and X5)
+title: "Video problem: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a camera golblick hasn't been tested with, use the "Trying a camera golblick hasn't been tested with" form instead.
+
+        The report from golblick leaves out the file's name, its folder and the camera's serial number, so it's safe to paste here. Please don't attach the video itself unless you're happy for it to be public; a screenshot or a few seconds showing the problem is usually enough.
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model and firmware
+      placeholder: Insta360 X3, v1.0.70
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report from golblick
+      description: From `golblick report <file>`, or "Report to golblick" in a `.insv` file's actions menu in Nextcloud Files. Both fill this in for you if you use the link they give. For a clip the camera saved as two files, report the one with `_00_` in its name.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What's wrong
+      description: What you did, what you expected and what you got. Say where it shows, such as where the two lenses meet, the horizon, the steadying (shaky, drifting, or snapping), or playback, and in which player (golblick's sphere player, Memories, or another app playing the stitched `.360.mp4` copy).
+    validations:
+      required: true
+  - type: dropdown
+    id: clips
+    attributes:
+      label: Can you share the original clip privately?
+      description: The original file helps most. **Don't attach it here or post a link to it**, because issues are public. If you choose yes, you'll get a private upload link in a reply. A video file carries the date and time, the camera's serial number and, if the camera recorded one, the location, and `golblick share` can't remove them from videos yet, so pick a clip you're happy for the maintainer to see.
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did you run golblick?
+      options:
+        - Command-line tool
+        - Nextcloud app
+        - Both
+    validations:
+      required: true

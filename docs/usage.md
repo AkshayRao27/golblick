@@ -65,7 +65,7 @@ Add `-v` to print the calibration parameters themselves. The full output also in
 
 ## Report a problem, or a camera golblick hasn't been tested with
 
-There are two kinds of report, and `report` works out which one applies. For the Insta360 OneR, X3 and X5, which golblick has been tested with, it's a problem with a photo: it renders wrongly, or doesn't open. Any other model is an untested camera, which is worth reporting whether the result looks right or not, because nobody has checked it yet.
+There are three kinds of report, and `report` works out which one applies. For the Insta360 OneR, X3 and X5, which golblick has been tested with, it's a problem with a photo or a video: it renders wrongly, or doesn't open or play. On a video, the report describes the opening frame and the motion record that steadying uses, and for a clip saved as two files it's the `_00_` file that carries the camera's data. Any other model is an untested camera, which is worth reporting whether the result looks right or not, because nobody has checked it yet.
 
 `report` prints a summary of the file. It leaves out the file's name (Insta360 names carry the date and time), its folder and the camera's serial number, so you can paste it as it is:
 

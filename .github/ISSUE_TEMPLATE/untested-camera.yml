@@ -20,7 +20,7 @@ body:
     id: report
     attributes:
       label: Report from golblick
-      description: From `golblick report <file>`, or "Report to golblick" in a `.insp` file's actions menu in Nextcloud Files. Both fill this in for you if you use the link they give. Reports on a few photos are better than one.
+      description: From `golblick report <file>`, or "Report to golblick" in a `.insp` or `.insv` file's actions menu in Nextcloud Files. Both fill this in for you if you use the link they give. Reports on a few photos are better than one.
       render: text
     validations:
       required: true

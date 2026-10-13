@@ -188,12 +188,12 @@ The app reads the camera's data from the end of each file. Photo previews are re
 
 ## Reporting a problem, or an untested camera
 
-In Files, a `.insp` file's actions menu has **Report to golblick**. It shows a summary of the file and what the app does with it, without the file's name, its folder or the camera's serial number, and a button that opens an issue on GitHub with the summary filled in, so you only add what you saw. Which issue depends on the camera:
+In Files, the actions menu of a `.insp` or `.insv` file has **Report to golblick**. It shows a summary of the file and what the app does with it, without the file's name, its folder or the camera's serial number, and a button that opens an issue on GitHub with the summary filled in, so you only add what you saw. Which issue depends on the camera:
 
-- For the Insta360 OneR, X3 and X5, which golblick has been tested with, it's a [photo problem](https://github.com/AkshayRao27/golblick/issues/new?template=photo-problem.yml): the photo looks wrong or won't open.
-- For any other camera, it's an [untested camera](https://github.com/AkshayRao27/golblick/issues/new?template=untested-camera.yml), which is worth reporting whether the photo looks right or not.
+- For the Insta360 OneR, X3 and X5, which golblick has been tested with, it's a [photo problem](https://github.com/AkshayRao27/golblick/issues/new?template=photo-problem.yml) (the photo looks wrong or won't open) or a [video problem](https://github.com/AkshayRao27/golblick/issues/new?template=video-problem.yml) (the video looks wrong or won't play).
+- For any other camera, it's an [untested camera](https://github.com/AkshayRao27/golblick/issues/new?template=untested-camera.yml), which is worth reporting whether it looks right or not.
 
-The entry is switched on and off together with the Files "View as sphere" entry on the settings page. For a problem with a video, open an issue on GitHub and describe what you saw; `golblick report` on the clip's `_00_` file gives a summary to paste in.
+The entry is switched on and off together with the Files "View as sphere" entry on the settings page. For a clip the camera saved as two files, report the one with `_00_` in its name: the other one carries none of the camera's data.
 
 ## Licence
 

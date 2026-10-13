@@ -17,7 +17,7 @@ Then [open an untested-camera issue](https://github.com/AkshayRao27/golblick/iss
 
 The report shows whether golblick can read the camera's files. Supporting it properly (the lens's field of view and correction, and which way its motion sensor faces) is measured from a few original photos, so if you can, say in the issue that you can share some. You'll get a private upload link in a reply. Don't attach photos to the issue or post links to them: issues are public, and an original `.insp` holds where the photo was taken, when, and the camera's serial number. Run `golblick share <files>` first, which writes copies without those and changes nothing else. The pictures themselves are unchanged, so choose ones you're happy to send: outdoors with a level horizon and some text in view is ideal, because text is the easiest way to spot a mirrored render.
 
-For a problem with a photo from one of the three tested cameras, use the [photo problem form](https://github.com/AkshayRao27/golblick/issues/new?template=photo-problem.yml) instead. `report` picks the right one for you.
+For a problem with a photo or a video from one of the three tested cameras, use the [photo problem](https://github.com/AkshayRao27/golblick/issues/new?template=photo-problem.yml) or [video problem](https://github.com/AkshayRao27/golblick/issues/new?template=video-problem.yml) form instead. `report` picks the right one for you.
 
 `golblick probe -v` also prints the calibration values, which are specific to your camera body. They are very useful for working out how a new model stores its lenses, so share them if you're comfortable with that, but it's your call. `probe` prints the camera's serial number too, so delete that line before posting its output.
 

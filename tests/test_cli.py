@@ -94,3 +94,42 @@ def test_report_sends_an_unmeasured_camera_to_the_untested_camera_form(tmp_path,
     assert "tested       no" in captured.out
     assert "template=untested-camera.yml" in link
     assert "title=Untested camera: Insta360 X4 (command line)" in link
+
+
+def _box(kind: bytes, payload: bytes) -> bytes:
+    return (8 + len(payload)).to_bytes(4, "big") + kind + payload
+
+
+def test_report_on_a_video_uses_the_video_form_and_no_photo_lines(tmp_path, capsys):
+    from golblick.vendors.insta360 import METADATA
+
+    clip = _box(b"ftyp", b"isom\0\0\0\0") + _box(b"mdat", b"\1" * 64) + _box(b"moov", b"\1" * 16)
+    source = write_file(tmp_path / "VID_20240513_192749_00_004.insv",
+                        [(METADATA, _text_field(2, "Insta360 OneR"))], leading=clip)
+
+    assert cli.main(["report", str(source)]) == 0
+    captured = capsys.readouterr()
+    link = unquote_plus(captured.err)
+
+    assert "this video" in captured.err
+    assert "template=video-problem.yml" in link
+    assert "title=Video problem: Insta360 OneR (command line)" in link
+    # A photo's preview and full-size source are not what a video has.
+    assert "\npreview " not in captured.out and "\nsource " not in captured.out
+    # This fixture has neither, and says so where a video keeps them.
+    assert "opening      failed:" in captured.out
+    assert "motion       failed:" in captured.out
+
+
+def test_the_other_file_of_a_two_file_clip_is_not_called_damaged(tmp_path):
+    # Complete, index included, and ending in a padding box of zeros, as an
+    # Insta360 _10_ file does: the zeros are part of the format here.
+    whole = tmp_path / "VID_20240513_192749_10_004.insv"
+    whole.write_bytes(_box(b"ftyp", b"isom\0\0\0\0") + _box(b"mdat", b"\1" * 64)
+                      + _box(b"moov", b"\1" * 16) + _box(b"free", b"\0" * 65536))
+    assert cli._sniff(whole).startswith("a complete MP4 with no camera data after it")
+
+    # The same clip cut off where its index should be, as an unfinished recording is.
+    cut = tmp_path / "cut.insv"
+    cut.write_bytes(_box(b"ftyp", b"isom\0\0\0\0") + _box(b"mdat", b"\1" * 64) + b"\0" * 65536)
+    assert "damaged or incompletely copied" in cli._sniff(cut)

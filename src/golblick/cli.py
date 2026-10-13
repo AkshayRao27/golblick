@@ -317,10 +317,10 @@ def _levelling(render, vendor, path: str, calibration, mode: str):
 def cmd_report(args: argparse.Namespace) -> int:
     """A summary of a file that is safe to paste into a public issue.
 
-    Two kinds of issue use it, and the report picks the form: a problem with
-    a photo from a camera golblick has been tested with, or a camera it has
-    not been tested with, which is worth reporting whether it works or not.
-    "Tested" means the camera has a measured lens profile.
+    Three kinds of issue use it, and the report picks the form: a problem with
+    a photo or with a video from a camera golblick has been tested with, or a
+    camera it has not been tested with, which is worth reporting whether it
+    works or not.  "Tested" means the camera has a measured lens profile.
 
     It leaves out what could identify a person: the file's name (Insta360
     names carry the date and time), the folder (people name folders after
@@ -348,6 +348,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     info: dict | None = None
     recognised = False
     tested: bool | None = None
+    is_video = _is_mp4(path)
     lines = [f"golblick {_version()}, Python {sys.version.split()[0]}"]
     add = lines.append
 
@@ -360,20 +361,20 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     size = step("file", lambda: path.stat().st_size)
     if size is None:
-        return _print_report(lines, info, recognised, tested, path)
+        return _print_report(lines, info, recognised, tested, path, is_video)
     add(f"{'file':<12} {path.suffix.lower() or '(no extension)'}, {_human(size)}")
 
     vendor = detect(path)
     if vendor is None:
         add(f"{'vendor':<12} none recognises this file")
         add(f"{'content':<12} {step('content', lambda: _sniff(path)) or '-'}")
-        return _print_report(lines, info, recognised, tested, path)
+        return _print_report(lines, info, recognised, tested, path, is_video)
     add(f"{'vendor':<12} {vendor.NAME}")
     recognised = True
 
     info = step("metadata", lambda: vendor.describe(path))
     if info is None:
-        return _print_report(lines, info, recognised, tested, path)
+        return _print_report(lines, info, recognised, tested, path, is_video)
     for key in ("model", "firmware"):
         add(f"{key:<12} {info.get(key) or '-'}")
     if info.get("dimensions"):
@@ -419,12 +420,15 @@ def cmd_report(args: argparse.Namespace) -> int:
         add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees"
             f"{video}{guards}{correction}")
 
-    for label, name in (("preview", "extract_preview"), ("source", "extract_source")):
-        extract = getattr(vendor, name, None)
-        if extract is not None:
-            image = step(label, lambda extract=extract: extract(path))
-            if image is not None:
-                add(f"{label:<12} {image.width}x{image.height} {image.encoding} {image.layout}")
+    if is_video:
+        _report_video(vendor, path, add, step)
+    else:
+        for label, name in (("preview", "extract_preview"), ("source", "extract_source")):
+            extract = getattr(vendor, name, None)
+            if extract is not None:
+                image = step(label, lambda extract=extract: extract(path))
+                if image is not None:
+                    add(f"{label:<12} {image.width}x{image.height} {image.encoding} {image.layout}")
 
     # The same order the renderer tries, so the report says what a render
     # would actually do.
@@ -446,7 +450,76 @@ def cmd_report(args: argparse.Namespace) -> int:
             levelling = description
             break
     add(f"{'levelling':<12} {levelling or 'calibration only: ' + reason}")
-    return _print_report(lines, info, recognised, tested, path)
+    return _print_report(lines, info, recognised, tested, path, is_video)
+
+
+def _is_mp4(path: Path) -> bool:
+    """By content, as everywhere else: an MP4 has ``ftyp`` at byte 4."""
+    try:
+        with path.open("rb") as handle:
+            return handle.read(8)[4:8] == b"ftyp"
+    except OSError:
+        return False
+
+
+def _mp4_complete(path: Path) -> bool:
+    """Whether the file's top-level MP4 boxes, index included, end exactly where the file does."""
+    if not _is_mp4(path):
+        return False
+    size = path.stat().st_size
+    offset, seen = 0, set()
+    with path.open("rb") as handle:
+        while offset < size:
+            handle.seek(offset)
+            header = handle.read(16)
+            if len(header) < 8:
+                return False
+            length, kind = int.from_bytes(header[:4], "big"), header[4:8]
+            if length == 1 and len(header) == 16:
+                length = int.from_bytes(header[8:16], "big")
+            elif length == 0:
+                length = size - offset
+            if length < 8 or not kind.isalnum():
+                return False
+            seen.add(kind)
+            offset += length
+    return offset == size and b"moov" in seen
+
+
+def _report_video(vendor, path: Path, add, step) -> None:
+    """The lines that matter for a video, in place of a photo's preview and source.
+
+    A photo's two images would both read as failures on a video, which is not
+    what anyone reporting one needs to see.  What a video's stitch and its
+    steadying depend on is the opening frame and the motion record.
+    """
+    keyframes = getattr(vendor, "extract_keyframes", None)
+    frame = None
+    if keyframes is not None:
+        try:
+            frame = keyframes(path)
+        except Exception:  # noqa: BLE001 -- an X5 stores a stitched picture here instead
+            frame = None
+    if frame is not None:
+        add(f"{'opening':<12} {frame.codec} keyframe, {frame.layout}")
+    elif getattr(vendor, "extract_preview", None) is not None:
+        image = step("opening", lambda: vendor.extract_preview(path))
+        if image is not None:
+            add(f"{'opening':<12} {image.width}x{image.height} {image.encoding} {image.layout}")
+
+    read = getattr(vendor, "motion", None)
+    if read is None:
+        add(f"{'motion':<12} no motion reader for this vendor")
+        return
+    motion = step("motion", lambda: read(path))
+    if motion is None:
+        return
+    samples, frames = motion.sample_times, motion.frame_times
+    span = samples[-1] - samples[0] if len(samples) > 1 else 0.0
+    frame_span = frames[-1] - frames[0] if len(frames) > 1 else 0.0
+    rate = f" ({(len(samples) - 1) / span:.0f} per second)" if span > 0 else ""
+    fps = f" ({(len(frames) - 1) / frame_span:.2f} per second)" if frame_span > 0 else ""
+    add(f"{'motion':<12} {len(samples)} samples over {span:.1f} s{rate}, {len(frames)} frames{fps}")
 
 
 def _sniff(path: Path) -> str:
@@ -454,8 +527,14 @@ def _sniff(path: Path) -> str:
 
     Two kinds of file turned up in practice: a plain JPEG with none of the
     camera's data (an export, or an edit saved over the original), and a copy
-    whose end is zeros, which is damage rather than a format.
+    whose end is zeros, which is damage rather than a format.  A third looks
+    like the second and is neither: the other half of a clip recorded as two
+    files (an Insta360 ``_10_``) is a complete MP4 that ends in a padding box
+    of zeros.  All 88 in one library walked to the exact end of the file.
     """
+    if _mp4_complete(path):
+        return ("a complete MP4 with no camera data after it; "
+                "a clip recorded as two files keeps it in the other one")
     with path.open("rb") as handle:
         head = handle.read(3)
         handle.seek(0, 2)
@@ -478,11 +557,11 @@ _ISSUE_FORM = "https://github.com/AkshayRao27/golblick/issues/new"
 
 
 def _print_report(lines: list[str], info: dict | None, recognised: bool, tested: bool | None,
-                  path: Path) -> int:
+                  path: Path, video: bool = False) -> int:
     """The report on stdout, and on stderr a link that opens the right issue form filled in.
 
-    A camera golblick has been tested with gets the photo-problem form; any
-    other camera gets the untested-camera form.  A file no vendor reads is a
+    A camera golblick has been tested with gets the photo-problem or the
+    video-problem form; any other camera gets the untested-camera form.  A file no vendor reads is a
     problem if it has one of a vendor's own extensions (a damaged .insp, say)
     and possibly a new camera otherwise.  The titles have one fixed shape each,
     shared with the Nextcloud app, so issues can be sorted at a glance.
@@ -501,7 +580,8 @@ def _print_report(lines: list[str], info: dict | None, recognised: bool, tested:
         problem = path.suffix.lower().lstrip(".") in owned_extensions()
     camera = ", ".join(value for value in (
         (info or {}).get("model") or "unrecognised file", (info or {}).get("firmware")) if value)
-    template, prefix = (("photo-problem.yml", "Photo problem") if problem
+    kind = "video" if video else "photo"
+    template, prefix = ((f"{kind}-problem.yml", f"{kind.capitalize()} problem") if problem
                         else ("untested-camera.yml", "Untested camera"))
     query = urlencode({
         "template": template,
@@ -511,7 +591,7 @@ def _print_report(lines: list[str], info: dict | None, recognised: bool, tested:
         "where": "Command-line tool",
     })
     if problem:
-        intro = ("If something is wrong with this photo, open this link to report it. It fills in "
+        intro = (f"If something is wrong with this {kind}, open this link to report it. It fills in "
                  "a GitHub issue with the report; you add what's wrong.")
     else:
         intro = ("golblick hasn't been tested with this camera. A report helps whether the result "

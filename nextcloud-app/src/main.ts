@@ -86,7 +86,8 @@ if (config.files && !config.share) registerFileAction({
   id: 'golblick-report',
   displayName: () => 'Report to golblick',
   iconSvgInline: () => svgIcon(mdiClipboardTextOutline),
-  enabled: ({ nodes }) => nodes.length === 1 && isInsp(nodes[0].basename) && nodes[0].fileid !== undefined,
+  enabled: ({ nodes }) => nodes.length === 1 && (isInsp(nodes[0].basename) || isInsv(nodes[0].basename))
+    && nodes[0].fileid !== undefined,
   exec: async ({ nodes }) => {
     const { openReport } = await import('./report');
     void openReport(Number(nodes[0].fileid));

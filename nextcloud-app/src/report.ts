@@ -1,19 +1,20 @@
 /**
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * "Report to golblick" in a .insp file's actions menu: the summary the CLI
+ * "Report to golblick" in a .insp or .insv file's actions menu: the summary the CLI
  * prints with `golblick report`. The server builds it
  * (lib/Service/CameraReport.php) and leaves out the file's name, folder and
  * the camera's serial number.
  *
- * Two kinds of issue use it, and the server's `tested` flag picks one:
+ * Three kinds of issue use it, and the server's `tested` and `video` flags pick one:
  *
- * | tested | heading                          | form                | title prefix    |
- * |--------|----------------------------------|---------------------|-----------------|
- * | yes    | Report a problem with this photo | photo-problem.yml   | Photo problem   |
- * | no     | Report an untested camera        | untested-camera.yml | Untested camera |
+ * | tested | video  | heading                          | form                | title prefix    |
+ * |--------|--------|----------------------------------|---------------------|-----------------|
+ * | yes    | no     | Report a problem with this photo | photo-problem.yml   | Photo problem   |
+ * | yes    | yes    | Report a problem with this video | video-problem.yml   | Video problem   |
+ * | no     | either | Report an untested camera        | untested-camera.yml | Untested camera |
  *
- * An unreadable .insp (tested is null) is a problem with a photo. The main
+ * An unreadable file (tested is null) is a problem with a photo or a video. The main
  * button opens the form on GitHub already filled in; issue forms take a query
  * parameter per field id (.github/ISSUE_TEMPLATE/). Titles have one fixed
  * shape, "<prefix>: <model>, <firmware> (Nextcloud app)", shared with the CLI.
@@ -78,19 +79,20 @@ export async function openReport(fileId: number): Promise<void> {
     const data: Report = await response.json();
     text.textContent = data.report;
     const untested = data.tested === false;
+    const kind = data.video ? 'video' : 'photo';
     if (untested) {
       title.textContent = 'Report an untested camera';
-      note.textContent = `golblick hasn't been tested with the ${data.model} yet. A report helps whether this photo looks `
+      note.textContent = `golblick hasn't been tested with the ${data.model} yet. A report helps whether this ${kind} looks `
         + 'right or not: the button below opens an issue on GitHub with this report filled in, and you add how it looks.';
       issue.textContent = 'Report the camera on GitHub';
     } else {
-      title.textContent = 'Report a problem with this photo';
-      note.textContent = 'If this photo looks wrong or won\'t open, the button below opens an issue on GitHub with this '
-        + 'report filled in, and you add what\'s wrong.';
+      title.textContent = `Report a problem with this ${kind}`;
+      note.textContent = `If this ${kind} looks wrong or won't ${data.video ? 'play' : 'open'}, the button below opens `
+        + 'an issue on GitHub with this report filled in, and you add what\'s wrong.';
       issue.textContent = 'Report the problem on GitHub';
     }
-    note.textContent += ' You need a GitHub account. If you can send a few original photos, say so in the issue and you\'ll '
-      + 'get a private upload link; don\'t attach them to the issue, which is public.';
+    note.textContent += ` You need a GitHub account. If you can send ${data.video ? 'the original clip' : 'a few original photos'}, `
+      + 'say so in the issue and you\'ll get a private upload link; don\'t attach anything to the issue, which is public.';
     // Fenced, so it stays a block when pasted into a GitHub issue by hand.
     report = '```\n' + data.report + '\n```';
     copy.disabled = issue.disabled = false;
@@ -116,14 +118,14 @@ export async function openReport(fileId: number): Promise<void> {
   });
 }
 
-type Report = { report: string; model: string | null; firmware: string | null; tested: boolean | null };
+type Report = { report: string; model: string | null; firmware: string | null; tested: boolean | null; video: boolean };
 
 /** The right issue form, filled in. The report field renders as code, so it goes in unfenced. */
 function issueUrl(data: Report): string {
   const camera = [data.model ?? 'unrecognised file', data.firmware].filter(Boolean).join(', ');
   const [template, prefix] = data.tested === false
     ? ['untested-camera.yml', 'Untested camera']
-    : ['photo-problem.yml', 'Photo problem'];
+    : data.video ? ['video-problem.yml', 'Video problem'] : ['photo-problem.yml', 'Photo problem'];
   const query = new URLSearchParams({
     template,
     title: `${prefix}: ${camera} (Nextcloud app)`,
