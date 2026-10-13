@@ -13,6 +13,7 @@ use OCA\Golblick\Service\BakeQueue;
 use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\Settings;
 use OCA\Golblick\Service\SetupCheck;
+use OCA\Golblick\Service\VideoRenderer;
 use OCA\Golblick\Service\VideoStore;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
@@ -34,6 +35,7 @@ final class SettingsController extends Controller {
 		private VideoStore $videos,
 		private VideoRender $videoJob,
 		private BakeQueue $bake,
+		private VideoRenderer $renderer,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -60,7 +62,10 @@ final class SettingsController extends Controller {
 			'clips' => \count($this->videoJob->candidates()),
 			'cache' => $this->videos->stats(),
 			'rendering' => $current === null ? null : ['fileid' => $current['fileid'], 'started' => $current['started'] ?? null,
-				'baking' => ($current['phase'] ?? '') === 'bake'],
+				'baking' => ($current['phase'] ?? '') === 'bake', 'clip' => $current['clip'] ?? null,
+				'duration' => $current['duration'] ?? null,
+				'done' => ($current['phase'] ?? '') === 'bake' ? null : $this->renderer->progress($current['name'])],
+			'queue' => $this->videoJob->queue(),
 			'worker' => $this->bake->worker(),
 			'failed' => \count(array_filter(array_keys($failed), static fn (string $name): bool => str_ends_with($name, $width))),
 		];

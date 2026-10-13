@@ -77,7 +77,7 @@ final class VideoRender extends TimedJob {
 		$this->startNext();
 	}
 
-	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool, seam?: string, phase?: string}|null */
+	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool, seam?: string, phase?: string, clip?: string, duration?: float}|null */
 	public function current(): ?array {
 		$state = json_decode($this->appConfig->getValueString(Application::APP_ID, 'video_current', ''), true);
 
@@ -268,6 +268,9 @@ final class VideoRender extends TimedJob {
 				'attempts' => $retry === $started['name'] ? 2 : 1,
 				'guards' => $started['guards'],
 				'seam' => $started['seam'],
+				// For the settings page: which clip, and how long it is.
+				'clip' => $file->getName(),
+				'duration' => $started['duration'],
 			]));
 			$this->appConfig->deleteKey(Application::APP_ID, 'video_retry');
 
@@ -283,13 +286,38 @@ final class VideoRender extends TimedJob {
 	}
 
 	/**
-	 * Every clip's first file, newest first. Only under files/, as in Prerender.
+	 * The clips still to stitch at the current size, and their size on disk,
+	 * both lens files counted: everything not done, given up on, or rendering.
 	 *
-	 * @return list<array{fileid: int, etag: string}>
+	 * @return array{clips: int, bytes: int}
+	 */
+	public function queue(): array {
+		$finished = $this->store->finishedNames();
+		$failed = $this->failed();
+		$current = $this->current()['name'] ?? null;
+		$width = $this->settings->videoWidth();
+		$clips = $bytes = 0;
+		foreach ($this->candidates() as $row) {
+			$name = VideoStore::nameFor($row['fileid'], $row['etag'], $width);
+			if (isset($finished[$name]) || isset($failed[$name]) || $name === $current) {
+				continue;
+			}
+			$clips++;
+			$bytes += $row['size'];
+		}
+
+		return ['clips' => $clips, 'bytes' => $bytes];
+	}
+
+	/**
+	 * Every clip's first file, newest first. Only under files/, as in Prerender.
+	 * `size` adds the second lens file of a OneR or X3 clip, which is half of it.
+	 *
+	 * @return list<array{fileid: int, etag: string, size: int}>
 	 */
 	public function candidates(): array {
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('fileid', 'etag', 'name')
+		$qb->select('fileid', 'etag', 'name', 'size', 'parent')
 			->from('filecache')
 			->where($qb->expr()->iLike('name', $qb->createNamedParameter('%.insv')))
 			->andWhere($qb->expr()->like('path', $qb->createNamedParameter('files/%')))
@@ -297,15 +325,24 @@ final class VideoRender extends TimedJob {
 			->orderBy('mtime', 'DESC')
 			->addOrderBy('fileid', 'DESC');
 		$result = $qb->executeQuery();
-		$rows = [];
+		$rows = $partners = [];
 		while ($row = $result->fetch()) {
-			if (preg_match(self::MASTER, (string)$row['name'])) {
-				$rows[] = ['fileid' => (int)$row['fileid'], 'etag' => (string)$row['etag']];
+			$name = (string)$row['name'];
+			if (preg_match(self::MASTER, $name)) {
+				$rows[] = ['fileid' => (int)$row['fileid'], 'etag' => (string)$row['etag'], 'size' => (int)$row['size'],
+					'key' => $row['parent'] . '/' . strtolower(preg_replace('/_00_/', '_', $name, 1))];
+			} elseif (preg_match('/^VID_\d{8}_\d{6}_10_\d+\.insv$/i', $name)) {
+				$partners[$row['parent'] . '/' . strtolower(preg_replace('/_10_/', '_', $name, 1))] = (int)$row['size'];
 			}
 		}
 		$result->closeCursor();
 
-		return $rows;
+		return array_map(static function (array $row) use ($partners): array {
+			$row['size'] += $partners[$row['key']] ?? 0;
+			unset($row['key']);
+
+			return $row;
+		}, $rows);
 	}
 
 	/** The file $id, as the first user it's mounted for sees it; $user is set to that user. */

@@ -84,8 +84,8 @@ final class VideoRenderer {
 	/**
 	 * Start rendering $file, a video's master file, and return the entry name.
 	 *
-	 * @return array{name: string, deadline: int, guards: bool, seam: string} guards: whether lens guards
-	 *                                                                         were detected; seam: how the lenses hand over
+	 * @return array{name: string, deadline: int, guards: bool, seam: string, duration: float} guards: whether lens
+	 *         guards were detected; seam: how the lenses hand over; duration: the clip's length in seconds
 	 * @throws FormatError if the file can't be rendered; nothing is left running
 	 */
 	public function start(File $file): array {
@@ -153,6 +153,10 @@ final class VideoRenderer {
 		if ($probe['created'] !== null) {
 			array_push($command, '-metadata', 'creation_time=' . $probe['created']);
 		}
+		// How far it has got, for the settings page: -v error keeps the log
+		// to errors, and -progress reports regardless. Every 5 s, not the
+		// default half second, so an hour's render leaves 200 KB, not 2 MB.
+		array_push($command, '-progress', "$root/$name.progress", '-stats_period', '5');
 		array_push($command, '-f', 'mp4', "$root/$name.part.mp4");
 
 		$quoted = implode(' ', array_map('escapeshellarg', $command));
@@ -166,7 +170,7 @@ final class VideoRenderer {
 
 		// Twelve times the clip's length, an hour at least: four cores run at about a fifth of real time.
 		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards,
-			'seam' => $seam];
+			'seam' => $seam, 'duration' => (float)$probe['duration']];
 	}
 
 	/**
@@ -241,6 +245,26 @@ final class VideoRenderer {
 		}
 
 		return ['state' => 'lost', 'detail' => 'the render stopped without finishing'];
+	}
+
+	/**
+	 * How many seconds of the clip a running render has written, from the
+	 * last block ffmpeg's -progress wrote; null before the first one, or for
+	 * a render started without it.
+	 */
+	public function progress(string $name): ?float {
+		$path = $this->store->root() . "/$name.progress";
+		$size = @filesize($path);
+		if ($size === false || $size === 0) {
+			return null;
+		}
+		$tail = (string)@file_get_contents($path, false, null, max(0, $size - 2048));
+		// "N/A" until the first frame is out, so only a number counts.
+		if (!preg_match_all('/^out_time_us=(\d+)$/m', $tail, $matches)) {
+			return null;
+		}
+
+		return (int)end($matches[1]) / 1e6;
 	}
 
 	/** Stop a render that is still going, and remove its work files. */
@@ -348,7 +372,7 @@ final class VideoRenderer {
 
 	private function cleanUp(string $name, bool $withVideo): void {
 		$base = $this->store->root() . "/$name";
-		foreach (['.pid', '.status', '.log'] as $suffix) {
+		foreach (['.pid', '.status', '.log', '.progress'] as $suffix) {
 			@unlink($base . $suffix);
 		}
 		if ($withVideo) {

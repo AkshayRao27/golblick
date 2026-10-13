@@ -235,7 +235,10 @@ final class VideoStore {
 	public function clear(?string $keep = null): int {
 		$removed = 0;
 		foreach (glob(($this->root() ?? '/nonexistent') . '/*') ?: [] as $path) {
-			if (($keep !== null && str_starts_with(basename($path), $keep . '.')) || str_ends_with($path, '.beside')) {
+			// The GPU worker's heartbeat isn't a video: deleting it made the
+			// settings page say no worker had been seen.
+			if (($keep !== null && str_starts_with(basename($path), $keep . '.')) || str_ends_with($path, '.beside')
+				|| basename($path) === 'worker.json') {
 				continue;
 			}
 			if (is_dir($path)) {

@@ -32,7 +32,11 @@ type Status = {
     usable: boolean;
     clips: number;
     cache: { files: number; bytes: number; current: number };
-    rendering: { fileid: number; started: number | null; baking: boolean } | null;
+    rendering: {
+      fileid: number; started: number | null; baking: boolean;
+      clip: string | null; duration: number | null; done: number | null;
+    } | null;
+    queue: { clips: number; bytes: number };
     failed: number;
     worker: { alive: boolean; seen: number; device: string; encoder: string } | null;
   };
@@ -61,6 +65,39 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
 }
 
 const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+const gigabytes = (bytes: number) => (bytes < 1024 ** 3 ? megabytes(bytes) : `${(bytes / 1024 ** 3).toFixed(1)} GB`);
+/** 75 → "1:15", 3725 → "1:02:05". */
+const clock = (seconds: number) => {
+  const s = Math.floor(seconds);
+  const parts = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60];
+  return (parts[0] > 0 ? parts : parts.slice(1)).map((n, i) => (i === 0 ? String(n) : String(n).padStart(2, '0'))).join(':');
+};
+/** 60 → "1 minute", 400 → "7 minutes", 9000 → "2.5 hours". */
+const span = (seconds: number) => {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  return minutes < 90 ? `${minutes} minute${minutes === 1 ? '' : 's'}` : `${(seconds / 3600).toFixed(1)} hours`;
+};
+
+/**
+ * Where the clip being stitched has got to, from ffmpeg's own progress: how
+ * much of it is written, how fast that is going, and what is left at that
+ * pace. Each clip runs at its own pace, so there's no estimate for the queue.
+ */
+function renderingLine(r: NonNullable<Status['videos']['rendering']>): string {
+  const name = r.clip ? `${r.clip}` : 'One video';
+  if (r.baking) return ` ${name} is being steadied on the GPU now.`;
+  const since = r.started ? new Date(r.started * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+  let line = ` ${name} is being stitched now${since ? `, since ${since}` : ''}`;
+  if (r.done !== null && r.duration && r.started) {
+    const elapsed = Date.now() / 1000 - r.started;
+    const pace = r.done / elapsed;
+    line += `: ${clock(r.done)} of ${clock(r.duration)} (${Math.min(100, Math.floor(100 * r.done / r.duration))}%)`;
+    if (pace > 0 && r.done > 0) {
+      line += `, at ${pace.toFixed(2)}× real time, about ${span(Math.max(0, r.duration - r.done) / pace)} left`;
+    }
+  }
+  return line + '.';
+}
 /** The Material Design icons the overview page's "Security & setup warnings" list uses, plus its check mark. */
 const ICON: Record<Level, string> = {
   ok: 'M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z',
@@ -238,9 +275,10 @@ function render(status: Status) {
       videoClear.disabled = false;
     }
   });
-  const since = v.rendering?.started ? new Date(v.rendering.started * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
   const videoProgress = `${v.cache.current} of ${v.clips} registered videos are stitched at this size, ${megabytes(v.cache.bytes)} in all.`
-    + (v.rendering ? (v.rendering.baking ? ' One is being steadied on the GPU now.' : ` One is being stitched now${since ? `, since ${since}` : ''}.`) : '')
+    + (v.rendering ? renderingLine(v.rendering) : '')
+    + (v.queue.clips > 0 ? ` ${v.queue.clips}${v.rendering ? ' more' : ''} ${v.queue.clips === 1 ? 'is' : 'are'} waiting, `
+      + `${gigabytes(v.queue.bytes)} of camera files.` : '')
     + (v.failed > 0 ? ` ${v.failed} couldn't be stitched; the server log says why.` : '');
 
   // ---- Integrations
