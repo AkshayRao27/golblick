@@ -40,6 +40,7 @@ type Status = {
     failed: number;
     worker: { alive: boolean; seen: number; device: string; encoder: string } | null;
     compose: { aio: boolean; yaml: string } | null;
+    beside: number;
   };
 };
 
@@ -277,6 +278,21 @@ function render(status: Status) {
       videoClear.disabled = false;
     }
   });
+  const besideClearNote = feedback('video_clear_beside');
+  const besideClear = el('button', { type: 'button', textContent: 'Delete copies saved next to clips', disabled: v.beside === 0 });
+  besideClear.addEventListener('click', async () => {
+    if (!window.confirm(`Delete the .360.mp4 copies saved next to their clips (${v.beside})? They go to the trash bin, so the space comes back once that is emptied. `
+      + 'With stitching and saving on, they are made again.')) return;
+    besideClear.disabled = true;
+    try {
+      const r = await api<{ removed: number; bytes: number }>('POST', '/settings/videos/clear-beside');
+      besideClearNote.ok(`Deleted ${r.removed} copies, ${gigabytes(r.bytes)}.`);
+      await load(false);
+    } catch (e) {
+      besideClearNote.fail((e as Error).message);
+      besideClear.disabled = false;
+    }
+  });
   const videoProgress = `${v.cache.current} of ${v.clips} registered videos are stitched at this size, ${megabytes(v.cache.bytes)} in all.`
     + (v.rendering ? renderingLine(v.rendering) : '')
     + (v.queue.clips > 0 ? ` ${v.queue.clips}${v.rendering ? ' more' : ''} ${v.queue.clips === 1 ? 'is' : 'are'} waiting, `
@@ -333,7 +349,7 @@ function render(status: Status) {
     bakeNote.node,
     el('label', {}, 'Video size ', videoWidth), videoWidthNote.node,
     el('p', { className: 'golblick-progress' }, videoProgress),
-    videoClear, videoClearNote.node,
+    el('div', { className: 'golblick-actions' }, videoClear, besideClear), videoClearNote.node, besideClearNote.node,
 
     el('h3', {}, 'Integrations'),
     el('p', { className: 'settings-hint' },

@@ -68,6 +68,7 @@ final class SettingsController extends Controller {
 				'duration' => $current['duration'] ?? null,
 				'done' => ($current['phase'] ?? '') === 'bake' ? null : $this->renderer->progress($current['name'])],
 			'queue' => $this->videoJob->queue(),
+			'beside' => $this->videos->besideCount(),
 			'worker' => $this->bake->worker(),
 			'compose' => $this->compose->build(),
 			'failed' => \count(array_filter(array_keys($failed), static fn (string $name): bool => str_ends_with($name, $width))),
@@ -81,6 +82,11 @@ final class SettingsController extends Controller {
 		$this->videoJob->forgetFailures();
 
 		return new JSONResponse(['removed' => $removed]);
+	}
+
+	#[FrontpageRoute(verb: 'POST', url: '/settings/videos/clear-beside')]
+	public function clearBeside(): JSONResponse {
+		return new JSONResponse($this->videoJob->deleteBeside());
 	}
 
 	#[FrontpageRoute(verb: 'PUT', url: '/settings')]

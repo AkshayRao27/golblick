@@ -345,6 +345,38 @@ final class VideoRender extends TimedJob {
 		}, $rows);
 	}
 
+	/**
+	 * Deletes the copies saved next to their clips, through the Files API so
+	 * they go to the trash bin where there is one, and drops their markers, so
+	 * with stitching and saving on they're made again. Only a <clip>.360.mp4
+	 * next to a clip that is marked as 360° video goes: a file of the user's
+	 * own that happens to have that name and isn't one is left alone.
+	 *
+	 * @return array{removed: int, bytes: int}
+	 */
+	public function deleteBeside(): array {
+		$removed = $bytes = 0;
+		foreach ($this->candidates() as $row) {
+			$clip = $this->open($row['fileid']);
+			$copy = $clip === null ? null : VideoStore::beside($clip);
+			if ($copy === null || !VideoStore::isSphericalVideo($copy)) {
+				continue;
+			}
+			$size = $copy->getSize();
+			try {
+				$copy->delete();
+			} catch (\Throwable $e) {
+				$this->logger->warning('golblick: could not delete ' . $copy->getPath() . ': ' . $e->getMessage(), ['app' => 'golblick']);
+				continue;
+			}
+			$removed++;
+			$bytes += $size;
+			$this->store->dropMarkers($row['fileid']);
+		}
+
+		return ['removed' => $removed, 'bytes' => $bytes];
+	}
+
 	/** The file $id, as the first user it's mounted for sees it; $user is set to that user. */
 	private function open(int $id, ?IUser &$user = null): ?File {
 		foreach ($this->mounts->getMountsForFileId($id) as $mount) {

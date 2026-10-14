@@ -112,7 +112,7 @@ With **Save each stitched copy next to its clip** on, each finished copy moves i
 
 The copies count against that folder's storage, about 125 MB for every GB of clips at 2880 wide and 220 MB at 3840, and are synced to desktop clients like any other file. On Windows and macOS, Insta360's own software plays the clips, so a desktop there doesn't need the copies: add `*.360.mp4` to the client's ignored files (**Edit Ignored Files** in the client's settings). A client that uses virtual files, as the macOS one does by default, only downloads a copy if it's opened. Insta360 has no software for Linux, so on a Linux desktop the copies are the way to watch the clips.
 
-When a copy is made again, the old one is replaced without being kept as a file version. Deleting a copy doesn't bring it back.
+When a copy is made again, the old one is replaced without being kept as a file version. Deleting a copy doesn't bring it back. To remove them all, use **Delete copies saved next to clips** in the Videos section: they go to the trash bin, and with stitching and saving still on they're made again. Changing the video size doesn't need it: each clip is stitched again at the new size and its copy replaced, and the old one plays until then.
 
 ### Steady copies, with a GPU
 
@@ -135,7 +135,7 @@ Each finished copy then goes to the worker before it's saved next to its clip. O
 - the size of the full-size panorama used for zooming and the sphere view, and a button to clear the ones already made
 - rendering those panoramas in the background, newest photos first, off by default because it costs about 19 seconds of CPU per OneR photo at full size
 - switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one
-- the Videos section: the switches described under [Videos](#videos), the video size, how far stitching has got, whether the GPU worker is running, and **Delete stitched videos**
+- the Videos section: the switches described under [Videos](#videos), the video size, how far stitching has got, whether the GPU worker is running, **Delete stitched videos** and **Delete copies saved next to clips**
 
 **Personal settings → Golblick (360° Photos)** lets each user choose what happens when a 360° video or photo opens in Memories. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. In the sphere, the left and right arrow keys go on to the previous or next item.
 

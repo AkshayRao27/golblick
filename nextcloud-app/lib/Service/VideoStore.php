@@ -266,6 +266,18 @@ final class VideoStore {
 		}
 	}
 
+	/** How many copies are marked as saved next to their clips. */
+	public function besideCount(): int {
+		return \count(glob(($this->root() ?? '/nonexistent') . '/*.beside') ?: []);
+	}
+
+	/** Forgets that $fileId's copy was saved next to it, so it's made again. */
+	public function dropMarkers(int $fileId): void {
+		foreach (glob(($this->root() ?? '/nonexistent') . "/$fileId-*.beside") ?: [] as $path) {
+			@unlink($path);
+		}
+	}
+
 	public static function removeDirectory(string $path): void {
 		foreach (glob("$path/*") ?: [] as $entry) {
 			@unlink($entry);
