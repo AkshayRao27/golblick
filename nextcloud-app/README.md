@@ -90,7 +90,7 @@ Each step is a switch on **Administration settings → Golblick (360° Photos)**
 1. **Register .insv files**, in the setup check. Each `.insv` then shows a thumbnail of its opening frame as a panorama in Files. An X5 stores that frame stitched; a OneR or X3 stores both lenses' opening frame in the `_00_` file, and decoding it needs ffmpeg.
 2. **Stitch videos in the background**, in the Videos section. The server makes a stitched copy of each clip, newest first, one at a time, with ffmpeg at the lowest priority. Clicking a video in Files then plays that copy as a sphere you can look around in while it plays; until it's ready, you see the opening frame. Every file of a clip (`_00_`, `_10_` and the low-resolution `LRV_` copy) plays the same video.
 3. **Save each stitched copy next to its clip**, to see the videos in Memories. See [In Memories](#in-memories).
-4. Optionally, **Bake the steadying into each copy**, so the copies play steady in any player and when downloaded. That needs a GPU; see [Steady copies, with a GPU](#steady-copies-with-a-gpu).
+4. Optionally, **Bake steadying into each copy**, so the copies play steady in any player and when downloaded. That needs a GPU; see [Steady copies, with a GPU](#steady-copies-with-a-gpu).
 
 ### Stitching
 
@@ -119,40 +119,13 @@ When a copy is made again, the old one is replaced without being kept as a file 
 The copies can also have the steadying baked in, so they play steady in any app and when downloaded, the way Insta360 Studio's stabilised exports do. That needs a GPU, which Nextcloud's PHP can't use, so a small worker does it in a container of its own next to Nextcloud. It runs from the app's `worker/` folder in the image of the Memories transcoder (`radialapps/go-vod`), which already has ffmpeg with OpenCL and NVIDIA's video encoder, and it needs only the GPU and the app's video folder. It has been tried with NVIDIA cards only.
 
 1. Install NVIDIA's container toolkit and set it up for Docker (`nvidia-ctk runtime configure --runtime=docker`), as described in [NVIDIA's install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-2. Open the Videos section of the app's settings page once. That creates the video folder the worker needs. If the worker starts first, Docker creates the folder itself, owned by root, and Nextcloud can't write to it; the compose file below refuses to start instead.
-3. Find the two folders on the host that the worker needs:
-   - the app's `worker/` folder: on Nextcloud AIO, `/var/lib/docker/volumes/nextcloud_aio_nextcloud/_data/custom_apps/golblick/worker`; elsewhere, `occ app:getpath golblick` gives the app's folder, as the Nextcloud server sees it.
-   - the video folder, `<data directory>/appdata_<instance id>/golblick/videos`. `occ config:system:get instanceid` gives the instance id. On Nextcloud AIO, the data directory is whatever `NEXTCLOUD_DATADIR` was set to, or `/var/lib/docker/volumes/nextcloud_aio_nextcloud_data/_data` if it wasn't.
-4. Put those two paths into this `compose.yaml`, and start it with `docker compose up -d`:
+2. Open the Videos section of the app's settings page. Under **Set up the GPU worker**, it shows a `compose.yaml` with this server's folders filled in.
+   - On Nextcloud AIO, if you gave the mastercontainer `NEXTCLOUD_DATADIR`, put the same line in a file named `.env` next to `compose.yaml`.
+   - Elsewhere, the paths are as Nextcloud sees them. If Nextcloud runs in a container, change each to the same folder's path on the host.
+3. Save it on the Docker host in a folder of its own, and run `docker compose up -d` there. If either folder isn't where the file says, it refuses to start, rather than letting Docker create an empty folder owned by root.
+4. Reload the settings page after a minute: the Videos section says whether the worker is running. Then switch on **Bake steadying into each copy**.
 
-   ```yaml
-   services:
-     golblick-worker:
-       image: radialapps/go-vod
-       runtime: nvidia
-       restart: unless-stopped
-       user: "33:33"   # the web server's user, www-data
-       entrypoint: ["/bin/bash", "/golblick/golblick-worker.sh", "/jobs"]
-       environment:
-         NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
-       healthcheck:   # the image's own checks for the transcoder, which isn't running here
-         test: ["CMD-SHELL", "test -n \"$$(find /jobs/worker.json -mmin -1)\""]
-         start_period: 90s
-       deploy:
-         resources:
-           reservations:
-             devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
-       volumes:
-         - <the app's worker folder>:/golblick:ro
-         - type: bind
-           source: <the video folder>
-           target: /jobs
-           bind: { create_host_path: false }
-   ```
-
-5. Switch on **Bake the steadying into each copy** in the Videos section, which also shows whether the worker is running.
-
-Each finished copy then goes to the worker before it's saved next to its clip. On the GPU it was tried on (a GeForce RTX 2070 Super), that takes under half the clip's length, against several times its length to stitch. If the worker isn't running or fails, the copy is kept as stitched and the player steadies it as before. In the player, a baked copy still has both buttons: switching steadying off shows the camera's own movement again. Baking resamples the picture once more, so a baked copy is very slightly softer. Copies stitched before baking was switched on aren't changed.
+Each finished copy then goes to the worker before it's saved next to its clip. On the GPU it was tried on (a GeForce RTX 2070 Super), that takes under half the clip's length, against several times its length to stitch. If the worker isn't running or fails, the copy is kept as stitched and the player steadies it as before. In the player, a baked copy still has both buttons: switching steadying off shows the camera's own movement again. Baking resamples the picture once more, so a baked copy is very slightly softer. Copies stitched before baking was switched on aren't changed, and neither are copies that finished while the worker wasn't running, so if you want baked copies, start the worker and switch baking on before switching on stitching.
 
 ## Settings
 

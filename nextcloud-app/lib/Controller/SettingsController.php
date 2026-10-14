@@ -15,6 +15,7 @@ use OCA\Golblick\Service\Settings;
 use OCA\Golblick\Service\SetupCheck;
 use OCA\Golblick\Service\VideoRenderer;
 use OCA\Golblick\Service\VideoStore;
+use OCA\Golblick\Service\WorkerCompose;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
@@ -36,6 +37,7 @@ final class SettingsController extends Controller {
 		private VideoRender $videoJob,
 		private BakeQueue $bake,
 		private VideoRenderer $renderer,
+		private WorkerCompose $compose,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -67,6 +69,7 @@ final class SettingsController extends Controller {
 				'done' => ($current['phase'] ?? '') === 'bake' ? null : $this->renderer->progress($current['name'])],
 			'queue' => $this->videoJob->queue(),
 			'worker' => $this->bake->worker(),
+			'compose' => $this->compose->build(),
 			'failed' => \count(array_filter(array_keys($failed), static fn (string $name): bool => str_ends_with($name, $width))),
 		];
 	}

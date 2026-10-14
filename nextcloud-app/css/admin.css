@@ -32,3 +32,12 @@
 #golblick-admin .golblick-feedback:empty { display: none; }
 #golblick-admin .golblick-feedback[data-level="ok"] { color: var(--color-success-text, #005416); }
 #golblick-admin .golblick-feedback[data-level="error"] { color: var(--color-error-text, #c90000); }
+
+#golblick-admin .golblick-worker-setup { margin: 8px 0 0 24px; max-width: 760px; }
+#golblick-admin .golblick-worker-setup summary { cursor: pointer; }
+#golblick-admin .golblick-worker-setup ol { list-style: decimal; padding-left: 20px; margin: 8px 0; }
+#golblick-admin .golblick-compose {
+	overflow-x: auto; padding: 8px; margin: 8px 0; font-size: 12px; white-space: pre;
+	font-family: var(--font-face-monospace, monospace);
+	background: var(--color-background-dark); border-radius: var(--border-radius);
+}

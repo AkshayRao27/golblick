@@ -39,6 +39,7 @@ type Status = {
     queue: { clips: number; bytes: number };
     failed: number;
     worker: { alive: boolean; seen: number; device: string; encoder: string } | null;
+    compose: { aio: boolean; yaml: string } | null;
   };
 };
 
@@ -253,10 +254,11 @@ function render(status: Status) {
   const bakeNote = feedback('video_bake');
   const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const workerLine = v.worker === null
-    ? 'No GPU worker has been seen.'
+    ? 'No GPU worker found.'
     : v.worker.alive
       ? `GPU worker running: ${v.worker.device}, encoding with ${v.worker.encoder}.`
-      : `The GPU worker was last seen at ${clock(v.worker.seen)} and isn't running now.`;
+      : `The GPU worker was last seen at ${clock(v.worker.seen)} and isn't currently running.`;
+  const workerSetup = v.compose === null || v.worker?.alive ? null : workerSteps(v.compose);
   const videoWidthNote = feedback('video_width');
   const videoWidth = el('select', {}, ...[2880, 3840].map((w) =>
     el('option', { value: String(w), selected: w === s.video_width }, `${w} × ${w / 2}`)));
@@ -314,24 +316,20 @@ function render(status: Status) {
 
     el('h3', {}, 'Videos'),
     el('p', { className: 'settings-hint' },
-      'Insta360 videos play as a sphere from Files once the server has stitched them, which it does in the background, newest first. '
-      + 'It is slow and needs memory: for every second of video, about 12 CPU-seconds at 2880 wide and 18 at 3840, so a five-minute clip takes 15 minutes or more on four cores; '
-      + 'a render needs about 1 GB of memory at 2880 and 1.5 GB at 3840, and the copies take about 5 GB per hour of video at 2880 and 9 GB at 3840. The horizon is levelled once per clip, at its start. '
-      + 'It needs .insv registered (see Setup), ffmpeg, and the data directory on local disk.'),
+      'Insta360 videos play as a sphere from Files once the server has stitched them (done in the background, newest first). It is slow and needs memory: for every second of video, about 12 CPU-seconds at 2880 wide and 18 at 3840 (so a five-minute clip takes 15 minutes or more on four cores); a render needs about 1 GB of memory at 2880 and 1.5 GB at 3840, and the copies take about 5 GB per hour of video at 2880 and 9 GB at 3840. The horizon is levelled once per clip, at its start. It needs .insv registered (see Setup), ffmpeg, and the data directory on the local disk.'),
     toggle('Stitch videos in the background',
       v.usable ? 'Runs ffmpeg at the lowest priority, one video at a time.' : 'Not available: the data directory isn\'t on local disk.',
       s.video_render, (on) => void save({ video_render: on }, videoNote)),
     videoNote.node,
     toggle('Save each stitched copy next to its clip',
-      'Moves each finished copy into the clip\'s folder as an ordinary video file, named after the clip with .360.mp4 at the end, so it shows up in Memories and plays in any app that handles 360° video. '
-      + 'It counts against that folder\'s storage and desktop clients sync it like any other file. Copies already stitched are moved over one at a time. Turning this off later leaves saved copies where they are.',
+      'Moves each finished copy into the clip\'s folder as an ordinary video file, named after the clip with .360.mp4 at the end, so it shows up in Memories and plays in any app that handles 360° video. It counts against that folder\'s storage and desktop clients sync it like any other file. Copies already stitched are moved over one at a time. Turning this off later leaves saved copies where they are.',
       s.video_beside, (on) => void save({ video_beside: on }, besideNote)),
     besideNote.node,
-    toggle('Bake the steadying into each copy',
-      'Copies then play steady in any app and when downloaded, not only in the sphere here. It needs golblick\'s GPU worker running next to Nextcloud (see the app\'s README); '
-      + 'without one, copies stay as stitched and are steadied as they play. Copies stitched before this was switched on aren\'t changed.',
+    toggle('Bake steadying into each copy',
+      'Copies then play steadied in any app as well as when downloaded, not only in the sphere-view in Nextcloud. It needs golblick\'s GPU worker running next to Nextcloud (see the app\'s README); without one, copies stay as stitched and are steadied as they play. Copies stitched before this was switched on aren\'t changed.',
       s.video_bake, (on) => void save({ video_bake: on }, bakeNote)),
     el('p', { className: 'golblick-progress' }, workerLine),
+    ...(workerSetup ? [workerSetup] : []),
     bakeNote.node,
     el('label', {}, 'Video size ', videoWidth), videoWidthNote.node,
     el('p', { className: 'golblick-progress' }, videoProgress),
@@ -370,6 +368,39 @@ function render(status: Status) {
       s.sphere_public, (on) => void save({ sphere_public: on }, publicNote)),
     publicNote.node,
   );
+}
+
+/** Whether the worker steps were open, so a redraw after saving a setting keeps them open. */
+let workerStepsOpen = false;
+
+/** How to start the GPU worker, with the compose file the server filled in for itself. */
+function workerSteps(compose: { aio: boolean; yaml: string }) {
+  const yaml = el('pre', { className: 'golblick-compose' }, compose.yaml);
+  const copyNote = feedback('compose_copy');
+  const copy = el('button', { type: 'button', textContent: 'Copy' });
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(compose.yaml);
+      copyNote.ok('Copied.');
+    } catch {
+      // No clipboard outside HTTPS: select the text so it can be copied by hand.
+      window.getSelection()?.selectAllChildren(yaml);
+      copyNote.fail('Couldn\'t copy; the text is selected, so copy it with Ctrl+C.');
+    }
+  });
+  const toolkit = el('a', { href: 'https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html', target: '_blank', rel: 'noreferrer' }, 'NVIDIA\'s container toolkit');
+  const steps = el('details', { className: 'golblick-worker-setup', open: workerStepsOpen },
+    el('summary', {}, 'Set up the GPU worker'),
+    el('ol', {},
+      el('li', {}, 'On the Docker host, install ', toolkit, ' and run ', el('code', {}, 'nvidia-ctk runtime configure --runtime=docker'), '. It has been tried with NVIDIA cards only.'),
+      el('li', {}, 'Save this as ', el('code', {}, 'compose.yaml'), ' in a folder of its own on that host. ',
+        compose.aio
+          ? 'If you gave the AIO mastercontainer NEXTCLOUD_DATADIR, put the same line, such as NEXTCLOUD_DATADIR=/mnt/ncdata, in a file named .env next to it. The paths assume Docker keeps its volumes in /var/lib/docker.'
+          : 'The two folder paths are as this server sees them. If Nextcloud runs in a container, change each to the same folder\'s path on the host.'),
+      el('li', {}, 'Run ', el('code', {}, 'docker compose up -d'), ' in that folder, and reload this page a minute later.')),
+    yaml, copy, copyNote.node);
+  steps.addEventListener('toggle', () => { workerStepsOpen = steps.open; });
+  return steps;
 }
 
 async function load(showLoading = true) {
