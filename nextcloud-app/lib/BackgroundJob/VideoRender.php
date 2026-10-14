@@ -352,6 +352,9 @@ final class VideoRender extends TimedJob {
 	 * next to a clip that is marked as 360° video goes: a file of the user's
 	 * own that happens to have that name and isn't one is left alone.
 	 *
+	 * The copies exist only because Memories lists nothing else; see
+	 * AGENT-NOTES.md on pulsejet/memories#1739 before building on this.
+	 *
 	 * @return array{removed: int, bytes: int}
 	 */
 	public function deleteBeside(): array {
