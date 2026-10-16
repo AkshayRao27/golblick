@@ -347,7 +347,9 @@ function render(status: Status) {
     el('p', { className: 'golblick-progress' }, workerLine),
     ...(workerSetup ? [workerSetup] : []),
     bakeNote.node,
-    el('label', {}, 'Video size ', videoWidth), videoWidthNote.node,
+    el('label', {}, 'Video size ', videoWidth),
+    el('p', { className: 'golblick-progress' }, '3840 is sharper, but a browser that decodes video on the CPU may not keep up with it, and plays it choppily. Changing the size stitches every clip again.'),
+    videoWidthNote.node,
     el('p', { className: 'golblick-progress' }, videoProgress),
     el('div', { className: 'golblick-actions' }, videoClear, besideClear), videoClearNote.node, besideClearNote.node,
 

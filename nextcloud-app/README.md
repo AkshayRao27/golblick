@@ -8,7 +8,7 @@ Videos are optional. Switched on, the server stitches each `.insv` clip into an 
 
 This is an alpha of a fully vibe-coded app. Read the [main README's warning](../README.md#-please-read-this-before-you-proceed) first, and try it on a test instance before your real one.
 
-It has been tested on test instances in Docker: the official `nextcloud` image, and a copy of Nextcloud AIO running the same images as a real install. The photo side has also been running on my own Nextcloud AIO server since version 0.1.0. Video support is newer and has so far only run on the test instances.
+It has been tested on test instances in Docker: the official `nextcloud` image, and a copy of Nextcloud AIO running the same images as a real install. The photo side has also been running on my own Nextcloud AIO server since version 0.1.0. Video support is newer: it ran on the test instances first, and on my server since 0.5.0.
 
 ## What installing it changes
 
@@ -94,7 +94,7 @@ Each step is a switch on **Administration settings → Golblick (360° Photos)**
 
 ### Stitching
 
-Stitching is slow, needs memory, and the copies are big. At the default 2880 × 1440, each second of video takes about 12 CPU-seconds, so a five-minute clip takes 15 minutes or more on four cores. A render needs about 1 GB of memory, and the copies take about 5 GB per hour of video. At 3840 × 1920, which you can pick under **Video size**, it's 18 CPU-seconds, 1.5 GB and 9 GB.
+Stitching is slow, needs memory, and the copies are big. At the default 2880 × 1440, each second of video takes about 12 CPU-seconds, so a five-minute clip takes 15 minutes or more on four cores. A render needs about 1 GB of memory, and the copies take about 5 GB per hour of video. At 3840 × 1920, which you can pick under **Video size**, it's 18 CPU-seconds, 1.5 GB and 9 GB. 3840 looks sharper but is harder to play: in Firefox decoding video on the CPU, the sphere player managed about 19 frames a second of a 30 fps copy, where 2880 kept up.
 
 The camera doesn't match a video's two lenses to each other the way it does for photos, so the stitching evens them out along the seam as the clip plays; where glare has washed one lens out completely, the seam can still show. For each clip it also decides, from a few of its frames, where and how the two lenses meet: on an X3 or X5, which record how far apart their lenses sit, it can line up someone who stays close to the camera, such as whoever is holding it, and on any camera it can move the seam to where the lenses agree. If that doesn't clearly help on frames it didn't choose from, it keeps the plain seam.
 

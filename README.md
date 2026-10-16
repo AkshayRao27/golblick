@@ -40,7 +40,7 @@ What I can say, however, is that
     - `probe`, `triage`, `report` and `vendors` only read files.
     - `thumb`, `preview`, `render` and `stabilise` write one new file, next to the original unless you pass `-o`. They will overwrite an existing file with that name, but refuse to write over the file they are reading.
     - `share` writes copies into a new folder, `golblick-share` unless you pass `-o`, and won't overwrite a copy that's already there.
-- The Nextcloud app's video support (stitching, steadying, Memories) has so far run only on test instances: the official Nextcloud Docker image and a copy of AIO v14.2.0.
+- The Nextcloud app's video support (stitching, steadying, Memories, and baking the steadying in on a GPU) ran first on test instances (the official Nextcloud Docker image and a copy of AIO v14.2.0), and since 0.5.0 on my prod server too, with an NVIDIA T1000 for the baking.
 
 ### ⚠️ YMMV
 
