@@ -359,12 +359,7 @@ final class VideoRender extends TimedJob {
 	 */
 	public function deleteBeside(): array {
 		$removed = $bytes = 0;
-		foreach ($this->candidates() as $row) {
-			$clip = $this->open($row['fileid']);
-			$copy = $clip === null ? null : VideoStore::beside($clip);
-			if ($copy === null || !VideoStore::isSphericalVideo($copy)) {
-				continue;
-			}
+		foreach ($this->besideCopies() as $fileId => $copy) {
 			$size = $copy->getSize();
 			try {
 				$copy->delete();
@@ -374,10 +369,26 @@ final class VideoRender extends TimedJob {
 			}
 			$removed++;
 			$bytes += $size;
-			$this->store->dropMarkers($row['fileid']);
+			$this->store->dropMarkers($fileId);
 		}
 
 		return ['removed' => $removed, 'bytes' => $bytes];
+	}
+
+	/**
+	 * Each registered clip's copy saved next to it, if it's marked as 360°
+	 * video, keyed by the clip's file id.
+	 *
+	 * @return \Generator<int, File>
+	 */
+	public function besideCopies(): \Generator {
+		foreach ($this->candidates() as $row) {
+			$clip = $this->open($row['fileid']);
+			$copy = $clip === null ? null : VideoStore::beside($clip);
+			if ($copy !== null && VideoStore::isSphericalVideo($copy)) {
+				yield $row['fileid'] => $copy;
+			}
+		}
 	}
 
 	/** The file $id, as the first user it's mounted for sees it; $user is set to that user. */

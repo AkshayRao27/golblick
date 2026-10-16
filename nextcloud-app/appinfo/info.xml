@@ -13,7 +13,7 @@ Optionally, it stitches `.insv` videos too, in the background with ffmpeg, into 
 
 ⚠️ Needs `"insp": ["image/jpeg"]` added to `config/mimetypemapping.json`, which has side effects. Read the README before installing. The app's admin settings page can add it for you, and checks the rest of the setup.
     ]]></description>
-    <version>0.5.0</version>
+    <version>0.5.1</version>
     <licence>agpl</licence>
     <author>Akshay Rao</author>
     <namespace>Golblick</namespace>
@@ -28,6 +28,11 @@ Optionally, it stitches `.insv` videos too, in the background with ffmpeg, into 
         <job>OCA\Golblick\BackgroundJob\Prerender</job>
         <job>OCA\Golblick\BackgroundJob\VideoRender</job>
     </background-jobs>
+    <repair-steps>
+        <post-migration>
+            <step>OCA\Golblick\Migration\RefreshCopyThumbnails</step>
+        </post-migration>
+    </repair-steps>
     <settings>
         <admin>OCA\Golblick\Settings\Admin</admin>
         <admin-section>OCA\Golblick\Settings\Section</admin-section>

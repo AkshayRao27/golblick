@@ -104,7 +104,7 @@ The copies live in the app's data folder until they're saved next to their clips
 
 The sphere player steadies the video as it plays, from the camera's own motion sensor: the horizon stays level, and the view follows where the camera turns without the shake. The server works out the steadying the first time a clip is played, in a fraction of a second (about 3 seconds for a 30-minute clip). Two buttons in the player's controls change it: one switches steadying off, for the camera's own movement, and the other locks the direction, so the view keeps facing where the video opens instead of turning with the camera, like Direction Lock in Insta360 Studio. It doesn't remove the wobble that fast movement leaves within a single frame. Copies saved next to their clips are steadied too, as long as the clip is still beside them, and so are videos on public share links.
 
-To turn each frame by the right amount in every browser, each stitched copy carries its frame numbers in a thin strip along the bottom edge. The player never shows it, but played flat it shows as a flickering line along the bottom, and in another 360° player as a small spot straight below the camera.
+To turn each frame by the right amount in every browser, each stitched copy carries its frame numbers in a thin strip along the bottom edge. The player never shows it, but played flat it shows as a flickering line along the bottom, and in another 360° player as a small spot straight below the camera. Thumbnails of the copies saved next to their clips leave it out.
 
 ### In Memories
 

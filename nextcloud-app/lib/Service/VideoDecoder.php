@@ -141,6 +141,36 @@ final class VideoDecoder {
 		return [$frames[0], $frames[1]];
 	}
 
+	/**
+	 * One frame of an equirectangular video, $at seconds in, $width wide and
+	 * half as high, with the bottom $dropRows rows cut off first and the rest
+	 * stretched back to 2:1: for a stitched copy's thumbnail, without the
+	 * frame-number strip along its bottom edge (Render/FrameCode).
+	 *
+	 * @throws FormatError when ffmpeg is missing or fails, or $at is past the end
+	 */
+	public function equirectangularFrame(string $path, float $at, int $width, int $dropRows): \GdImage {
+		$binary = $this->binary();
+		if ($binary === null) {
+			throw new FormatError('ffmpeg is not installed');
+		}
+		$output = $this->temporaryFile('.png');
+		try {
+			$this->run([$binary, '-v', 'error', '-nostdin', '-y', '-threads', '1',
+				'-ss', \sprintf('%.3f', $at), '-i', $path, '-map', '0:v:0', '-frames:v', '1',
+				'-vf', \sprintf('crop=iw:ih-%d:0:0,scale=%d:%d', $dropRows, $width, intdiv($width, 2)),
+				'-f', 'image2', '-c:v', 'png', $output]);
+			$image = @imagecreatefrompng($output);
+			if ($image === false) {
+				throw new FormatError('ffmpeg did not produce a frame');
+			}
+
+			return $image;
+		} finally {
+			@unlink($output);
+		}
+	}
+
 	private function temporaryFile(string $suffix): string {
 		$path = $this->tempManager->getTemporaryFile($suffix);
 		if ($path === false) {
