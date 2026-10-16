@@ -127,6 +127,8 @@ The copies can also have the steadying baked in, so they play steady in any app 
 
 Each finished copy then goes to the worker before it's saved next to its clip. On the GPU it was tried on (a GeForce RTX 2070 Super), that takes under half the clip's length, against several times its length to stitch. If the worker isn't running or fails, the copy is kept as stitched and the player steadies it as before. In the player, a baked copy still has both buttons: switching steadying off shows the camera's own movement again. Baking resamples the picture once more, so a baked copy is very slightly softer. Copies stitched before baking was switched on aren't changed, and neither are copies that finished while the worker wasn't running, so if you want baked copies, start the worker and switch baking on before switching on stitching.
 
+Upgrading the app replaces its folder, and the worker's view of it with it. From 0.5.1 the worker notices, exits and is started again by Docker on the new folder. With 0.5.0, run `docker compose restart` in the worker's folder after each upgrade, or bakes fail and copies are saved unbaked.
+
 ## Settings
 
 **Administration settings → Golblick (360° Photos)** has:

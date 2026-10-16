@@ -104,6 +104,13 @@ bake() {
 trap 'kill $! 2>/dev/null' EXIT
 
 while true; do
+	# Upgrading the app replaces its folder, and this container's mount of it
+	# then points at the deleted one, so every bake would fail. Exiting lets
+	# Docker's restart policy start it again on the new folder.
+	if [ ! -f "$KERNEL" ]; then
+		echo "golblick-worker: $KERNEL is gone (the app was upgraded?); exiting so the container restarts" >&2
+		exit 1
+	fi
 	for ready in *.bake/ready; do
 		[ -e "$ready" ] || continue
 		dir=${ready%/ready}
