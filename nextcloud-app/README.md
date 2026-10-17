@@ -100,6 +100,8 @@ The camera doesn't match a video's two lenses to each other the way it does for 
 
 The copies live in the app's data folder until they're saved next to their clips. **Delete stitched videos** frees the space; with stitching on, they're made again.
 
+To keep stitching to quiet hours, set **Stitch new videos from** to a range of hours, such as 22:00 to 07:00, in the server's time zone (the settings page says which one). Outside them no new video is started, and finished copies wait in the app's data folder to be saved next to their clips, since saving them writes the most to disk. A video still being stitched when the hours end is finished. Before changing the video size, the settings page asks first and says how much video would be stitched again.
+
 ### Steadying
 
 The sphere player steadies the video as it plays, from the camera's own motion sensor: the horizon stays level, and the view follows where the camera turns without the shake. The server works out the steadying the first time a clip is played, in a fraction of a second (about 3 seconds for a 30-minute clip). Two buttons in the player's controls change it: one switches steadying off, for the camera's own movement, and the other locks the direction, so the view keeps facing where the video opens instead of turning with the camera, like Direction Lock in Insta360 Studio. It doesn't remove the wobble that fast movement leaves within a single frame. Copies saved next to their clips are steadied too, as long as the clip is still beside them, and so are videos on public share links.

@@ -13,7 +13,7 @@ Optionally, it stitches `.insv` videos too, in the background with ffmpeg, into 
 
 ⚠️ Needs `"insp": ["image/jpeg"]` added to `config/mimetypemapping.json`, which has side effects. Read the README before installing. The app's admin settings page can add it for you, and checks the rest of the setup.
     ]]></description>
-    <version>0.6.0-dev</version>
+    <version>0.6.0-dev.2</version>
     <licence>agpl</licence>
     <author>Akshay Rao</author>
     <namespace>Golblick</namespace>

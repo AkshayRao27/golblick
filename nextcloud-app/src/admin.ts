@@ -19,6 +19,8 @@ type SettingsState = {
   sphere_public: boolean;
   prerender: boolean;
   video_width: number;
+  /** [from, to) in the server's time zone, or null for any time. */
+  video_hours: [number, number] | null;
   video_render: boolean;
   video_beside: boolean;
   video_bake: boolean;
@@ -31,6 +33,8 @@ type Status = {
   videos: {
     usable: boolean;
     clips: number;
+    bytes: number;
+    hours: { zone: string; now: string; open: boolean };
     cache: { files: number; bytes: number; current: number };
     rendering: {
       fileid: number; started: number | null; baking: boolean; gpu: boolean;
@@ -74,6 +78,13 @@ const clock = (seconds: number) => {
   const parts = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60];
   return (parts[0] > 0 ? parts : parts.slice(1)).map((n, i) => (i === 0 ? String(n) : String(n).padStart(2, '0'))).join(':');
 };
+/**
+ * How many bytes of camera files make a second of video, to turn a library's
+ * size into a duration: 12.5 to 12.7 MB/s measured on an X5 and a OneR clip,
+ * 18 on an X3, so this errs long on X3 libraries.
+ */
+const CAMERA_BYTES_PER_SECOND = 12.5e6;
+
 /** 60 → "1 minute", 400 → "7 minutes", 9000 → "2.5 hours". */
 const span = (seconds: number) => {
   const minutes = Math.max(1, Math.round(seconds / 60));
@@ -167,7 +178,10 @@ function feedback(key: string) {
   };
 }
 
-async function save(change: Partial<SettingsState>, note: ReturnType<typeof feedback>) {
+/** What a save sends: the settings as they're shown, except the hours go as "from-to", or "" for any time. */
+type Change = Partial<Omit<SettingsState, 'video_hours'>> & { video_hours?: string };
+
+async function save(change: Change, note: ReturnType<typeof feedback>) {
   note.pending('Saving…');
   try {
     await api('PUT', '/settings', change);
@@ -265,7 +279,37 @@ function render(status: Status) {
   const videoWidthNote = feedback('video_width');
   const videoWidth = el('select', {}, ...[2880, 3840].map((w) =>
     el('option', { value: String(w), selected: w === s.video_width }, `${w} × ${w / 2}`)));
-  videoWidth.addEventListener('change', () => void save({ video_width: Number(videoWidth.value) }, videoWidthNote).then(() => load(false)));
+  videoWidth.addEventListener('change', () => {
+    const width = Number(videoWidth.value);
+    // Every clip is stitched again at the new size, which on a big library
+    // runs for days on the CPU; say so before doing it.
+    if (v.clips > 0 && !window.confirm(`Stitch all ${v.clips} videos again at ${width} wide? `
+      + `That's ${gigabytes(v.bytes)} of camera files, roughly ${span(v.bytes / CAMERA_BYTES_PER_SECOND)} of video. `
+      + (v.worker?.alive && v.worker.stitch
+        ? 'On the GPU worker that takes about as long again, or up to twice as long. '
+        : 'On the server\'s CPU that takes several times as long, and slows the server while it runs. ')
+      + 'Until a video has its new copy, its old one plays.')) {
+      videoWidth.value = String(s.video_width);
+      return;
+    }
+    void save({ video_width: width }, videoWidthNote).then(() => load(false));
+  });
+  const hoursNote = feedback('video_hours');
+  const hourOptions = (selected: number | null) => Array.from({ length: 24 }, (_, h) =>
+    el('option', { value: String(h), selected: h === selected }, `${String(h).padStart(2, '0')}:00`));
+  const hoursFrom = el('select', {}, el('option', { value: '', selected: s.video_hours === null }, 'any time'),
+    ...hourOptions(s.video_hours?.[0] ?? null));
+  const hoursTo = el('select', { disabled: s.video_hours === null }, ...hourOptions(s.video_hours?.[1] ?? 7));
+  const saveHours = () => {
+    hoursTo.disabled = hoursFrom.value === '';
+    if (hoursFrom.value !== '' && hoursFrom.value === hoursTo.value) {
+      hoursNote.fail('The start and end have to be different hours.');
+      return;
+    }
+    void save({ video_hours: hoursFrom.value === '' ? '' : `${hoursFrom.value}-${hoursTo.value}` }, hoursNote).then(() => load(false));
+  };
+  hoursFrom.addEventListener('change', saveHours);
+  hoursTo.addEventListener('change', saveHours);
   const videoClearNote = feedback('video_clear');
   const videoClear = el('button', { type: 'button', textContent: 'Delete stitched videos', disabled: v.cache.files === 0 && v.failed === 0 });
   videoClear.addEventListener('click', async () => {
@@ -298,7 +342,8 @@ function render(status: Status) {
   const videoProgress = `${v.cache.current} of ${v.clips} registered videos are stitched at this size, ${megabytes(v.cache.bytes)} in all.`
     + (v.rendering ? renderingLine(v.rendering) : '')
     + (v.queue.clips > 0 ? ` ${v.queue.clips}${v.rendering ? ' more' : ''} ${v.queue.clips === 1 ? 'is' : 'are'} waiting, `
-      + `${gigabytes(v.queue.bytes)} of camera files.` : '')
+      + `${gigabytes(v.queue.bytes)} of camera files`
+      + (!v.hours.open && s.video_hours ? `, until the stitching hours begin at ${String(s.video_hours[0]).padStart(2, '0')}:00.` : '.') : '')
     + (v.failed > 0 ? ` ${v.failed} couldn't be stitched; the server log says why.` : '');
 
   // ---- Integrations
@@ -349,6 +394,10 @@ function render(status: Status) {
     el('p', { className: 'golblick-progress' }, workerLine),
     ...(workerSetup ? [workerSetup] : []),
     bakeNote.node,
+    el('label', {}, 'Stitch new videos from ', hoursFrom, ' to ', hoursTo),
+    el('p', { className: 'golblick-progress' },
+      `Outside these hours no new video is started, and finished copies wait to be saved next to their clips, which is the biggest burst of disk writes. A video still being stitched when they end is finished. The hours are in the server's time zone, ${v.hours.zone}, where it's ${v.hours.now} now.`),
+    hoursNote.node,
     el('label', {}, 'Video size ', videoWidth),
     el('p', { className: 'golblick-progress' }, '3840 is sharper, but a browser that decodes video on the CPU may not keep up with it, and plays it choppily. Changing the size stitches every clip again.'),
     videoWidthNote.node,

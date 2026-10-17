@@ -43,6 +43,12 @@ use Psr\Log\LoggerInterface;
  * (VideoRenderer, StitchQueue); a clip the worker fails on is stitched again
  * here, on the CPU, rather than given up on.
  *
+ * With stitching hours set, new clips start only within them, and copies
+ * are only saved next to their clips within them: moving a copy writes up to
+ * a few GB into the user's folder, the biggest burst of disk writes in the
+ * whole job. Whatever is running when the hours end is still finished and
+ * collected; its copy waits in the app's data until they come round again.
+ *
  * Only clips' first files: a OneR or X3 clip's _00_ file (its _10_ partner
  * is read alongside it), and an X5's only file. Proxies (LRV_) are skipped.
  * Files are opened through a user who has them mounted, as Prerender does.
@@ -77,7 +83,7 @@ final class VideoRender extends TimedJob {
 		if ($current !== null && !$this->collect($current)) {
 			return;   // still rendering
 		}
-		if (!$this->settings->flag('video_render') || !$this->store->isUsable()) {
+		if (!$this->settings->flag('video_render') || !$this->store->isUsable() || !$this->settings->inVideoHours()) {
 			return;
 		}
 		$this->startNext();
@@ -253,7 +259,9 @@ final class VideoRender extends TimedJob {
 	 * playable from Files, and the reason is logged.
 	 */
 	private function besideClip(int $fileId, string $name): void {
-		if (!$this->settings->flag('video_beside')) {
+		// Outside the stitching hours the copy stays in the app's data, and
+		// moveOneBeside() moves it once they begin.
+		if (!$this->settings->flag('video_beside') || !$this->settings->inVideoHours()) {
 			return;
 		}
 		$file = $this->open($fileId, $user);

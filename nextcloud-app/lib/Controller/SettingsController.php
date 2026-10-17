@@ -58,10 +58,16 @@ final class SettingsController extends Controller {
 		$current = $this->videoJob->current();
 		$failed = $this->videoJob->failed();
 		$width = '-' . $this->settings->videoWidth();
+		$candidates = $this->videoJob->candidates();
+		$zone = $this->settings->timeZone();
 
 		return [
 			'usable' => $this->videos->isUsable(),
-			'clips' => \count($this->videoJob->candidates()),
+			'clips' => \count($candidates),
+			// Every clip's camera files, for the warning before changing the size.
+			'bytes' => array_sum(array_column($candidates, 'size')),
+			'hours' => ['zone' => $zone->getName(), 'now' => (new \DateTimeImmutable('now', $zone))->format('H:i'),
+				'open' => $this->settings->inVideoHours()],
 			'cache' => $this->videos->stats(),
 			'rendering' => $current === null ? null : ['fileid' => $current['fileid'], 'started' => $current['started'] ?? null,
 				'baking' => ($current['phase'] ?? '') === 'bake', 'gpu' => ($current['phase'] ?? '') === 'gpu',
@@ -94,13 +100,16 @@ final class SettingsController extends Controller {
 	public function save(?int $zoom_width = null, ?bool $memories_zoom = null, ?bool $sphere_files = null,
 		?bool $sphere_viewer = null, ?bool $sphere_memories = null, ?bool $sphere_public = null, ?bool $prerender = null,
 		?int $video_width = null, ?bool $video_render = null, ?bool $video_beside = null,
-		?bool $video_bake = null): JSONResponse {
+		?bool $video_bake = null, ?string $video_hours = null): JSONResponse {
 		try {
 			if ($zoom_width !== null) {
 				$this->settings->setZoomWidth($zoom_width);
 			}
 			if ($video_width !== null) {
 				$this->settings->setVideoWidth($video_width);
+			}
+			if ($video_hours !== null) {
+				$this->settings->setVideoHours($video_hours);
 			}
 			foreach (['memories_zoom' => $memories_zoom, 'sphere_files' => $sphere_files,
 				'sphere_viewer' => $sphere_viewer, 'sphere_memories' => $sphere_memories, 'sphere_public' => $sphere_public,
