@@ -20,6 +20,9 @@ dependencies = []
 [project.optional-dependencies]
 # Needed only for rendering; everything else runs without it.
 render = ["numpy>=1.24", "pillow>=10.0"]
+# The 360 viewer window (golblick open). PySide6's wheels carry Qt itself, so
+# it installs the same way on any glibc distribution and desktop.
+desktop = ["numpy>=1.24", "pillow>=10.0", "pyside6>=6.6"]
 
 [project.scripts]
 golblick = "golblick.cli:main"

@@ -150,6 +150,8 @@ Two lines in that output are worth reading:
 
 `--level` forces the choice. `stitch`, `imu` and `calibration` fail rather than quietly falling back, which is what you want when comparing them.
 
+Whichever route levels it, a photo's panorama faces the way Insta360 Studio opens it: the middle of the image is where Studio's view starts. Videos aren't turned this way yet.
+
 The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3 photo and 185.5° for an X3 video, 197.5° for an X5 photo and 195.3° for an X5 video, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
 
 Clip-on lens guards narrow that angle by about 2%, and the file does not record whether they were fitted. On an X5, `render` works it out from the picture: it tries both angles and keeps the one at which the two lenses agree clearly better where they overlap, and assumes no guards when neither wins. The output's `lens guards` line says what it decided. `--lens-guards on` or `off` overrides it.
@@ -159,6 +161,24 @@ Clip-on lens guards narrow that angle by about 2%, and the file does not record 
 The geometry fields are written, including the cropped-area fields: a partial panorama without them gets stretched around the whole sphere, which looks plausible rather than broken.
 
 The pose fields are deliberately left out. `PoseHeadingDegrees` would state which compass direction the centre faces, and nothing in the file fixes that. `PosePitchDegrees` and `PoseRollDegrees` would assert the panorama is level, which is only as true as the levelling. A viewer that finds no pose fields assumes an unknown heading and a level horizon, which is the honest claim; a written `0.0` would look exactly like a measured one.
+
+## Look around in a photo
+
+`open` shows a photo as a sphere in golblick's own viewer window: drag to look around, scroll or `+` and `-` to zoom, double-click or `F` for full screen, `Esc` to leave it. It needs the `desktop` extra.
+
+```sh
+golblick open IMG_20260314_090809_00_007.insp
+```
+
+The first time it renders the photo, which takes 10 to 20 seconds; the window opens straight away and the photo appears when it's ready. The panorama is kept in `~/.cache/golblick/open`, so opening it again is instant until the file changes. The cache keeps the 40 most recently opened. `--rebuild` renders it again, and `--no-window` only renders it and prints where the panorama is.
+
+To open photos by double-clicking them, run this once:
+
+```sh
+golblick desktop install
+```
+
+It gives `.insp` files a type of their own, as a kind of JPEG so your other image viewers still offer to open them, and makes `golblick open` the default for it. Everything goes in your own `~/.local/share`, and `golblick desktop uninstall` removes it. Files are recognised by their `.insp` extension; `open` checks the content and refuses anything that isn't an Insta360 photo. Videos don't open this way yet.
 
 ## Stitch a video
 

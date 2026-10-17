@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -831,6 +832,97 @@ def cmd_stabilise(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_open(args: argparse.Namespace) -> int:
+    """Show a photo as a sphere in golblick's viewer, rendering it once into a cache.
+
+    What a double-click on a .insp runs once ``golblick desktop install`` has
+    made it the default (:mod:`golblick.desktop`).  Started from the desktop
+    it has no terminal, so a failure is also shown as a notification.
+    """
+    from . import desktop
+
+    try:
+        return _open(args, desktop)
+    except GolblickError as exc:
+        _notify(f"golblick couldn't open {Path(args.file).name}", str(exc))
+        raise
+
+
+def _open(args: argparse.Namespace, desktop) -> int:
+    _require_render_extra()
+    path = Path(args.file)
+    if not path.is_file():
+        raise UnsupportedFile(f"{path}: no such file")
+    _require_vendor(str(path))
+    if _is_mp4(path):
+        raise UnsupportedFile(f"{path.name}: open shows photos only so far; "
+                              "render a video with 'golblick render'")
+
+    width = args.width or 4096
+    cache = desktop.cache_dir()
+    cache.mkdir(parents=True, exist_ok=True)
+    panorama = cache / f"{desktop.cache_key(path, _version(), width)}.jpg"
+
+    def render() -> Path:
+        if args.rebuild or not panorama.exists():
+            partial = panorama.with_suffix(".part.jpg")
+            render_args = build_parser().parse_args(
+                ["render", str(path), "-o", str(partial), "-w", str(width)])
+            # The render's own report goes to the terminal, when there is one.
+            if cmd_render(render_args) != 0:
+                raise GolblickError(f"{path.name}: rendering failed")
+            partial.replace(panorama)
+        else:
+            panorama.touch()
+        desktop.prune(cache)
+        return panorama
+
+    if args.no_window:
+        print(render())
+        return 0
+    try:
+        from . import viewer
+    except ImportError as exc:
+        raise MissingDependency(
+            "the viewer window needs PySide6, which the 'desktop' extra installs: "
+            "pip install 'golblick[desktop]'") from exc
+    return viewer.run(path.name, render)
+
+
+def _notify(summary: str, body: str) -> None:
+    """A desktop notification, when nothing is watching the terminal."""
+    import shutil
+    import subprocess
+
+    if sys.stderr.isatty() or shutil.which("notify-send") is None:
+        return
+    try:
+        subprocess.run(["notify-send", "--app-name=golblick", summary, body], timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def cmd_desktop(args: argparse.Namespace) -> int:
+    """Make a double-click on a .insp open it as a sphere, or undo that."""
+    from . import desktop
+
+    if args.action == "install":
+        executable = shutil.which("golblick") if args.executable is None else args.executable
+        if args.executable is None:
+            # The command running now: the one whose environment has the render extra.
+            here = Path(sys.argv[0]).resolve()
+            executable = str(here) if here.name == "golblick" else executable
+        if not executable:
+            raise GolblickError("can't tell where the golblick command is; pass --executable")
+        for line in desktop.install(executable):
+            print(line)
+        print(f"Double-clicking a .insp now opens it with: {executable} open")
+    else:
+        for line in desktop.uninstall():
+            print(line)
+    return 0
+
+
 def cmd_vendors(args: argparse.Namespace) -> int:
     for vendor in VENDORS:
         extensions = " ".join(sorted(f".{e}" for e in vendor.EXTENSIONS))
@@ -931,6 +1023,30 @@ def build_parser() -> argparse.ArgumentParser:
     steady.add_argument("--lock", action="store_true",
                         help="keep the direction the clip opens in, instead of following the camera's turns")
     steady.set_defaults(func=cmd_stabilise)
+
+    view = sub.add_parser(
+        "open",
+        help="show a photo as a sphere in a viewer window",
+        description="Renders the photo once into a cache (~/.cache/golblick/open) and shows it as a sphere "
+                    "to look around in. Needs the 'desktop' extra.",
+    )
+    view.add_argument("file")
+    view.add_argument("-w", "--width", type=int, help="panorama width (default: 4096)")
+    view.add_argument("--rebuild", action="store_true", help="render again even if it's cached")
+    view.add_argument("--no-window", action="store_true",
+                      help="only render it, and print the panorama's path")
+    view.set_defaults(func=cmd_open)
+
+    integrate = sub.add_parser(
+        "desktop",
+        help="make double-clicking a .insp open it as a sphere",
+        description="Registers .insp as its own file type (a kind of JPEG, so image viewers still open it) "
+                    "and makes 'golblick open' its default application, for this user only. "
+                    "'uninstall' undoes it.",
+    )
+    integrate.add_argument("action", choices=("install", "uninstall"))
+    integrate.add_argument("--executable", help="the golblick command to run (default: this one)")
+    integrate.set_defaults(func=cmd_desktop)
 
     listing = sub.add_parser("vendors", help="list supported formats")
     listing.set_defaults(func=cmd_vendors)
