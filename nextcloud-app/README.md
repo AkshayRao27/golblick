@@ -125,7 +125,7 @@ Nextcloud's PHP can't use a GPU, so a small worker does the heavy part in a cont
 3. Save it on the Docker host in a folder of its own, and run `docker compose up -d` there. If a folder isn't where the file says, it refuses to start, rather than letting Docker create an empty folder owned by root.
 4. Reload the settings page after a minute: the Videos section says whether the worker is running and whether it stitches.
 
-On a GeForce RTX 2070 Super, a 2880-wide copy took a little less than the clip's length and a 3840 one about twice it. That used about 2 and 3 CPU-seconds per second of video, against 12 and 18 when the server stitches, and about 1 GB of memory. On a T1000 in a four-core server that was stitching another clip on its CPU at the same time, a 2880 copy took about twice the clip's length.
+On a GeForce RTX 2070 Super, a 2880-wide copy took a little less than the clip's length and a 3840 one about twice it. That used about 2 and 3 CPU-seconds per second of video, against 12 and 18 when the server stitches, and about 1 GB of memory. On a T1000 in a four-core server, a 3840 copy of a three-minute clip took a little less than the clip's length, using about 1 CPU-second per second of video.
 
 If the worker isn't running, or fails on a clip, the server stitches that clip itself as before.
 
