@@ -1,7 +1,7 @@
-"""Opening 360 photos from a Linux desktop: the cache and the file association.
+"""Opening 360 photos from a Linux desktop: the file association.
 
-``golblick open`` renders a photo once into a cache and shows it in golblick's
-own viewer window (:mod:`golblick.viewer`, the ``desktop`` extra).
+``golblick open`` shows a photo in golblick's own viewer window
+(:mod:`golblick.viewer`, the ``desktop`` extra).
 
 ``golblick desktop install`` registers ``.insp`` as its own type, a subtype of
 JPEG so every image viewer still opens it, and makes ``golblick open`` its
@@ -14,7 +14,6 @@ Standard library only: the rendering itself is :mod:`golblick.render`'s.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import subprocess
@@ -26,9 +25,6 @@ from pathlib import Path
 MIME_TYPE = "image/x-insta360-insp"
 DESKTOP_FILE = "golblick-open.desktop"
 MIME_PACKAGE = "golblick.xml"
-
-#: Panoramas kept in the cache; the oldest go first.
-CACHE_KEEP = 40
 
 #: Matched by name only.  shared-mime-info's magic can only look at fixed
 #: offsets from the start of a file, and what makes a file Insta360's is the
@@ -48,25 +44,6 @@ MIME_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
 
 def data_home() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-
-
-def cache_dir() -> Path:
-    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "golblick" / "open"
-
-
-def cache_key(path: str | Path, version: str, width: int) -> str:
-    """Which cache entry a file's panorama is: the file as it is now, and the renderer that drew it."""
-    resolved = Path(path).resolve()
-    stat = resolved.stat()
-    material = f"{resolved}\0{stat.st_mtime_ns}\0{stat.st_size}\0{version}\0{width}"
-    return hashlib.sha256(material.encode()).hexdigest()[:20]
-
-
-def prune(directory: Path, keep: int = CACHE_KEEP) -> None:
-    """Drop all but the ``keep`` most recently used panoramas."""
-    entries = sorted(directory.glob("*.jpg"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in entries[keep:]:
-        old.unlink(missing_ok=True)
 
 
 def install(executable: str, home: Path | None = None) -> list[str]:

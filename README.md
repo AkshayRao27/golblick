@@ -65,7 +65,7 @@ What I can say, however, is that
 | 🖼️ **Previews** | Extracts the camera's own preview, if available (e.g. the Insta360 X5 already has a stitched pano) |
 | 🎯 **Stabilise** | Works out, from the camera's motion sensor, the rotation that steadies each frame of a 360 video, and writes it as JSON |
 | 🌐 **Render** | Projects the lens pair into an equirectangular panorama with GPano metadata, levelled against the camera's own stitch where the file has one (X5), otherwise from its motion sensor where possible. The seam between the lenses is placed per photo, where the two lenses agree best. A video is stitched whole into a 360 MP4, steadied |
-| 🖥️ **Desktop** | Double-click a `.insp` photo in your file manager to look around in it, in golblick's own viewer window. Rendered once, then cached |
+| 🖥️ **Desktop** | Double-click a `.insp` photo in your file manager to look around in it, in golblick's own viewer window. The graphics card projects it as it's drawn, so it's on screen in about a second |
 | ☁️ **Nextcloud** | A preview app, so `.insp` stills show up as panoramas in Files, Photos and Memories, zoom included, and open as a sphere from a button. No extra server dependencies for photos. Optionally, `.insv` videos too: the server stitches them in the background with ffmpeg into ordinary 360° MP4s, which play as a steadied sphere from Files and can show up in Memories' timeline. Works alongside [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) |
 
 ## Cameras

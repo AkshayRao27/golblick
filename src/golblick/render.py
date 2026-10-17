@@ -342,6 +342,23 @@ def _seam_offset(a, b, both, d, phi, feather, half):
     here; the image-only horizon fit is the cautionary tale.
     """
     numpy = _numpy()
+    columns = _seam_columns(a, b, both, d, phi, feather, half)
+    if columns is None:
+        return None
+    position = ((phi + numpy.pi) / (2 * numpy.pi) * _SEAM_COLUMNS) % _SEAM_COLUMNS
+    low = numpy.floor(position).astype(numpy.int32) % _SEAM_COLUMNS
+    high = (low + 1) % _SEAM_COLUMNS
+    fraction = position - numpy.floor(position)
+    return columns[low] * (1 - fraction) + columns[high] * fraction
+
+
+def _seam_columns(a, b, both, d, phi, feather, half):
+    """:func:`_seam_offset` as :data:`_SEAM_COLUMNS` values round the lens axis, radians of ``d``.
+
+    Column ``k`` is at azimuth ``-pi + 2 pi k / _SEAM_COLUMNS``, read linearly
+    and wrapping, which is how a viewer that projects on the GPU takes it.
+    """
+    numpy = _numpy()
     room = half - 2 * feather
     if room <= 0:
         return None
@@ -377,12 +394,7 @@ def _seam_offset(a, b, both, d, phi, feather, half):
     # Smooth a little: the grid is coarse and a jagged seam is its own artefact.
     extended = numpy.concatenate([path[-8:], path, path[:8]]).astype(numpy.float64)
     smoothed = numpy.convolve(extended, numpy.ones(9) / 9, mode="same")[8:-8]
-    position = ((phi + numpy.pi) / (2 * numpy.pi) * _SEAM_COLUMNS) % _SEAM_COLUMNS
-    low = numpy.floor(position).astype(numpy.int32) % _SEAM_COLUMNS
-    high = (low + 1) % _SEAM_COLUMNS
-    fraction = position - numpy.floor(position)
-    rowwise = smoothed[low] * (1 - fraction) + smoothed[high] * fraction
-    return rowwise / (_SEAM_ROWS - 1) * (2 * room) - room
+    return smoothed / (_SEAM_ROWS - 1) * (2 * room) - room
 
 
 #: Parallax the depth search tries, degrees: how far apart the two lenses see a
@@ -829,6 +841,32 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
 
     blended = numpy.where(weights > 0, total / numpy.maximum(weights, 1e-6), 0)
     return blended.astype(numpy.float32), hemispheres
+
+
+def seam_columns(image, lenses, field_of_view: float, orientation=None, width: int = _SEAM_MIN_WIDTH):
+    """The routed seam :func:`equirectangular` would use, for a viewer that projects on the GPU.
+
+    :data:`_SEAM_COLUMNS` offsets round the lens axis, radians of
+    ``d = theta_0 - theta_1``, or None for the bisector.  Decided on a
+    ``width``-wide render, as :func:`equirectangular` decides it at that
+    size: the grid needs at least :data:`_SEAM_MIN_WIDTH` to choose reliably.
+    """
+    numpy = _numpy()
+    height = width // 2
+    theta_max = numpy.deg2rad(field_of_view / 2)
+    feather = numpy.deg2rad(min(3.0, max(1.5, 4.0 * 180.0 / height)))
+    rays = _rays(width, height)
+    if orientation is not None:
+        rays = rays @ numpy.asarray(orientation, numpy.float64)
+    grey = []
+    for index, lens in enumerate(lenses):
+        u, v, theta = _project(rays, lens, index, theta_max)
+        valid = theta <= theta_max
+        pixels = _sample(image, u, v, valid)
+        grey.append((pixels[..., 0] * 0.299 + pixels[..., 1] * 0.587 + pixels[..., 2] * 0.114, valid))
+    z = numpy.clip(rays[..., 2], -1, 1)
+    return _seam_columns(grey[0][0], grey[1][0], grey[0][1] & grey[1][1], 2 * numpy.arccos(z) - numpy.pi,
+                         numpy.arctan2(rays[..., 1], rays[..., 0]), feather, 2 * theta_max - numpy.pi)
 
 
 def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, plan=None,

@@ -1,27 +1,29 @@
-"""golblick's 360 viewer window: look around in a panorama.
+"""golblick's 360 viewer window: look around in a photo, projected on the GPU as it's drawn.
 
-Needs the ``desktop`` extra (PySide6).  The window opens at once and the
-panorama arrives when it has been rendered, which the first time takes a few
-seconds; the render runs on a worker thread and its result, or its error, is
-handed back to the window.
+Needs the ``desktop`` extra (PySide6).  Nothing is rendered to a file first.
+The window takes the camera's lens pair as it is stored, and a fragment shader
+works out, for each pixel on screen, where in which lens that direction was
+recorded (:mod:`golblick.scene` supplies the numbers, in
+:mod:`golblick.render`'s conventions).  So the photo is on screen as soon as
+the file is read and decoded, and what takes the CPU longer -- the routed
+seam, an X5's lens guards and its own stitch to level against -- runs in the
+background and updates the view when it's done.
 
-The sphere is drawn by a fragment shader over the whole window: each pixel's
-ray, turned by the view's pitch and then its yaw, is looked up in the
-equirectangular panorama.  There is no sphere mesh, so there is nothing to
-draw inside out or mirror, and no seam where a mesh would close.  Directions
-are golblick's: longitude from the middle column of the panorama, rising to
-the right, latitude up from the horizon.
+The shader covers the whole window, so there is no sphere mesh to draw inside
+out or mirror.  Directions are golblick's: longitude from the middle of the
+panorama, rising to the right, latitude up from the horizon.
 """
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import threading
 from pathlib import Path
-from typing import Callable
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QImage, QKeySequence, QShortcut, QSurfaceFormat
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QIcon, QImage, QKeySequence, QShortcut
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
     QOpenGLShader,
@@ -30,62 +32,147 @@ from PySide6.QtOpenGL import (
     QOpenGLVertexArrayObject,
 )
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QToolButton, QWidget
 
-# GLSL that both desktop OpenGL 2.1 and OpenGL ES 2/3 accept, so the window
-# works whichever the platform hands out (Wayland often gives ES).
+from . import scene as scenes
+
+# GLSL that desktop OpenGL 2.1 and OpenGL ES 2/3 both accept, since Wayland
+# often hands out ES.
 _VERTEX = """
 attribute vec2 corner;
 varying vec2 ndc;
 void main() { ndc = corner; gl_Position = vec4(corner, 0.0, 1.0); }
 """
+
+# render._project, render._sample's bilinear (the GPU's own, with mipmaps for
+# when the view is zoomed out), and render.equirectangular's blend: each lens
+# weighted by how far it is from the hand-over, routed or on the bisector,
+# and tapered at its rim.
 _FRAGMENT = """
 #ifdef GL_ES
 precision highp float;
 #endif
-uniform sampler2D pano;
+uniform sampler2D lens0;
+uniform sampler2D lens1;
 uniform vec2 halfTan;
 uniform float yaw;
 uniform float pitch;
+uniform vec3 world0, world1, world2;        // camera from world, by rows
+uniform vec3 m00, m01, m02, m10, m11, m12;  // each lens from camera, by rows
+uniform vec4 centres;                       // lens 0 x, y; lens 1 x, y (full-frame pixels)
+uniform vec2 radii;
+uniform float spin1;
+uniform vec2 cell;                          // size of each lens's texture, pixels
+uniform float thetaMax;
+uniform float feather;
+uniform float radial[64];
+uniform int radialCount;
+uniform float seam[256];
+uniform int routed;
 varying vec2 ndc;
 const float PI = 3.14159265358979;
+
+float corrected(float theta) {
+    if (radialCount < 2) return theta;
+    float f = degrees(theta) / 2.0;
+    float i = clamp(floor(f), 0.0, float(radialCount - 2));
+    float t = clamp(f - i, 0.0, 1.0);
+    int k = int(i);
+    return theta + radians(mix(radial[k], radial[k + 1], t));
+}
+
+// Where a camera-frame ray lands in one lens: texture coordinates, and the
+// (corrected) angle off its axis.
+vec3 project(vec3 ray, vec3 r0, vec3 r1, vec3 r2, vec2 centre, float radius, float spin, float left) {
+    vec3 l = vec3(dot(r0, ray), dot(r1, ray), dot(r2, ray));
+    float theta = corrected(acos(clamp(l.z, -1.0, 1.0)));
+    float phi = atan(l.y, l.x) - spin;
+    float r = radius * theta / thetaMax;
+    vec2 at = vec2(centre.x + r * cos(phi) - left, centre.y - r * sin(phi));
+    return vec3((at + 0.5) / cell, theta);
+}
+
 void main() {
     vec3 d = normalize(vec3(ndc * halfTan, 1.0));
     d = vec3(d.x, d.y * cos(pitch) + d.z * sin(pitch), -d.y * sin(pitch) + d.z * cos(pitch));
     d = vec3(d.x * cos(yaw) + d.z * sin(yaw), d.y, -d.x * sin(yaw) + d.z * cos(yaw));
-    float u = (atan(d.x, d.z) + PI) / (2.0 * PI);
-    float v = (PI / 2.0 - asin(clamp(d.y, -1.0, 1.0))) / PI;
-    gl_FragColor = texture2D(pano, vec2(u, v));
+    vec3 ray = vec3(dot(world0, d), dot(world1, d), dot(world2, d));
+
+    vec3 a = project(ray, m00, m01, m02, centres.xy, radii.x, 0.0, 0.0);
+    vec3 b = project(ray, m10, m11, m12, centres.zw, radii.y, spin1, cell.x);
+    float va = a.z <= thetaMax ? 1.0 : 0.0;
+    float vb = b.z <= thetaMax ? 1.0 : 0.0;
+    float ta = va > 0.0 ? a.z : thetaMax + feather;
+    float tb = vb > 0.0 ? b.z : thetaMax + feather;
+
+    float wa, wb;
+    if (routed == 1) {
+        float dz = 2.0 * acos(clamp(ray.z, -1.0, 1.0)) - PI;
+        float position = mod((atan(ray.y, ray.x) + PI) / (2.0 * PI) * 256.0, 256.0);
+        float low = floor(position);
+        int lo = int(low);
+        int hi = lo == 255 ? 0 : lo + 1;
+        float offset = mix(seam[lo], seam[hi], position - low);
+        float share = clamp((feather - (dz - offset)) / (2.0 * feather), 0.0, 1.0);
+        wa = share;
+        wb = 1.0 - share;
+    } else {
+        float closest = min(ta, tb);
+        wa = clamp((closest + feather - ta) / feather, 0.0, 1.0);
+        wb = clamp((closest + feather - tb) / feather, 0.0, 1.0);
+    }
+    wa *= clamp((thetaMax - ta) / feather, 0.0, 1.0) * va;
+    wb *= clamp((thetaMax - tb) / feather, 0.0, 1.0) * vb;
+    vec3 colour = vec3(0.0);
+    if (wa > 0.0) colour += texture2D(lens0, a.xy).rgb * wa;
+    if (wb > 0.0) colour += texture2D(lens1, b.xy).rgb * wb;
+    float total = wa + wb;
+    gl_FragColor = vec4(total > 0.0 ? colour / total : vec3(0.0), 1.0);
 }
 """
 
 
-class SphereWidget(QOpenGLWidget):
-    """The panorama as a sphere: drag to look, scroll to zoom."""
+class SphereView(QOpenGLWidget):
+    """A photo's lens pair as a sphere: drag or swipe to look, scroll or pinch to zoom."""
 
     MIN_FOV, MAX_FOV = 25.0, 110.0
+    changed = Signal()
 
     def __init__(self, longitude: float = 0.0, latitude: float = 0.0, fov: float = 75.0):
         super().__init__()
         self.longitude, self.latitude, self.fov = longitude, latitude, fov
-        self._image: QImage | None = None
-        self._texture: QOpenGLTexture | None = None
+        self._scene: scenes.Scene | None = None
+        self._halves: tuple[QImage, QImage] | None = None
+        self._textures: list[QOpenGLTexture] = []
         self._program: QOpenGLShaderProgram | None = None
         self._last = None
+        self._pinch_fov = None
         self.setMinimumSize(320, 200)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.grabGesture(Qt.GestureType.PinchGesture)
 
-    def set_panorama(self, image: QImage) -> None:
-        self._image = image
+    def show_scene(self, scene: scenes.Scene, halves: tuple[QImage, QImage] | None = None) -> None:
+        """Show ``scene``; ``halves``, the lens pair split in two, only when the picture is new."""
+        self._scene = scene
+        if halves is not None:
+            self._halves = halves
         self.update()
 
     def look(self, longitude: float, latitude: float, fov: float | None = None) -> None:
-        self.longitude = longitude
+        self.longitude = (longitude + 180.0) % 360.0 - 180.0
         self.latitude = max(-89.0, min(89.0, latitude))
         if fov is not None:
             self.fov = max(self.MIN_FOV, min(self.MAX_FOV, fov))
         self.update()
+        self.changed.emit()
+
+    def turn(self, longitude: float = 0.0, latitude: float = 0.0, zoom: float = 1.0) -> None:
+        self.look(self.longitude + longitude, self.latitude + latitude, self.fov * zoom)
+
+    def toggle_full_screen(self) -> None:
+        window = self.window()
+        window.showNormal() if window.isFullScreen() else window.showFullScreen()
 
     # -- OpenGL --------------------------------------------------------------
 
@@ -117,38 +204,68 @@ class SphereWidget(QOpenGLWidget):
 
     def _release(self) -> None:
         self.makeCurrent()
-        if self._texture is not None:
-            self._texture.destroy()
-            self._texture = None
+        for texture in self._textures:
+            texture.destroy()
+        self._textures = []
         self.doneCurrent()
+
+    def _upload(self) -> None:
+        for texture in self._textures:
+            texture.destroy()
+        self._textures = []
+        for half in self._halves:
+            texture = QOpenGLTexture(half, QOpenGLTexture.MipMapGeneration.GenerateMipMaps)
+            # Mipmapped, because zoomed out a screen pixel covers many of the
+            # camera's, and plain bilinear would shimmer.
+            texture.setMinMagFilters(QOpenGLTexture.Filter.LinearMipMapLinear, QOpenGLTexture.Filter.Linear)
+            texture.setMaximumAnisotropy(16.0)
+            texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
+            self._textures.append(texture)
+        self._halves = None  # on the GPU now; the copies in memory can go
 
     def paintGL(self) -> None:
         gl = self.context().functions()
         gl.glClearColor(0.0, 0.0, 0.0, 1.0)
         gl.glClear(0x4000)  # GL_COLOR_BUFFER_BIT
-        if self._image is not None and self._texture is None:
-            # Rows go up as they are, so texture v = 0 is the panorama's top.
-            texture = QOpenGLTexture(self._image.convertToFormat(QImage.Format.Format_RGB888),
-                                     QOpenGLTexture.MipMapGeneration.DontGenerateMipMaps)
-            texture.setMinMagFilters(QOpenGLTexture.Filter.Linear, QOpenGLTexture.Filter.Linear)
-            # Round the back the panorama wraps; top and bottom don't.
-            direction, wrap = QOpenGLTexture.CoordinateDirection, QOpenGLTexture.WrapMode
-            texture.setWrapMode(direction.DirectionS, wrap.Repeat)
-            texture.setWrapMode(direction.DirectionT, wrap.ClampToEdge)
-            self._texture = texture
-        if self._texture is None or self._program is None:
+        if self._halves is not None:
+            self._upload()
+        scene, program = self._scene, self._program
+        if scene is None or program is None or len(self._textures) != 2:
             return
         ratio = self.devicePixelRatioF()
         width, height = max(1, round(self.width() * ratio)), max(1, round(self.height() * ratio))
         gl.glViewport(0, 0, width, height)
-        program = self._program
         program.bind()
-        self._texture.bind(0)
+        self._textures[0].bind(0)
+        self._textures[1].bind(1)
+        uniform = program.uniformLocation
+        program.setUniformValue1i(uniform("lens0"), 0)
+        program.setUniformValue1i(uniform("lens1"), 1)
         half = math.tan(math.radians(self.fov) / 2)
-        program.setUniformValue1i(program.uniformLocation("pano"), 0)
-        program.setUniformValue(program.uniformLocation("halfTan"), half * width / height, half)
-        program.setUniformValue1f(program.uniformLocation("yaw"), math.radians(self.longitude))
-        program.setUniformValue1f(program.uniformLocation("pitch"), math.radians(self.latitude))
+        program.setUniformValue(uniform("halfTan"), half * width / height, half)
+        program.setUniformValue1f(uniform("yaw"), math.radians(self.longitude))
+        program.setUniformValue1f(uniform("pitch"), math.radians(self.latitude))
+        for k, row in enumerate(scene.camera_from_world):
+            program.setUniformValue(uniform(f"world{k}"), *row)
+        for i, lens in enumerate(scene.lenses):
+            for k, row in enumerate(lens.matrix):
+                program.setUniformValue(uniform(f"m{i}{k}"), *row)
+        first, second = scene.lenses
+        program.setUniformValue(uniform("centres"),
+                                first.centre_x, first.centre_y, second.centre_x, second.centre_y)
+        program.setUniformValue(uniform("radii"), first.radius, second.radius)
+        program.setUniformValue1f(uniform("spin1"), second.spin)
+        program.setUniformValue(uniform("cell"), scene.width / 2, scene.height)
+        program.setUniformValue1f(uniform("thetaMax"), scene.theta_max)
+        program.setUniformValue1f(uniform("feather"), scene.feather)
+        radial = list(scene.radial[:64])
+        for k, value in enumerate(radial):
+            program.setUniformValue1f(uniform(f"radial[{k}]"), value)
+        program.setUniformValue1i(uniform("radialCount"), len(radial))
+        if scene.seam is not None:
+            for k, value in enumerate(scene.seam):
+                program.setUniformValue1f(uniform(f"seam[{k}]"), value)
+        program.setUniformValue1i(uniform("routed"), 1 if scene.seam is not None else 0)
         self._vao.bind()
         gl.glDrawArrays(0x0005, 0, 4)  # GL_TRIANGLE_STRIP
         self._vao.release()
@@ -159,115 +276,262 @@ class SphereWidget(QOpenGLWidget):
 
     # -- Looking around --------------------------------------------------------
 
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.Gesture:
+            pinch = event.gesture(Qt.GestureType.PinchGesture)
+            if pinch is not None:
+                if pinch.state() == Qt.GestureState.GestureStarted:
+                    self._pinch_fov = self.fov
+                if self._pinch_fov is not None and pinch.totalScaleFactor() > 0:
+                    self.look(self.longitude, self.latitude, self._pinch_fov / pinch.totalScaleFactor())
+                if pinch.state() in (Qt.GestureState.GestureFinished, Qt.GestureState.GestureCanceled):
+                    self._pinch_fov = None
+                return True
+        return super().event(event)
+
     def mousePressEvent(self, event) -> None:
         self._last = event.position()
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def mouseMoveEvent(self, event) -> None:
-        if self._last is None:
+        if self._last is None or self._pinch_fov is not None:
             return
         # The scene follows the pointer, at the speed it appears to move.
         per_pixel = self.fov / max(1, self.height())
         delta = event.position() - self._last
         self._last = event.position()
-        self.look(self.longitude - delta.x() * per_pixel, self.latitude + delta.y() * per_pixel)
+        self.turn(-delta.x() * per_pixel, delta.y() * per_pixel)
 
     def mouseReleaseEvent(self, event) -> None:
         self._last = None
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
     def mouseDoubleClickEvent(self, event) -> None:
-        window = self.window()
-        window.showNormal() if window.isFullScreen() else window.showFullScreen()
+        self.toggle_full_screen()
 
     def wheelEvent(self, event) -> None:
-        self.look(self.longitude, self.latitude, self.fov * math.exp(-event.angleDelta().y() / 1200))
+        self.turn(zoom=math.exp(-event.angleDelta().y() / 1200))
 
     def keyPressEvent(self, event) -> None:
         step = self.fov / 10
-        key = event.key()
         moves = {
             Qt.Key.Key_Left: (-step, 0, 1.0), Qt.Key.Key_Right: (step, 0, 1.0),
             Qt.Key.Key_Up: (0, step, 1.0), Qt.Key.Key_Down: (0, -step, 1.0),
             Qt.Key.Key_Plus: (0, 0, 1 / 1.15), Qt.Key.Key_Equal: (0, 0, 1 / 1.15),
             Qt.Key.Key_Minus: (0, 0, 1.15),
         }
+        key = event.key()
         if key in moves:
-            dx, dy, zoom = moves[key]
-            self.look(self.longitude + dx, self.latitude + dy, self.fov * zoom)
+            self.turn(*moves[key])
         elif key in (Qt.Key.Key_F, Qt.Key.Key_F11):
-            self.mouseDoubleClickEvent(event)
+            self.toggle_full_screen()
         elif key == Qt.Key.Key_Escape:
-            window = self.window()
-            window.showNormal() if window.isFullScreen() else window.close()
+            self.window().showNormal() if self.window().isFullScreen() else self.window().close()
         else:
             super().keyPressEvent(event)
 
 
-class _Rendered(QObject):
-    """Carries the worker's result back to the window's thread."""
+# -- Opening views -----------------------------------------------------------------
 
-    done = Signal(str)
+
+def views_path() -> Path:
+    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return data / "golblick" / "views.json"
+
+
+def view_key(path: str | Path) -> str:
+    """A photo's key: its name and size, so the view follows it when it's moved or synced elsewhere."""
+    path = Path(path)
+    return f"{path.name}:{path.stat().st_size}"
+
+
+def load_view(path: str | Path) -> dict | None:
+    try:
+        views = json.loads(views_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    view = views.get(view_key(path))
+    return view if isinstance(view, dict) else None
+
+
+def save_view(path: str | Path, view: dict | None) -> None:
+    """Make ``view`` (longitude, latitude, fov) where ``path`` opens, or forget it with None."""
+    target = views_path()
+    try:
+        views = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        views = {}
+    if view is None:
+        views.pop(view_key(path), None)
+    else:
+        views[view_key(path)] = {k: round(float(view[k]), 2) for k in ("longitude", "latitude", "fov")}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    partial = target.with_suffix(".part")
+    partial.write_text(json.dumps(views, indent=1, sort_keys=True), encoding="utf-8")
+    partial.replace(target)
+
+
+# -- The window ----------------------------------------------------------------------
+
+
+class _Loaded(QObject):
+    """Carries the worker's results back to the window's thread."""
+
+    scene = Signal(object, object)
+    refined = Signal(object)
     failed = Signal(str)
 
 
-def open_window(title: str, render: Callable[[], Path], longitude: float = 0.0) -> SphereWidget:
-    """A viewer window titled ``title``.
+def _button(icon: str, fallback: str, tip: str, parent: QWidget) -> QToolButton:
+    button = QToolButton(parent)
+    themed = QIcon.fromTheme(icon)
+    if themed.isNull():
+        button.setText(fallback)
+    else:
+        button.setIcon(themed)
+    button.setToolTip(tip)
+    button.setAccessibleName(tip)
+    # Big enough for a finger.
+    button.setMinimumSize(44, 44)
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    return button
 
-    ``render`` runs on a worker thread and returns the panorama's path.
-    """
-    view = SphereWidget(longitude)
-    view.setWindowTitle(f"{title} — golblick")
+
+def _controls(view: SphereView, path: Path, say) -> QWidget:
+    """A bar of buttons along the bottom, for a touchscreen or anyone without a wheel."""
+    bar = QWidget(view)
+    bar.setObjectName("controls")
+    bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    bar.setStyleSheet(
+        "#controls { background: rgba(0, 0, 0, 150); border-radius: 22px; }"
+        "QToolButton { color: white; background: transparent; border: 0; font-size: 18px;"
+        " border-radius: 20px; }"
+        "QToolButton:pressed { background: rgba(255, 255, 255, 60); }"
+        "QToolButton:disabled { color: rgba(255, 255, 255, 90); }")
+    row = QHBoxLayout(bar)
+    row.setContentsMargins(8, 2, 8, 2)
+    row.setSpacing(2)
+
+    def held(button: QToolButton, action) -> QToolButton:
+        # Held down, it keeps going, like a key.
+        button.setAutoRepeat(True)
+        button.setAutoRepeatDelay(250)
+        button.setAutoRepeatInterval(40)
+        button.clicked.connect(action)
+        return button
+
+    def step() -> float:
+        return view.fov / 30
+
+    buttons = [
+        held(_button("go-previous", "◀", "Turn left", bar), lambda: view.turn(-step())),
+        held(_button("go-up", "▲", "Look up", bar), lambda: view.turn(0, step())),
+        held(_button("go-down", "▼", "Look down", bar), lambda: view.turn(0, -step())),
+        held(_button("go-next", "▶", "Turn right", bar), lambda: view.turn(step())),
+        held(_button("zoom-out", "−", "Zoom out", bar), lambda: view.turn(zoom=1.03)),
+        held(_button("zoom-in", "+", "Zoom in", bar), lambda: view.turn(zoom=1 / 1.03)),
+    ]
+    full = _button("view-fullscreen", "⛶", "Full screen", bar)
+    full.clicked.connect(view.toggle_full_screen)
+    here = _button("mark-location", "◎", "Open here: start this photo looking this way", bar)
+    reset = _button("edit-undo", "↺", "Open the default way again", bar)
+    reset.setEnabled(load_view(path) is not None)
+
+    def keep() -> None:
+        save_view(path, {"longitude": view.longitude, "latitude": view.latitude, "fov": view.fov})
+        reset.setEnabled(True)
+        say("It opens here now.")
+
+    def forget() -> None:
+        save_view(path, None)
+        reset.setEnabled(False)
+        view.look(0.0, 0.0, 75.0)
+        say("It opens the default way again.")
+
+    here.clicked.connect(keep)
+    reset.clicked.connect(forget)
+    for button in [*buttons, full, here, reset]:
+        row.addWidget(button)
+    bar.adjustSize()
+    return bar
+
+
+class _Follow(QObject):
+    """Keeps the control bar centred along the bottom as the window is resized."""
+
+    def __init__(self, view: QWidget, bar: QWidget):
+        super().__init__(view)
+        self._view, self._bar = view, bar
+        view.installEventFilter(self)
+        self.place()
+
+    def place(self) -> None:
+        view, bar = self._view, self._bar
+        bar.move((view.width() - bar.width()) // 2, view.height() - bar.height() - 16)
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.Resize:
+            self.place()
+        return False
+
+
+def open_window(path: str | Path) -> SphereView:
+    """A viewer window for the photo at ``path``; it loads in the background."""
+    path = Path(path)
+    start = load_view(path) or {}
+    view = SphereView(start.get("longitude", 0.0), start.get("latitude", 0.0), start.get("fov", 75.0))
+    view.setWindowTitle(f"{path.name} — golblick")
     view.resize(1280, 720)
-    status = QLabel("Rendering the panorama…", view)
+
+    status = QLabel(view)
     status.setStyleSheet(
-        "color: white; background: rgba(0, 0, 0, 140); padding: 6px 12px; border-radius: 12px;")
-    status.adjustSize()
+        "color: white; background: rgba(0, 0, 0, 150); padding: 6px 12px; border-radius: 12px;")
+    status.setWordWrap(True)
     status.move(16, 16)
+
+    def say(text: str, seconds: float | None = 3.0) -> None:
+        status.setText(text)
+        status.setMaximumWidth(max(200, view.width() - 32))
+        status.adjustSize()
+        status.show()
+        if seconds:
+            QTimer.singleShot(int(seconds * 1000), lambda: status.text() == text and status.hide())
+
+    say("Opening…", None)
+    _Follow(view, _controls(view, path, say))
     QShortcut(QKeySequence(QKeySequence.StandardKey.Close), view, view.close)
     QShortcut(QKeySequence("Ctrl+Q"), view, view.close)
 
-    signals = _Rendered(view)
-
-    def loaded(path: str) -> None:
-        image = QImage(path)
-        if image.isNull():
-            failed(f"couldn't read {path}")
-            return
-        view.set_panorama(image)
-        status.setText("Drag to look around · scroll to zoom · double-click for full screen")
-        status.adjustSize()
-        from PySide6.QtCore import QTimer
-
-        QTimer.singleShot(4000, status.hide)
-
-    def failed(message: str) -> None:
-        status.setText(f"Couldn't show this photo: {message}")
-        status.setWordWrap(True)
-        status.setMaximumWidth(view.width() - 32)
-        status.adjustSize()
-
-    signals.done.connect(loaded)
-    signals.failed.connect(failed)
+    loaded = _Loaded(view)
+    loaded.scene.connect(lambda scene, halves: (view.show_scene(scene, halves),
+                                                say("Drag to look around · scroll or pinch to zoom")))
+    loaded.refined.connect(view.show_scene)
+    loaded.failed.connect(lambda message: say(f"Couldn't show this photo: {message}", None))
 
     def work() -> None:
         try:
-            signals.done.emit(str(render()))
+            quick = scenes.photo_scene(path)
+            image = QImage.fromData(quick.jpeg)
+            if image.isNull():
+                raise ValueError("the photo couldn't be decoded")
+            image = image.convertToFormat(QImage.Format.Format_RGB888)
+            half = image.width() // 2
+            halves = (image.copy(0, 0, half, image.height()), image.copy(half, 0, half, image.height()))
+            del image
+            loaded.scene.emit(quick, halves)
+            loaded.refined.emit(scenes.refine(path, quick))
         except Exception as exc:  # shown in the window; there may be no terminal
-            signals.failed.emit(str(exc))
+            loaded.failed.emit(str(exc))
 
     threading.Thread(target=work, daemon=True).start()
     view.show()
     return view
 
 
-def run(title: str, render: Callable[[], Path], longitude: float = 0.0) -> int:
+def run(path: str | Path) -> int:
     """Open the window and run until it is closed."""
-    fmt = QSurfaceFormat.defaultFormat()
-    fmt.setDepthBufferSize(0)
-    QSurfaceFormat.setDefaultFormat(fmt)
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("golblick")
     app.setDesktopFileName("golblick-open")
-    window = open_window(title, render, longitude)  # noqa: F841 - kept alive until exec returns
+    window = open_window(path)  # noqa: F841 - kept alive until exec returns
     return app.exec()

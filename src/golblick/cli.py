@@ -833,7 +833,7 @@ def cmd_stabilise(args: argparse.Namespace) -> int:
 
 
 def cmd_open(args: argparse.Namespace) -> int:
-    """Show a photo as a sphere in golblick's viewer, rendering it once into a cache.
+    """Show a photo as a sphere in golblick's viewer window.
 
     What a double-click on a .insp runs once ``golblick desktop install`` has
     made it the default (:mod:`golblick.desktop`).  Started from the desktop
@@ -857,36 +857,13 @@ def _open(args: argparse.Namespace, desktop) -> int:
     if _is_mp4(path):
         raise UnsupportedFile(f"{path.name}: open shows photos only so far; "
                               "render a video with 'golblick render'")
-
-    width = args.width or 4096
-    cache = desktop.cache_dir()
-    cache.mkdir(parents=True, exist_ok=True)
-    panorama = cache / f"{desktop.cache_key(path, _version(), width)}.jpg"
-
-    def render() -> Path:
-        if args.rebuild or not panorama.exists():
-            partial = panorama.with_suffix(".part.jpg")
-            render_args = build_parser().parse_args(
-                ["render", str(path), "-o", str(partial), "-w", str(width)])
-            # The render's own report goes to the terminal, when there is one.
-            if cmd_render(render_args) != 0:
-                raise GolblickError(f"{path.name}: rendering failed")
-            partial.replace(panorama)
-        else:
-            panorama.touch()
-        desktop.prune(cache)
-        return panorama
-
-    if args.no_window:
-        print(render())
-        return 0
     try:
         from . import viewer
     except ImportError as exc:
         raise MissingDependency(
             "the viewer window needs PySide6, which the 'desktop' extra installs: "
             "pip install 'golblick[desktop]'") from exc
-    return viewer.run(path.name, render)
+    return viewer.run(path)
 
 
 def _notify(summary: str, body: str) -> None:
@@ -1027,14 +1004,10 @@ def build_parser() -> argparse.ArgumentParser:
     view = sub.add_parser(
         "open",
         help="show a photo as a sphere in a viewer window",
-        description="Renders the photo once into a cache (~/.cache/golblick/open) and shows it as a sphere "
-                    "to look around in. Needs the 'desktop' extra.",
+        description="Shows the photo as a sphere to look around in, projected by the GPU as it's drawn. "
+                    "Needs the 'desktop' extra.",
     )
     view.add_argument("file")
-    view.add_argument("-w", "--width", type=int, help="panorama width (default: 4096)")
-    view.add_argument("--rebuild", action="store_true", help="render again even if it's cached")
-    view.add_argument("--no-window", action="store_true",
-                      help="only render it, and print the panorama's path")
     view.set_defaults(func=cmd_open)
 
     integrate = sub.add_parser(

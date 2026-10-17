@@ -1,12 +1,9 @@
-"""The desktop integration: file association, cache and the open command's checks.
+"""The desktop integration: file association, the viewer's numbers and the open command's checks.
 
 Nothing here touches the real desktop: everything is written under a temporary
 XDG data directory, and the tools that refresh the desktop's caches are
 replaced so none of them runs.
 """
-
-import os
-import time
 
 import pytest
 
@@ -55,30 +52,6 @@ def test_the_mime_type_does_not_claim_plain_jpegs():
     assert "*.jpg" not in desktop.MIME_XML and "*.jpeg" not in desktop.MIME_XML
 
 
-def test_the_cache_key_follows_the_file_and_the_renderer(tmp_path):
-    photo = tmp_path / "IMG_1.insp"
-    photo.write_bytes(b"one")
-    first = desktop.cache_key(photo, "0.6.0", 4096)
-
-    assert desktop.cache_key(photo, "0.6.0", 4096) == first
-    assert desktop.cache_key(photo, "0.6.1", 4096) != first
-    assert desktop.cache_key(photo, "0.6.0", 2048) != first
-    photo.write_bytes(b"changed")
-    os.utime(photo, ns=(time.time_ns(), time.time_ns() + 10**9))
-    assert desktop.cache_key(photo, "0.6.0", 4096) != first
-
-
-def test_prune_keeps_the_most_recently_used(tmp_path):
-    for k in range(5):
-        entry = tmp_path / f"{k}.jpg"
-        entry.write_bytes(b"x")
-        os.utime(entry, (1_000_000 + k, 1_000_000 + k))
-
-    desktop.prune(tmp_path, keep=2)
-
-    assert sorted(p.name for p in tmp_path.glob("*.jpg")) == ["3.jpg", "4.jpg"]
-
-
 def test_desktop_install_from_the_cli_takes_the_given_command(home, capsys):
     tmp, _ = home
 
@@ -93,5 +66,47 @@ def test_open_refuses_a_missing_file(home, capsys):
     pytest.importorskip("numpy")
     pytest.importorskip("PIL")
 
-    assert cli.main(["open", "/nonexistent/IMG_1.insp", "--no-window"]) == 1
+    assert cli.main(["open", "/nonexistent/IMG_1.insp"]) == 1
     assert "no such file" in capsys.readouterr().err
+
+
+def test_the_shader_lens_numbers_land_where_render_projects():
+    """scene hands the GPU each lens as a matrix and a few numbers; the formula
+    the shader applies to them must give render._project's answer.  A lopsided
+    lens, tilted and spun, so a transposed matrix or a missed flip shows."""
+    numpy = pytest.importorskip("numpy")
+    from golblick import render, scene
+
+    lenses = (render.Lens(radius=1400.0, centre_x=1510.0, centre_y=1530.0, spin=0.0, tilt=(0.01, -0.02)),
+              render.Lens(radius=1390.0, centre_x=4570.0, centre_y=1515.0, spin=0.03, tilt=(-0.015, 0.005)))
+    theta_max = numpy.deg2rad(97.0)
+    rays = numpy.random.default_rng(1).normal(size=(500, 3))
+    rays /= numpy.linalg.norm(rays, axis=1, keepdims=True)
+    for index, lens in enumerate(lenses):
+        u, v, theta = render._project(rays, lens, index, theta_max)
+        shader = scene._shader_lens(lens, index, render)
+        local = rays @ numpy.asarray(shader.matrix).T
+        their_theta = numpy.arccos(numpy.clip(local[:, 2], -1, 1))
+        phi = numpy.arctan2(local[:, 1], local[:, 0]) - shader.spin
+        r = shader.radius * their_theta / theta_max
+        assert numpy.allclose(their_theta, theta, atol=1e-9)
+        assert numpy.allclose(shader.centre_x + r * numpy.cos(phi), u, atol=1e-6)
+        assert numpy.allclose(shader.centre_y - r * numpy.sin(phi), v, atol=1e-6)
+
+
+def test_an_opening_view_is_kept_by_name_and_size_and_can_be_forgotten(home, tmp_path):
+    pytest.importorskip("PySide6")
+    from golblick import viewer
+
+    photo = tmp_path / "IMG_20260314_090825_00_008.insp"
+    photo.write_bytes(b"x" * 10)
+    assert viewer.load_view(photo) is None
+
+    viewer.save_view(photo, {"longitude": 91.234, "latitude": -5.0, "fov": 60.0})
+    moved = tmp_path / "elsewhere" / photo.name
+    moved.parent.mkdir()
+    moved.write_bytes(b"x" * 10)
+    assert viewer.load_view(moved) == {"longitude": 91.23, "latitude": -5.0, "fov": 60.0}
+
+    viewer.save_view(photo, None)
+    assert viewer.load_view(photo) is None

@@ -164,13 +164,15 @@ The pose fields are deliberately left out. `PoseHeadingDegrees` would state whic
 
 ## Look around in a photo
 
-`open` shows a photo as a sphere in golblick's own viewer window: drag to look around, scroll or `+` and `-` to zoom, double-click or `F` for full screen, `Esc` to leave it. It needs the `desktop` extra.
+`open` shows a photo as a sphere in golblick's own viewer window: drag to look around, scroll or `+` and `-` to zoom, double-click or `F` for full screen, `Esc` to leave it. A bar of buttons along the bottom does the same by touch or click, and pinching zooms on a touchscreen. It needs the `desktop` extra.
 
 ```sh
-golblick open IMG_20260314_090809_00_007.insp
+golblick open IMG_20260314_090825_00_008.insp
 ```
 
-The first time it renders the photo, which takes 10 to 20 seconds; the window opens straight away and the photo appears when it's ready. The panorama is kept in `~/.cache/golblick/open`, so opening it again is instant until the file changes. The cache keeps the 40 most recently opened. `--rebuild` renders it again, and `--no-window` only renders it and prints where the panorama is.
+Nothing is rendered first: the graphics card projects the two lenses as it draws, with the same lens model and corrections as `render`, so the photo is on screen in about a second. A few seconds later the view updates with what takes longer to work out: where the seam between the lenses goes, and on an X5 whether lens guards were fitted and how the camera's own stitch levels it.
+
+**Open here** makes the current view the one the photo opens with next time, and the button beside it goes back to the default, which faces the way Insta360 Studio opens the photo. The views are kept in `~/.local/share/golblick/views.json`, by file name and size, never in the photo.
 
 To open photos by double-clicking them, run this once:
 
