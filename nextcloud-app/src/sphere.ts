@@ -501,6 +501,25 @@ export class SphereView {
   }
 
   /** Draw once more, e.g. when a paused video has shown a new frame after a seek. */
+  /**
+   * Where the view looks, in the panorama's own terms, degrees: longitude from
+   * the middle column, rising to the right, latitude up from the horizon, and
+   * the vertical field of view. What the server keeps as an opening view.
+   */
+  public get direction(): { longitude: number; latitude: number; fov: number } {
+    const longitude = ((this.longitude + 180) % 360 + 360) % 360 - 180;
+    return { longitude, latitude: this.latitude, fov: this.fov };
+  }
+
+  /** Look that way; a missing field of view keeps the current one. */
+  public look(longitude: number, latitude: number, fov?: number | null) {
+    this.longitude = longitude;
+    this.latitude = latitude;
+    if (fov) this.fov = fov;
+    this.clampView();
+    this.invalidate?.();
+  }
+
   public redraw() {
     this.invalidate?.();
   }

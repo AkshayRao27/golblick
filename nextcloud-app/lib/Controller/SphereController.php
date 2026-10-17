@@ -13,6 +13,7 @@ use OCA\Golblick\Service\MotionStore;
 use OCA\Golblick\Http\RangeFileResponse;
 use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\VideoStore;
+use OCA\Golblick\Service\ViewStore;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
@@ -43,6 +44,7 @@ final class SphereController extends Controller {
 		private CameraReport $report,
 		private VideoStore $videos,
 		private MotionStore $motion,
+		private ViewStore $views,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -56,8 +58,70 @@ final class SphereController extends Controller {
 	#[FrontpageRoute(verb: 'GET', url: '/sphere/{fileId}/info', requirements: ['fileId' => '\d+'])]
 	public function info(int $fileId): JSONResponse {
 		$file = $this->file($fileId);
+		$answer = self::describe($file, $this->videos);
+		$subject = $file === null ? null : self::subjectOf($file);
+		if ($subject !== null) {
+			$answer['view'] = $this->views->get(...$subject);
+			$answer['canSetView'] = $subject[0]->isUpdateable();
+		}
 
-		return new JSONResponse(self::describe($file, $this->videos));
+		return new JSONResponse($answer);
+	}
+
+	/**
+	 * Make $longitude, $latitude and $fov the direction this photo, or every
+	 * file of this clip, opens in. Anyone who can change the file can.
+	 */
+	#[NoAdminRequired]
+	#[FrontpageRoute(verb: 'PUT', url: '/sphere/{fileId}/view', requirements: ['fileId' => '\d+'])]
+	public function setView(int $fileId, float $longitude, float $latitude, ?float $fov = null): JSONResponse {
+		$file = $this->file($fileId);
+		$subject = $file === null ? null : self::subjectOf($file);
+		if ($subject === null) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		if (!$subject[0]->isUpdateable()) {
+			return new JSONResponse(['error' => 'You can\'t change this file, so you can\'t set where it opens.'], Http::STATUS_FORBIDDEN);
+		}
+		try {
+			$this->views->set($subject[0], $longitude, $latitude, $fov);
+		} catch (\InvalidArgumentException $e) {
+			return new JSONResponse(['error' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		}
+
+		return new JSONResponse(['view' => $this->views->get(...$subject)]);
+	}
+
+	/** Back to opening the way Insta360 Studio does. */
+	#[NoAdminRequired]
+	#[FrontpageRoute(verb: 'DELETE', url: '/sphere/{fileId}/view', requirements: ['fileId' => '\d+'])]
+	public function clearView(int $fileId): JSONResponse {
+		$file = $this->file($fileId);
+		$subject = $file === null ? null : self::subjectOf($file);
+		if ($subject === null) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		if (!$subject[0]->isUpdateable()) {
+			return new JSONResponse(['error' => 'You can\'t change this file, so you can\'t set where it opens.'], Http::STATUS_FORBIDDEN);
+		}
+		$this->views->clear($subject[0]);
+
+		return new JSONResponse(['view' => $this->views->get(...$subject)]);
+	}
+
+	/**
+	 * What a file's opening view belongs to (ViewStore): a photo itself, or
+	 * for any file of a clip, and a copy saved next to one, the clip's master.
+	 *
+	 * @return array{File, bool}|null the subject, and whether it's a video
+	 */
+	public static function subjectOf(File $file): ?array {
+		if (PanoramaStore::isCandidate($file)) {
+			return [$file, false];
+		}
+		$clip = MotionStore::clipFor($file);
+
+		return $clip === null ? null : [$clip, true];
 	}
 
 	/**

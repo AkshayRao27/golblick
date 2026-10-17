@@ -5,7 +5,8 @@
  * button in Nextcloud's Viewer, and the button in Memories, for a signed-in
  * user or on a public share link.
  */
-import { mdiClose, mdiCompassOutline, mdiPause, mdiPlay, mdiVideoStabilization, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js';
+import { mdiBackupRestore, mdiClose, mdiCompassOutline, mdiImageFilterCenterFocus, mdiPause, mdiPlay, mdiVideoStabilization, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js';
+import { getRequestToken } from '@nextcloud/auth';
 import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
 
@@ -24,7 +25,12 @@ const sphereUrl = (fileId: number) => generateUrl(config.share
  * preview is addressed by. For a video, `video` says whether its stitched copy
  * is ready, and `videoEtag` versions that copy (it changes whenever the copy is made again).
  */
-export type Info = { sphere: boolean; etag: string | null; path?: string | null; video?: boolean; videoEtag?: string | null };
+export type Info = {
+  sphere: boolean; etag: string | null; path?: string | null; video?: boolean; videoEtag?: string | null;
+  /** Where it opens (lib/Service/ViewStore.php), and whether this user may change that. */
+  view?: OpeningView; canSetView?: boolean;
+};
+type OpeningView = { longitude: number; latitude: number; fov: number | null; chosen: boolean };
 const infoCache = new Map<number, Promise<Info>>();
 
 /** Whether a file is one of ours. Cheap on the server, and cached per page. */
@@ -219,6 +225,15 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
       view.destroy();
       return;
     }
+    // Where this opens: the direction someone chose, or the one Insta360
+    // Studio opens in. Asked here and not before the sphere appears, so a
+    // slow answer doesn't hold it up.
+    const answer = await info(fileId).catch(() => null);
+    if (closed) return;
+    if (answer?.view) view.look(answer.view.longitude, answer.view.latitude, answer.view.fov);
+    if (answer?.canSetView && answer.view) {
+      overlay.append(openingButtons(fileId, answer.view, view, () => player, status, overlay));
+    }
     // Keep the controls above the canvas.
     overlay.append(close, status);
   } catch {
@@ -297,6 +312,73 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
   } else {
     status.textContent = 'Full resolution is not available; showing the preview.';
   }
+}
+
+/**
+ * "Open here" and "Open the default way", top right beside the close button,
+ * for someone who may change the file. A video's view is kept for its opening
+ * frame, so it can only be set there: elsewhere the steadying has turned the
+ * sphere and the same direction would point somewhere else at the start.
+ */
+function openingButtons(fileId: number, current: OpeningView, view: SphereView,
+  player: () => HTMLVideoElement | null, status: HTMLElement, overlay: HTMLElement): HTMLElement {
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:absolute;top:12px;right:64px;z-index:1;display:flex;gap:8px;';
+  const button = (icon: string, title: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.innerHTML = svgIcon(icon, 22);
+    b.style.cssText = 'width:44px;height:44px;border:0;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;'
+      + 'cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;';
+    return b;
+  };
+  const set = button(mdiImageFilterCenterFocus, 'Open here: make this the view it opens with');
+  const reset = button(mdiBackupRestore, 'Open the default way again');
+  reset.hidden = !current.chosen;
+
+  const say = (text: string) => {
+    status.textContent = text;
+    overlay.append(status);
+    window.setTimeout(() => { if (status.textContent === text) status.remove(); }, 3000);
+  };
+  const send = async (method: 'PUT' | 'DELETE', body?: object): Promise<OpeningView | null> => {
+    const response = await fetch(`${sphereUrl(fileId)}/view`, {
+      method,
+      credentials: 'same-origin',
+      headers: { requesttoken: getRequestToken() ?? '', 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(answer.error ?? `${response.status} ${response.statusText}`);
+    // Every file of a clip shares the view, so forget them all.
+    infoCache.clear();
+    return answer.view ?? null;
+  };
+
+  set.addEventListener('click', () => {
+    const video = player();
+    if (video && video.currentTime > 0.2) {
+      say('Go back to the start of the video to set where it opens.');
+      return;
+    }
+    const { longitude, latitude, fov } = view.direction;
+    send('PUT', { longitude, latitude, fov })
+      .then(() => { reset.hidden = false; say('It opens here now.'); })
+      .catch((e: Error) => say(`Not saved: ${e.message}`));
+  });
+  reset.addEventListener('click', () => {
+    send('DELETE')
+      .then((fallback) => {
+        reset.hidden = true;
+        if (fallback) view.look(fallback.longitude, fallback.latitude, fallback.fov);
+        say('It opens the default way again.');
+      })
+      .catch((e: Error) => say(`Not saved: ${e.message}`));
+  });
+  bar.append(reset, set);
+  return bar;
 }
 
 /** Play and pause, a seek bar with the time, and sound on and off, along the bottom. */

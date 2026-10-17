@@ -77,7 +77,9 @@ A **View as sphere** button opens the photo full-window as a sphere you can drag
 - in the image viewer that Files and Photos open, next to the edit button
 - in Memories, in the viewer's top bar
 
-It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
+It faces the way Insta360 Studio opens the photo. It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
+
+To have it open somewhere else, look that way and click **Open here** (the button beside the close button). Everyone who opens it then starts there, in Memories' sphere view too, and the button next to it goes back to the default. It's kept in the app's data, not in the photo, and only someone who can change the file can set it. A video's opening view works the same way, set at the start of the video, and is shared by every file of the clip and its stitched copy. Memories may keep showing the old view for up to a day, because the browser keeps the image that long.
 
 The buttons in the image viewer and in Memories are a stopgap. Neither app has a way for other apps to add buttons, so golblick inserts them into the page itself. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and each app's button can be switched off on the settings page. Memories 10 has its own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama.
 

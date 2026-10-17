@@ -12,6 +12,7 @@ use OCA\Golblick\Http\RangeFileResponse;
 use OCA\Golblick\Service\MotionStore;
 use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\VideoStore;
+use OCA\Golblick\Service\ViewStore;
 use OCA\Golblick\Service\Settings;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
@@ -56,6 +57,7 @@ final class PublicSphereController extends PublicShareController {
 		private Settings $settings,
 		private VideoStore $videos,
 		private MotionStore $motion,
+		private ViewStore $views,
 	) {
 		parent::__construct($appName, $request, $session);
 	}
@@ -90,6 +92,12 @@ final class PublicSphereController extends PublicShareController {
 		$answer = SphereController::describe($file, $this->videos);
 		if (($answer['video'] ?? false) && !$this->masterShared($file)) {
 			$answer['video'] = false;
+		}
+
+		// Where it opens, but a visitor can't change that.
+		$subject = $file === null ? null : SphereController::subjectOf($file);
+		if ($subject !== null) {
+			$answer['view'] = $this->views->get(...$subject);
 		}
 
 		return new JSONResponse($answer + ['path' => $answer['sphere'] ? $path : null]);

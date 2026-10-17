@@ -8,8 +8,10 @@ declare(strict_types=1);
 
 namespace OCA\Golblick\Middleware;
 
+use OCA\Golblick\Render\Gpano;
 use OCA\Golblick\Service\PanoramaStore;
 use OCA\Golblick\Service\Settings;
+use OCA\Golblick\Service\ViewStore;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\DataDownloadResponse;
@@ -55,6 +57,7 @@ final class MemoriesZoom extends Middleware {
 		private IUserSession $userSession,
 		private PanoramaStore $store,
 		private Settings $settings,
+		private ViewStore $views,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -76,6 +79,15 @@ final class MemoriesZoom extends Middleware {
 			$jpeg = $this->store->get($file);
 			if ($jpeg === null) {
 				return $response;
+			}
+			// Memories' sphere view opens where the metadata says. Only a
+			// chosen view needs saying: by default it opens in the middle,
+			// which is already the right way. ⚠️ The browser keeps this image
+			// for a day under a URL keyed on the file, so a newly chosen view
+			// reaches Memories once that has run out.
+			$view = $this->views->get($file, false);
+			if ($view['chosen']) {
+				$jpeg = Gpano::withInitialView($jpeg, $view['longitude'], $view['latitude']);
 			}
 
 			$replaced = new DataDownloadResponse($jpeg, $file->getName() . '.jpg', 'image/jpeg');
