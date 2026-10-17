@@ -33,13 +33,23 @@ export type Info = {
 type OpeningView = { longitude: number; latitude: number; fov: number | null; chosen: boolean };
 const infoCache = new Map<number, Promise<Info>>();
 
-/** Whether a file is one of ours. Cheap on the server, and cached per page. */
+/**
+ * Whether a file is one of ours. Cheap on the server, and cached per page.
+ *
+ * Only an answer is cached, never a failure: a request that failed while
+ * the app was being upgraded was once kept as "not a sphere" for the life of
+ * the tab, and with it the button and the sphere player for that file.
+ */
 export function info(fileId: number): Promise<Info> {
   let pending = infoCache.get(fileId);
   if (!pending) {
+    const failed = (): Info => {
+      infoCache.delete(fileId);
+      return { sphere: false, etag: null };
+    };
     pending = fetch(`${sphereUrl(fileId)}/info`, { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : { sphere: false, etag: null }))
-      .catch(() => ({ sphere: false, etag: null }));
+      .then((r) => (r.ok ? r.json() as Promise<Info> : failed()))
+      .catch(failed);
     infoCache.set(fileId, pending);
   }
   return pending;
