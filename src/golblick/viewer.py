@@ -22,7 +22,7 @@ import os
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QImage, QKeySequence, QShortcut
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
@@ -382,13 +382,30 @@ class _Loaded(QObject):
     failed = Signal(str)
 
 
+def _white(icon: QIcon, size: int = 24) -> QIcon:
+    """The theme's icon in white: icon themes draw for a light background, and the bar is dark."""
+    from PySide6.QtGui import QColor, QPainter, QPixmap
+
+    out = QIcon()
+    for scale in (1, 2):
+        pixmap = QPixmap(icon.pixmap(size * scale, size * scale))
+        painter = QPainter(pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(pixmap.rect(), QColor("white"))
+        painter.end()
+        pixmap.setDevicePixelRatio(scale)
+        out.addPixmap(pixmap)
+    return out
+
+
 def _button(icon: str, fallback: str, tip: str, parent: QWidget) -> QToolButton:
     button = QToolButton(parent)
     themed = QIcon.fromTheme(icon)
     if themed.isNull():
         button.setText(fallback)
     else:
-        button.setIcon(themed)
+        button.setIcon(_white(themed))
+        button.setIconSize(QSize(24, 24))
     button.setToolTip(tip)
     button.setAccessibleName(tip)
     # Big enough for a finger.
