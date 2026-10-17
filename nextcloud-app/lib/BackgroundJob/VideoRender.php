@@ -13,6 +13,7 @@ use OCA\Golblick\Insta360\FormatError;
 use OCA\Golblick\Preview\Insta360Video;
 use OCA\Golblick\Service\BakeQueue;
 use OCA\Golblick\Service\Settings;
+use OCA\Golblick\Service\StitchQueue;
 use OCA\Golblick\Service\VideoRenderer;
 use OCA\Golblick\Service\VideoStore;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -38,6 +39,10 @@ use Psr\Log\LoggerInterface;
  * more, and one that fails twice, or a file that can't be rendered at all,
  * is remembered and skipped until the cache is cleared.
  *
+ * With a GPU worker that can stitch, the stitching itself goes to the worker
+ * (VideoRenderer, StitchQueue); a clip the worker fails on is stitched again
+ * here, on the CPU, rather than given up on.
+ *
  * Only clips' first files: a OneR or X3 clip's _00_ file (its _10_ partner
  * is read alongside it), and an X5's only file. Proxies (LRV_) are skipped.
  * Files are opened through a user who has them mounted, as Prerender does.
@@ -51,6 +56,7 @@ final class VideoRender extends TimedJob {
 		private VideoStore $store,
 		private VideoRenderer $renderer,
 		private BakeQueue $bake,
+		private StitchQueue $stitch,
 		private IAppConfig $appConfig,
 		private IDBConnection $db,
 		private IMimeTypeLoader $mimeTypes,
@@ -77,7 +83,7 @@ final class VideoRender extends TimedJob {
 		$this->startNext();
 	}
 
-	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool, seam?: string, phase?: string, clip?: string, duration?: float}|null */
+	/** @return array{fileid: int, name: string, deadline: int, started?: int, attempts: int, guards?: bool, seam?: string, phase?: string, steadied?: bool, clip?: string, duration?: float}|null */
 	public function current(): ?array {
 		$state = json_decode($this->appConfig->getValueString(Application::APP_ID, 'video_current', ''), true);
 
@@ -94,12 +100,23 @@ final class VideoRender extends TimedJob {
 	/** Forget the failures, so they are tried again (the settings page does this when clearing). */
 	public function forgetFailures(): void {
 		$this->appConfig->deleteKey(Application::APP_ID, 'video_failed');
+		$this->appConfig->deleteKey(Application::APP_ID, 'video_cpu');
+	}
+
+	/** @return array<string, true> entries the GPU worker failed on, which are stitched on the CPU instead */
+	private function cpuOnly(): array {
+		$names = json_decode($this->appConfig->getValueString(Application::APP_ID, 'video_cpu', '[]'), true);
+
+		return \is_array($names) ? array_fill_keys(array_filter($names, 'is_string'), true) : [];
 	}
 
 	/** Returns whether the slot is free now. */
 	private function collect(array $current): bool {
 		if (($current['phase'] ?? 'render') === 'bake') {
 			return $this->collectBake($current);
+		}
+		if (($current['phase'] ?? 'render') === 'gpu') {
+			return $this->collectStitch($current);
 		}
 		$status = $this->renderer->status($current['name']);
 		if ($status['state'] === 'running') {
@@ -192,6 +209,45 @@ final class VideoRender extends TimedJob {
 	}
 
 	/**
+	 * A stitch on the GPU worker. A finished one is steadied already when
+	 * baking was on, so it goes straight to its clip's folder; one that failed
+	 * is stitched again on the CPU, on a later run.
+	 */
+	private function collectStitch(array $current): bool {
+		$name = $current['name'];
+		$status = $this->stitch->status($name);
+		if ($status['state'] === 'running') {
+			if (time() <= $current['deadline']) {
+				return false;
+			}
+			$status = ['state' => 'failed', 'detail' => 'took longer than its time limit'];
+		}
+		$this->appConfig->deleteKey(Application::APP_ID, 'video_current');
+		if ($status['state'] === 'done') {
+			try {
+				$this->stitch->finish($name);
+				$this->store->dropOthers($current['fileid'], $name);
+				$this->logger->info("golblick: stitched video $name on the GPU"
+					. (!empty($current['steadied']) ? ', steadied' : '')
+					. (!empty($current['guards']) ? ' (lens guards detected)' : '')
+					. (isset($current['seam']) ? ', seam: ' . $current['seam'] : ''), ['app' => 'golblick']);
+				$this->besideClip($current['fileid'], $name);
+
+				return true;
+			} catch (FormatError $e) {
+				$status['detail'] = $e->getMessage();
+			}
+		}
+		$this->stitch->abandon($name);
+		$cpu = array_keys($this->cpuOnly());
+		$cpu[] = $name;
+		$this->appConfig->setValueString(Application::APP_ID, 'video_cpu', json_encode(array_values(array_unique($cpu))));
+		$this->logger->warning("golblick: the GPU worker couldn't stitch $name, so it will be stitched on the CPU: " . $status['detail'], ['app' => 'golblick']);
+
+		return true;
+	}
+
+	/**
 	 * With "save next to the clip" on, move a finished copy into its clip's
 	 * folder. A copy that can't go there stays in the app's data, still
 	 * playable from Files, and the reason is logged.
@@ -244,6 +300,7 @@ final class VideoRender extends TimedJob {
 		$failed = $this->failed();
 		$width = $this->settings->videoWidth();
 		$retry = $this->appConfig->getValueString(Application::APP_ID, 'video_retry', '');
+		$cpu = $this->cpuOnly();
 
 		foreach ($this->candidates() as $row) {
 			$name = VideoStore::nameFor($row['fileid'], $row['etag'], $width);
@@ -255,12 +312,14 @@ final class VideoRender extends TimedJob {
 				continue;
 			}
 			try {
-				$started = $this->renderer->start($file);
+				$started = $this->renderer->start($file, !isset($cpu[$name]));
 			} catch (\Throwable $e) {
 				$this->fail($name, $e->getMessage());
 				continue;   // nothing was started; try the next one
 			}
 			$this->appConfig->setValueString(Application::APP_ID, 'video_current', json_encode([
+				'phase' => $started['gpu'] ? 'gpu' : 'render',
+				'steadied' => $started['steadied'],
 				'fileid' => $row['fileid'],
 				'name' => $started['name'],
 				'deadline' => $started['deadline'],

@@ -24,7 +24,7 @@ final class BakeQueue {
 	/** A worker whose heartbeat is older than this is taken to be gone. */
 	private const ALIVE = 60;
 	/** Frames per row of the track image; worker/steady.cl reads the width from the image. */
-	private const COLUMNS = 4096;
+	public const COLUMNS = 4096;
 
 	public function __construct(
 		private VideoStore $store,
@@ -35,7 +35,8 @@ final class BakeQueue {
 	/**
 	 * The worker's last heartbeat, with whether it is recent enough to send it work.
 	 *
-	 * @return array{alive: bool, seen: int, device: string, encoder: string}|null
+	 * @return array{alive: bool, seen: int, device: string, encoder: string, stitch: bool}|null stitch: whether
+	 *         it can stitch, which needs CUDA and the data directory (a version 1 worker has neither)
 	 */
 	public function worker(): ?array {
 		$root = $this->store->root();
@@ -50,6 +51,7 @@ final class BakeQueue {
 			'seen' => $data['seen'],
 			'device' => (string)($data['device'] ?? ''),
 			'encoder' => (string)($data['encoder'] ?? ''),
+			'stitch' => ($data['stitch'] ?? false) === true,
 		];
 	}
 
@@ -130,27 +132,38 @@ final class BakeQueue {
 	 * frames past the end don't turn.
 	 */
 	private static function trackImage(array $track, int $rows): string {
-		$q = array_values(unpack('v*', base64_decode($track['q'], true) ?: ''));
+		$quaternions = self::quaternions($track);
+		$identity = [65535, 32768, 32768, 32768];
 		$image = '';
-		// Row by row, so a long clip's track isn't held as PHP arrays twice over.
 		for ($block = 0; $block < $rows; $block++) {
-			$frames = [];
-			for ($col = 0; $col < self::COLUMNS; $col++) {
-				$k = $block * self::COLUMNS + $col;
-				$quat = [1.0, 0.0, 0.0, 0.0];
-				if ($k < $track['frames'] && isset($q[4 * $k + 3])) {
-					// Little-endian int16, which unpack reads unsigned.
-					$quat = array_map(static fn (int $v): float => ($v >= 32768 ? $v - 65536 : $v) / 32767, \array_slice($q, 4 * $k, 4));
-					$norm = sqrt(array_sum(array_map(static fn (float $c): float => $c * $c, $quat))) ?: 1.0;
-					$quat = array_map(static fn (float $c): float => $c / $norm, $quat);
-				}
-				$frames[] = $quat;
-			}
 			for ($c = 0; $c < 4; $c++) {
-				$image .= pack('v*', ...array_map(static fn (array $quat): int => (int)round(($quat[$c] + 1) / 2 * 65535), $frames));
+				$row = [];
+				for ($col = 0; $col < self::COLUMNS; $col++) {
+					$row[] = ($quaternions[$block * self::COLUMNS + $col] ?? $identity)[$c];
+				}
+				$image .= pack('v*', ...$row);
 			}
 		}
 
 		return $image;
+	}
+
+	/**
+	 * Each frame's quaternion (w, x, y, z) as the kernels read it, each part
+	 * c stored as (c + 1) / 2 in 16 bits.
+	 *
+	 * @return list<array{int, int, int, int}>
+	 */
+	public static function quaternions(array $track): array {
+		$q = array_values(unpack('v*', base64_decode($track['q'], true) ?: ''));
+		$frames = [];
+		for ($k = 0; $k < $track['frames'] && isset($q[4 * $k + 3]); $k++) {
+			// Little-endian int16, which unpack reads unsigned.
+			$quat = array_map(static fn (int $v): float => ($v >= 32768 ? $v - 65536 : $v) / 32767, \array_slice($q, 4 * $k, 4));
+			$norm = sqrt(array_sum(array_map(static fn (float $c): float => $c * $c, $quat))) ?: 1.0;
+			$frames[] = array_map(static fn (float $c): int => (int)round(($c / $norm + 1) / 2 * 65535), $quat);
+		}
+
+		return $frames;
 	}
 }

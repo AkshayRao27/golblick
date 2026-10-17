@@ -29,7 +29,7 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
 | Server setups | Tested on the official `nextcloud` Docker image (Debian, Apache with PHP built in) and on Nextcloud AIO v14.2.0 (Alpine, PHP-FPM). On AIO, read [the note on RAW photos](#nextcloud-aio-and-raw-photos) |
 | For photos | Nothing beyond what Nextcloud already needs (PHP with GD) |
 | For videos | ffmpeg on the server: Nextcloud AIO has it, the official Docker image doesn't. Background jobs set to **Cron** (AIO already is), since stitching runs as a background job; see [Nextcloud's background jobs documentation](https://docs.nextcloud.com/server/latest/admin_manual/configuration_server/background_jobs_configuration.html). The data directory on local disk, not object storage. About 1 GB of free memory while a clip is being stitched |
-| For steady downloads | Optional: an NVIDIA GPU, Docker Compose and NVIDIA's container toolkit. See [Steady copies, with a GPU](#steady-copies-with-a-gpu) |
+| For the GPU worker | Optional, and worth it for videos: an NVIDIA GPU, Docker Compose and NVIDIA's container toolkit. It takes the stitching off the server's CPU and can bake in the steadying. See [Stitching on a GPU](#stitching-on-a-gpu) |
 
 ## Install
 
@@ -88,13 +88,13 @@ Visitors to a public share link get the Files and image viewer buttons too, as l
 Each step is a switch on **Administration settings → Golblick (360° Photos)**, and each one builds on the one before. Stop at whichever step gives you what you want.
 
 1. **Register .insv files**, in the setup check. Each `.insv` then shows a thumbnail of its opening frame as a panorama in Files. An X5 stores that frame stitched; a OneR or X3 stores both lenses' opening frame in the `_00_` file, and decoding it needs ffmpeg.
-2. **Stitch videos in the background**, in the Videos section. The server makes a stitched copy of each clip, newest first, one at a time, with ffmpeg at the lowest priority. Clicking a video in Files then plays that copy as a sphere you can look around in while it plays; until it's ready, you see the opening frame. Every file of a clip (`_00_`, `_10_` and the low-resolution `LRV_` copy) plays the same video.
+2. **Stitch videos in the background**, in the Videos section. The server makes a stitched copy of each clip, newest first, one at a time: with ffmpeg at the lowest priority, or on the [GPU worker](#stitching-on-a-gpu) if one is running. Clicking a video in Files then plays that copy as a sphere you can look around in while it plays; until it's ready, you see the opening frame. Every file of a clip (`_00_`, `_10_` and the low-resolution `LRV_` copy) plays the same video.
 3. **Save each stitched copy next to its clip**, to see the videos in Memories. See [In Memories](#in-memories).
-4. Optionally, **Bake steadying into each copy**, so the copies play steady in any player and when downloaded. That needs a GPU; see [Steady copies, with a GPU](#steady-copies-with-a-gpu).
+4. Optionally, **Bake steadying into each copy**, so the copies play steady in any player and when downloaded. That needs the GPU worker; see [Stitching on a GPU](#stitching-on-a-gpu).
 
 ### Stitching
 
-Stitching is slow, needs memory, and the copies are big. At the default 2880 × 1440, each second of video takes about 12 CPU-seconds, so a five-minute clip takes 15 minutes or more on four cores. A render needs about 1 GB of memory, and the copies take about 5 GB per hour of video. At 3840 × 1920, which you can pick under **Video size**, it's 18 CPU-seconds, 1.5 GB and 9 GB. 3840 looks sharper but is harder to play: in Firefox decoding video on the CPU, the sphere player managed about 19 frames a second of a 30 fps copy, against about 25 at 2880.
+On the server's CPU, stitching is slow, needs memory, and the copies are big. At the default 2880 × 1440, each second of video takes about 12 CPU-seconds, so a five-minute clip takes 15 minutes or more on four cores. A render needs about 1 GB of memory, and the copies take about 5 GB per hour of video. At 3840 × 1920, which you can pick under **Video size**, it's 18 CPU-seconds, 1.5 GB and 9 GB. 3840 looks sharper but is harder to play: in Firefox decoding video on the CPU, the sphere player managed about 19 frames a second of a 30 fps copy, against about 25 at 2880. While a clip is being stitched, the rest of Nextcloud can feel slow on a small server, because stitching holds that memory and writes a lot to disk; the lowest priority only protects CPU time. The [GPU worker](#stitching-on-a-gpu) takes nearly all of that off the server.
 
 The camera doesn't match a video's two lenses to each other the way it does for photos, so the stitching evens them out along the seam as the clip plays; where glare has washed one lens out completely, the seam can still show. For each clip it also decides, from a few of its frames, where and how the two lenses meet: on an X3 or X5, which record how far apart their lenses sit, it can line up someone who stays close to the camera, such as whoever is holding it, and on any camera it can move the seam to where the lenses agree. If that doesn't clearly help on frames it didn't choose from, it keeps the plain seam.
 
@@ -114,20 +114,26 @@ The copies count against that folder's storage, about 125 MB for every GB of cli
 
 When a copy is made again, the old one is replaced without being kept as a file version. Deleting a copy doesn't bring it back. To remove them all, use **Delete copies saved next to clips** in the Videos section: they go to the trash bin, and with stitching and saving still on they're made again. Changing the video size doesn't need it: each clip is stitched again at the new size and its copy replaced, and the old one plays until then.
 
-### Steady copies, with a GPU
+### Stitching on a GPU
 
-The copies can also have the steadying baked in, so they play steady in any app and when downloaded, the way Insta360 Studio's stabilised exports do. That needs a GPU, which Nextcloud's PHP can't use, so a small worker does it in a container of its own next to Nextcloud. It runs from the app's `worker/` folder in the image of the Memories transcoder (`radialapps/go-vod`), which already has ffmpeg with OpenCL and NVIDIA's video encoder, and it needs only the GPU and the app's video folder. It has been tried with NVIDIA cards only.
+Nextcloud's PHP can't use a GPU, so a small worker does the heavy part in a container of its own next to Nextcloud. It runs from the app's `worker/` folder in the image of the Memories transcoder (`radialapps/go-vod`), which already has ffmpeg with NVIDIA's video decoder and encoder and OpenCL. The server still plans each clip, which takes up to a minute or two of CPU at the lowest priority, and the worker decodes, stitches and encodes it. It reads the clips from Nextcloud's data folder, mounted read-only, and writes only into the app's video folder. It has been tried with NVIDIA cards only.
 
 1. Install NVIDIA's container toolkit and set it up for Docker (`nvidia-ctk runtime configure --runtime=docker`), as described in [NVIDIA's install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 2. Open the Videos section of the app's settings page. Under **Set up the GPU worker**, it shows a `compose.yaml` with this server's folders filled in.
    - On Nextcloud AIO, if you gave the mastercontainer `NEXTCLOUD_DATADIR`, put the same line in a file named `.env` next to `compose.yaml`.
    - Elsewhere, the paths are as Nextcloud sees them. If Nextcloud runs in a container, change each to the same folder's path on the host.
-3. Save it on the Docker host in a folder of its own, and run `docker compose up -d` there. If either folder isn't where the file says, it refuses to start, rather than letting Docker create an empty folder owned by root.
-4. Reload the settings page after a minute: the Videos section says whether the worker is running. Then switch on **Bake steadying into each copy**.
+3. Save it on the Docker host in a folder of its own, and run `docker compose up -d` there. If a folder isn't where the file says, it refuses to start, rather than letting Docker create an empty folder owned by root.
+4. Reload the settings page after a minute: the Videos section says whether the worker is running and whether it stitches.
 
-Each finished copy then goes to the worker before it's saved next to its clip. On the GPU it was tried on (a GeForce RTX 2070 Super), that takes under half the clip's length, against several times its length to stitch. If the worker isn't running or fails, the copy is kept as stitched and the player steadies it as before. In the player, a baked copy still has both buttons: switching steadying off shows the camera's own movement again. Baking resamples the picture once more, so a baked copy is very slightly softer. Copies stitched before baking was switched on aren't changed, and neither are copies that finished while the worker wasn't running, so if you want baked copies, start the worker and switch baking on before switching on stitching.
+On a GeForce RTX 2070 Super, a 2880-wide copy took a little less than the clip's length and a 3840 one about twice it. That used about 2 and 3 CPU-seconds per second of video, against 12 and 18 when the server stitches, and about 1 GB of memory. On a T1000 in a four-core server that was stitching another clip on its CPU at the same time, a 2880 copy took about twice the clip's length.
 
-Upgrading the app replaces its folder, and the worker's view of it with it. From 0.5.1 the worker notices, exits and is started again by Docker on the new folder. With 0.5.0, run `docker compose restart` in the worker's folder after each upgrade, or bakes fail and copies are saved unbaked.
+If the worker isn't running, or fails on a clip, the server stitches that clip itself as before.
+
+With **Bake steadying into each copy** on, the worker also steadies each copy as it stitches it, so the copy plays steady in any app and when downloaded, the way Insta360 Studio's stabilised exports do. In the player, a steadied copy still has both buttons: switching steadying off shows the camera's own movement again. Copies made before baking was switched on aren't changed.
+
+A worker set up before version 0.6 has no access to the data folder, so it only steadies copies the server has stitched, which resamples the picture once more and leaves them very slightly softer. The settings page shows the new `compose.yaml`; replace the old one with it and run `docker compose up -d` again.
+
+Upgrading the app replaces its folder, and the worker's view of it with it. From 0.5.1 the worker notices, exits and is started again by Docker on the new folder. With 0.5.0, run `docker compose restart` in the worker's folder after each upgrade.
 
 ## Settings
 

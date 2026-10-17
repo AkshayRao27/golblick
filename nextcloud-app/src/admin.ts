@@ -33,12 +33,12 @@ type Status = {
     clips: number;
     cache: { files: number; bytes: number; current: number };
     rendering: {
-      fileid: number; started: number | null; baking: boolean;
+      fileid: number; started: number | null; baking: boolean; gpu: boolean;
       clip: string | null; duration: number | null; done: number | null;
     } | null;
     queue: { clips: number; bytes: number };
     failed: number;
-    worker: { alive: boolean; seen: number; device: string; encoder: string } | null;
+    worker: { alive: boolean; seen: number; device: string; encoder: string; stitch: boolean } | null;
     compose: { aio: boolean; yaml: string } | null;
     beside: number;
   };
@@ -89,7 +89,7 @@ function renderingLine(r: NonNullable<Status['videos']['rendering']>): string {
   const name = r.clip ? `${r.clip}` : 'One video';
   if (r.baking) return ` ${name} is being steadied on the GPU now.`;
   const since = r.started ? new Date(r.started * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-  let line = ` ${name} is being stitched now${since ? `, since ${since}` : ''}`;
+  let line = ` ${name} is being stitched${r.gpu ? ' on the GPU' : ''} now${since ? `, since ${since}` : ''}`;
   if (r.done !== null && r.duration && r.started) {
     const elapsed = Date.now() / 1000 - r.started;
     const pace = r.done / elapsed;
@@ -257,9 +257,11 @@ function render(status: Status) {
   const workerLine = v.worker === null
     ? 'No GPU worker found.'
     : v.worker.alive
-      ? `GPU worker running: ${v.worker.device}, encoding with ${v.worker.encoder}.`
+      ? `GPU worker running: ${v.worker.device}, encoding with ${v.worker.encoder}.` + (v.worker.stitch
+        ? ' It stitches the videos as well.'
+        : ' It can\'t stitch videos: that needs an NVIDIA card and read access to the data folder, which the compose file below adds.')
       : `The GPU worker was last seen at ${clock(v.worker.seen)} and isn't currently running.`;
-  const workerSetup = v.compose === null || v.worker?.alive ? null : workerSteps(v.compose);
+  const workerSetup = v.compose === null || (v.worker?.alive && v.worker.stitch) ? null : workerSteps(v.compose);
   const videoWidthNote = feedback('video_width');
   const videoWidth = el('select', {}, ...[2880, 3840].map((w) =>
     el('option', { value: String(w), selected: w === s.video_width }, `${w} × ${w / 2}`)));
@@ -332,7 +334,7 @@ function render(status: Status) {
 
     el('h3', {}, 'Videos'),
     el('p', { className: 'settings-hint' },
-      'Insta360 videos play as a sphere from Files once the server has stitched them (done in the background, newest first). It is slow and needs memory: for every second of video, about 12 CPU-seconds at 2880 wide and 18 at 3840 (so a five-minute clip takes 15 minutes or more on four cores); a render needs about 1 GB of memory at 2880 and 1.5 GB at 3840, and the copies take about 5 GB per hour of video at 2880 and 9 GB at 3840. The horizon is levelled once per clip, at its start. It needs .insv registered (see Setup), ffmpeg, and the data directory on the local disk.'),
+      'Insta360 videos play as a sphere from Files once the server has stitched them (done in the background, newest first). It is slow and needs memory: for every second of video, about 12 CPU-seconds at 2880 wide and 18 at 3840 (so a five-minute clip takes 15 minutes or more on four cores); a render needs about 1 GB of memory at 2880 and 1.5 GB at 3840, and the copies take about 5 GB per hour of video at 2880 and 9 GB at 3840. The horizon is levelled once per clip, at its start. It needs .insv registered (see Setup), ffmpeg, and the data directory on the local disk. With golblick\'s GPU worker running on an NVIDIA card, the worker stitches instead, at about 2 to 3 CPU-seconds per second of video.'),
     toggle('Stitch videos in the background',
       v.usable ? 'Runs ffmpeg at the lowest priority, one video at a time.' : 'Not available: the data directory isn\'t on local disk.',
       s.video_render, (on) => void save({ video_render: on }, videoNote)),
@@ -414,7 +416,7 @@ function workerSteps(compose: { aio: boolean; yaml: string }) {
       el('li', {}, 'Save this as ', el('code', {}, 'compose.yaml'), ' in a folder of its own on that host. ',
         compose.aio
           ? 'If you gave the AIO mastercontainer NEXTCLOUD_DATADIR, put the same line, such as NEXTCLOUD_DATADIR=/mnt/ncdata, in a file named .env next to it. The paths assume Docker keeps its volumes in /var/lib/docker.'
-          : 'The two folder paths are as this server sees them. If Nextcloud runs in a container, change each to the same folder\'s path on the host.'),
+          : 'The folder paths are as this server sees them. If Nextcloud runs in a container, change each to the same folder\'s path on the host.'),
       el('li', {}, 'Run ', el('code', {}, 'docker compose up -d'), ' in that folder, and reload this page a minute later.')),
     yaml, copy, copyNote.node);
   steps.addEventListener('toggle', () => { workerStepsOpen = steps.open; });

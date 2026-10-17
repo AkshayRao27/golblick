@@ -48,6 +48,9 @@ use Psr\Log\LoggerInterface;
  * (SeamPlan): each lens aimed so a subject near the camera lines up, and the
  * cut routed round what still disagrees -- or the bisector, when the plan
  * can't show a clear gain on frames it wasn't chosen on.
+ *
+ * With a GPU worker that can stitch, the plan and tables are made here as
+ * always and the per-frame work goes to the worker instead (StitchQueue).
  */
 final class VideoRenderer {
 	/** 20 Mbit/s at 3840x1920, in proportion for other widths. */
@@ -78,17 +81,27 @@ final class VideoRenderer {
 		private Settings $settings,
 		private IUserSession $session,
 		private LoggerInterface $logger,
+		private StitchQueue $stitch,
+		private MotionStore $motion,
 	) {
 	}
 
 	/**
 	 * Start rendering $file, a video's master file, and return the entry name.
 	 *
-	 * @return array{name: string, deadline: int, guards: bool, seam: string, duration: float} guards: whether lens
-	 *         guards were detected; seam: how the lenses hand over; duration: the clip's length in seconds
+	 * @param bool $gpu whether the GPU worker may stitch it, if it can
+	 * @return array{name: string, deadline: int, guards: bool, seam: string, duration: float, gpu: bool, steadied: bool}
+	 *         guards: whether lens guards were detected; seam: how the lenses hand over; duration: the clip's length
+	 *         in seconds; gpu: whether the worker is stitching it; steadied: whether that copy will come out steadied
 	 * @throws FormatError if the file can't be rendered; nothing is left running
 	 */
-	public function start(File $file): array {
+	public function start(File $file, bool $gpu = true): array {
+		// Planning reads frames and builds tables for up to a minute of CPU,
+		// and this runs from cron, so at the lowest priority like the stitch.
+		// Not in a web server's process, which would stay niced for good.
+		if (\PHP_SAPI === 'cli' && \function_exists('proc_nice')) {
+			@proc_nice(19);
+		}
 		$ffmpeg = $this->decoder->binary();
 		$root = $this->store->root();
 		if ($ffmpeg === null || $root === null || !$this->store->isUsable()) {
@@ -122,6 +135,19 @@ final class VideoRenderer {
 		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
 
 		$bitrate = self::bitrate($width);
+		if ($gpu && $this->stitch->canStitch($inputs)) {
+			$track = $this->settings->flag('video_bake') ? $this->motion->track($file) : null;
+			try {
+				$this->stitch->start($name, $tables, $inputs, $lensSize, $width, $bitrate, $probe, $track);
+				VideoStore::removeDirectory($tables);
+
+				return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards,
+					'seam' => $seam, 'duration' => (float)$probe['duration'], 'gpu' => true, 'steadied' => $track !== null];
+			} catch (FormatError $e) {
+				$this->logger->warning("golblick: stitching $name on the CPU: could not hand it to the GPU worker: " . $e->getMessage(), ['app' => 'golblick']);
+			}
+		}
+
 		// 🔴 Memory, not speed, sets these. With ffmpeg's defaults (threads from
 		// the host's core count) a render peaked at 4 GB and was killed on a
 		// 3 GB container, and a production AIO box has 4 GB for everything.
@@ -170,7 +196,7 @@ final class VideoRenderer {
 
 		// Twelve times the clip's length, an hour at least: four cores run at about a fifth of real time.
 		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards,
-			'seam' => $seam, 'duration' => (float)$probe['duration']];
+			'seam' => $seam, 'duration' => (float)$probe['duration'], 'gpu' => false, 'steadied' => false];
 	}
 
 	/**
@@ -253,7 +279,7 @@ final class VideoRenderer {
 	 * a render started without it.
 	 */
 	public function progress(string $name): ?float {
-		$path = $this->store->root() . "/$name.progress";
+		$path = is_dir($this->store->root() . "/$name.stitch") ? $this->stitch->progressFile($name) : $this->store->root() . "/$name.progress";
 		$size = @filesize($path);
 		if ($size === false || $size === 0) {
 			return null;
@@ -432,7 +458,10 @@ final class VideoRenderer {
 		return $path;
 	}
 
-	/** @return array{streams: list<array{width: int, height: int}>, duration: float} */
+	/**
+	 * @return array{streams: list<array{width: int, height: int}>, duration: float, created: ?string, rate: string,
+	 *         matrix: string, range: string} rate, matrix and range are the first lens's, for the GPU stitch
+	 */
 	private function probe(string $ffmpeg, string $path): array {
 		$ffprobe = \dirname($ffmpeg) . '/ffprobe';
 		if (!is_executable($ffprobe)) {
@@ -440,7 +469,7 @@ final class VideoRenderer {
 		}
 		$out = [];
 		exec(implode(' ', array_map('escapeshellarg', [$ffprobe, '-v', 'error', '-select_streams', 'v',
-			'-show_entries', 'stream=width,height:stream_tags=creation_time:format=duration:format_tags=creation_time',
+			'-show_entries', 'stream=width,height,pix_fmt,r_frame_rate,color_space,color_range:stream_tags=creation_time:format=duration:format_tags=creation_time',
 			'-of', 'json', $path])), $out, $code);
 		$info = json_decode(implode("\n", $out), true);
 		if ($code !== 0 || !\is_array($info) || empty($info['streams'])) {
@@ -459,8 +488,20 @@ final class VideoRenderer {
 		// the day it was made.
 		$created = $info['format']['tags']['creation_time'] ?? $info['streams'][0]['tags']['creation_time'] ?? null;
 
+		// The cameras tag their lenses BT.709 or, on the OneR, BT.601, and full
+		// range. Untagged is taken as BT.709, and full range only for the
+		// pixel formats that say so.
+		$first = $info['streams'][0];
+		$matrix = \in_array($first['color_space'] ?? '', ['bt709', 'smpte170m', 'bt470bg'], true) ? $first['color_space'] : 'bt709';
+		$rate = preg_match('#^[1-9]\d*/[1-9]\d*$#', (string)($first['r_frame_rate'] ?? '')) ? $first['r_frame_rate'] : '30000/1001';
+
 		return ['streams' => $streams, 'duration' => (float)($info['format']['duration'] ?? 0),
-			'created' => \is_string($created) && preg_match('/^\d{4}-\d\d-\d\dT[\d:.]+Z?$/', $created) ? $created : null];
+			'created' => \is_string($created) && preg_match('/^\d{4}-\d\d-\d\dT[\d:.]+Z?$/', $created) ? $created : null,
+			'rate' => $rate, 'matrix' => $matrix, 'range' => match ($first['color_range'] ?? '') {
+				'pc' => 'pc',
+				'tv' => 'tv',
+				default => str_starts_with((string)($first['pix_fmt'] ?? ''), 'yuvj') ? 'pc' : 'tv',
+			}];
 	}
 
 	/**
