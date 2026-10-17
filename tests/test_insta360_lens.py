@@ -60,6 +60,16 @@ def test_the_preview_provider_carries_the_same_table():
         assert (video, guard) == (profile.video_field_of_view, profile.guard_factor)
 
 
+def test_the_preview_provider_faces_the_same_way():
+    """Where a still opens is restated in PHP too, and the two must agree."""
+    from golblick.vendors import insta360
+
+    php = Path(__file__).parents[1] / "nextcloud-app/lib/Insta360/LensProfile.php"
+    match = re.search(r"PHOTO_FORWARD = \[([^\]]*)\]", php.read_text())
+    assert match, f"PHOTO_FORWARD missing from {php.name}"
+    assert tuple(float(v) for v in match.group(1).split(",")) == insta360.PHOTO_FORWARD
+
+
 def test_video_and_lens_guards_change_the_angle_only_where_measured():
     x5 = lens.PROFILES["Insta360 X5"]
     assert x5.field_of_view_for() == 197.5

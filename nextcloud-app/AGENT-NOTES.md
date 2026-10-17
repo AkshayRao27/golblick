@@ -109,6 +109,10 @@ One page under Administration settings, own section. `src/admin.ts` renders it i
 - The cache figures count entries by name: `<fileid>-<etag>-<width>.jpg`. Entries at another width are left by a size change and replaced only when their file is rendered again, hence the clear button.
 - In current themes `--color-success` and its siblings are pale tints; the icons use the solid `--color-element-success` and so on.
 
+## Which way a photo opens (`Orientation::face`, `LensProfile::PHOTO_FORWARD`, `PanoramaStore`)
+
+Since 0.6 a photo's panorama is turned about the vertical after levelling so it opens the way Insta360 Studio does; the measurements are in `docs/formats/insta360-agent-notes.md` ("Which way a levelled panorama faces"). An X5 shown from the camera's own stitch is untouched: it already faced that way. Cached panoramas from before carry no `-f` in their name. Instead of rendering them again (about 19 s each at 4096 for a OneR; a production cache held 1,432), `PanoramaStore::turnedFromBefore()` shifts the old frame sideways by the photo's own turn (`Insta360::facingTurn()`, the levelling minus the render), since a turn about the vertical is a wrap-around column shift in an equirectangular frame. Checked on the dev AIO by rendering with the previous code, then requesting with the new: 0.23 to 0.33 s per photo, and 41.5 to 44.3 dB PSNR against a fresh render, where the unshifted frame scored 12.9 to 17.2. Nextcloud's own previews of a photo are not refreshed by this.
+
 ## Videos (`lib/Preview/Insta360Video.php`)
 
 Opt-in: `.insv` is mapped to `application/x-insta360-insv` only when the admin presses **Register .insv files** (`SetupCheck::register('insv')`). A type nothing else claims, on purpose: `video/mp4` would put the files in Memories and the Viewer, which would play the raw fisheye (one lens on a OneR, the first of two streams on an X5). Measured on a test instance: after registering and `occ memories:index`, no `.insv` row in `oc_memories` or `oc_memories_failures`; clicking one in Files downloads it. Step 3 of the video plan (playback in Memories) is when the type changes.

@@ -451,6 +451,27 @@ def test_level_yaw_turns_the_panorama_without_tipping_it():
     assert not numpy.allclose(plain, turned)
 
 
+def test_face_puts_forward_in_the_middle_and_keeps_the_horizon():
+    """A tilted camera: its front ends up at longitude 0, and up stays up."""
+    up = numpy.array([-0.44, -0.05, -0.9])
+    up /= numpy.linalg.norm(up)
+    forward = numpy.array([0.0, 0.0, -1.0])
+
+    faced = render.face(render.level(up), forward)
+
+    world = faced @ forward
+    assert numpy.arctan2(world[0], world[2]) == pytest.approx(0.0, abs=1e-9)
+    assert world[2] > 0
+    assert (faced @ up) == pytest.approx([0, 1, 0], abs=1e-9)
+
+
+def test_face_leaves_a_forward_that_points_straight_up_alone():
+    """Pointing at the sky has no heading; turning by noise would be worse than nothing."""
+    level = render.level(numpy.array([0.0, 0.0, -1.0]))
+
+    assert numpy.allclose(render.face(level, [0.0, 0.0, -1.0]), level)
+
+
 def test_fit_orientation_recovers_a_known_rotation():
     image, lenses = synthetic_pair()
     reference, _ = render.equirectangular(image, lenses, (128, 64), 194.0)

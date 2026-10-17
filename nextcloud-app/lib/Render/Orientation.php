@@ -129,6 +129,29 @@ final class Orientation {
 		return $out;
 	}
 
+	/**
+	 * $orientation turned about the vertical so $forward, a direction in the
+	 * render's frame, opens the panorama: render.face() in the library, which
+	 * has the reasoning. A forward within about 11 degrees of straight up or
+	 * down has no reliable heading and leaves the orientation as it is.
+	 *
+	 * @param array<int, array<int, float>> $orientation
+	 * @param array{float, float, float} $forward
+	 * @return array<int, array<int, float>>
+	 */
+	public static function face(array $orientation, array $forward): array {
+		$x = $orientation[0][0] * $forward[0] + $orientation[0][1] * $forward[1] + $orientation[0][2] * $forward[2];
+		$z = $orientation[2][0] * $forward[0] + $orientation[2][1] * $forward[1] + $orientation[2][2] * $forward[2];
+		if (hypot($x, $z) < 0.2) {
+			return $orientation;
+		}
+		$heading = atan2($x, $z);
+		$c = cos($heading);
+		$s = sin($heading);
+
+		return self::multiply([[$c, 0.0, -$s], [0.0, 1.0, 0.0], [$s, 0.0, $c]], $orientation);
+	}
+
 	/** @return array<int, array<int, float>> */
 	private static function multiply(array $a, array $b): array {
 		$out = [];

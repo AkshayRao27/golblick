@@ -25,6 +25,16 @@ from .trailer import MAGIC, METADATA, Record, Trailer, read_trailer
 NAME = "insta360"
 DESCRIPTION = "Insta360 .insp / .insv / .lrv"
 
+#: Where a still opens: the render frame's -z, the same on the OneR, X3 and X5.
+#: Insta360 Studio opens each export looking along this direction's
+#: projection onto the horizon. Measured against Studio's exports of 15 OneR,
+#: 12 X3 and 12 X5 photos, levelled from gravity: median 1.3, 3.4 and 0.5
+#: degrees off, worst 8.3, 18.3 and 1.3. A fixed half turn fits the X3 and X5
+#: as well but misses tilted OneR photos by up to 70 degrees, which this
+#: follows. The X3 photos were all held at much the same tilt, so they can't
+#: tell this axis from +y; the OneR and X5 can. Videos aren't measured.
+PHOTO_FORWARD = (0.0, 0.0, -1.0)
+
 __all__ = [
     "DESCRIPTION",
     "EXTENSIONS",
@@ -34,6 +44,7 @@ __all__ = [
     "METADATA",
     "Motion",
     "NAME",
+    "PHOTO_FORWARD",
     "Preview",
     "Record",
     "Source",

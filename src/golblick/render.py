@@ -1123,6 +1123,29 @@ def pick_field_of_view(images, lenses, candidates, margin=PICK_MARGIN):
     return None
 
 
+def face(orientation, forward):
+    """Turn ``orientation`` about the vertical so ``forward`` opens the panorama.
+
+    ``forward`` is a direction in the render's own frame, such as a vendor's
+    ``PHOTO_FORWARD``; afterwards its projection onto the horizon sits at the
+    middle column, where a viewer starts.  Only the heading changes, so a
+    level panorama stays level.  A ``forward`` within about 11 degrees of
+    straight up or down has no reliable heading, and the orientation comes
+    back unchanged.
+    """
+    numpy = _numpy()
+    matrix = numpy.asarray(orientation, numpy.float64)
+    # Rays are row vectors put through the orientation, so the world direction
+    # of a render-frame vector f is matrix @ f.
+    x, _, z = matrix @ numpy.asarray(forward, numpy.float64)
+    if numpy.hypot(x, z) < 0.2:
+        return matrix
+    heading = numpy.arctan2(x, z)
+    c, s = numpy.cos(heading), numpy.sin(heading)
+    turn = numpy.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]])
+    return turn @ matrix
+
+
 def rotation(yaw: float, pitch: float, roll: float):
     """A rotation of the scene, in degrees, as ``Ry(yaw) @ Rx(pitch) @ Rz(roll)``.
 

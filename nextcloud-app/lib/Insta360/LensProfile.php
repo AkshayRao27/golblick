@@ -23,6 +23,13 @@ final class LensProfile {
 	public const DEFAULT_FIELD_OF_VIEW = 194.0;
 
 	/**
+	 * Where a still opens, in the render's frame: PHOTO_FORWARD in the
+	 * library's insta360 module, which has the measurements against Insta360
+	 * Studio's exports. The same on the OneR, X3 and X5.
+	 */
+	public const PHOTO_FORWARD = [0.0, 0.0, -1.0];
+
+	/**
 	 * model => [field of view, radial, field of view in video (or null), lens
 	 * guard divisor (or null)]. See lens.py for what each was measured against.
 	 *

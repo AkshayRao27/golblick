@@ -59,13 +59,10 @@ final class PanoramaStore {
 		} catch (NotFoundException $e) {
 		}
 
-		$image = (new Insta360())->getThumbnail($file, $width, intdiv($width, 2));
-		if ($image === null || !($image->resource() instanceof \GdImage)) {
+		$jpeg = $this->turnedFromBefore($file, $width) ?? $this->rendered($file, $width);
+		if ($jpeg === null) {
 			return null;
 		}
-		ob_start();
-		imagejpeg($image->resource(), null, 90);
-		$jpeg = (string)ob_get_clean();
 
 		foreach ($folder->getDirectoryListing() as $old) {
 			if (str_starts_with($old->getName(), $prefix)) {
@@ -75,6 +72,58 @@ final class PanoramaStore {
 		$folder->newFile($name, $jpeg);
 
 		return $jpeg;
+	}
+
+	private function rendered(File $file, int $width): ?string {
+		$image = (new Insta360())->getThumbnail($file, $width, intdiv($width, 2));
+		if ($image === null || !($image->resource() instanceof \GdImage)) {
+			return null;
+		}
+		ob_start();
+		imagejpeg($image->resource(), null, 90);
+
+		return (string)ob_get_clean();
+	}
+
+	/**
+	 * A panorama cached before panoramas faced the way Insta360 Studio opens
+	 * them, turned to face that way: null if there is none, or it can't be.
+	 *
+	 * The facing only turns a panorama about the vertical, which in an
+	 * equirectangular frame is a sideways shift with wrap-around, so the old
+	 * entry is shifted rather than rendered again: a fraction of a second in
+	 * place of up to 20, over a cache that can hold a whole library. The shift
+	 * is rounded to a whole column, under a tenth of a degree at 4096, and the
+	 * JPEG is encoded once more.
+	 */
+	private function turnedFromBefore(File $file, int $width): ?string {
+		$folder = $this->cacheFolder();
+		$old = $file->getId() . '-' . $file->getEtag() . '-' . $width . '.jpg';
+		if (!$folder->fileExists($old)) {
+			return null;
+		}
+		try {
+			$turn = (new Insta360())->facingTurn($file);
+			$before = @imagecreatefromstring($folder->getFile($old)->getContent());
+		} catch (\Throwable $e) {
+			return null;
+		}
+		if ($before === false) {
+			return null;
+		}
+		$w = imagesx($before);
+		$h = imagesy($before);
+		// The new frame's column c shows what the old one had at c + shift.
+		$shift = ((int)round($turn / (2 * M_PI) * $w) % $w + $w) % $w;
+		$after = imagecreatetruecolor($w, $h);
+		imagecopy($after, $before, 0, 0, $shift, 0, $w - $shift, $h);
+		if ($shift > 0) {
+			imagecopy($after, $before, $w - $shift, 0, 0, 0, $shift, $h);
+		}
+		ob_start();
+		imagejpeg($after, null, 90);
+
+		return (string)ob_get_clean();
 	}
 
 	/** Whether this version of the file is already rendered at the current width. */
@@ -105,7 +154,7 @@ final class PanoramaStore {
 	 * @return array{files: int, bytes: int, current: int}
 	 */
 	public function stats(): array {
-		$suffix = '-' . $this->settings->zoomWidth() . '.jpg';
+		$suffix = '-' . $this->settings->zoomWidth() . self::VERSION . '.jpg';
 		$files = $bytes = $current = 0;
 		foreach ($this->cacheFolder()->getDirectoryListing() as $entry) {
 			$files++;
@@ -134,8 +183,14 @@ final class PanoramaStore {
 	}
 
 	public static function entryNameFor(int $fileId, string $etag, int $width): string {
-		return $fileId . '-' . $etag . '-' . $width . '.jpg';
+		return $fileId . '-' . $etag . '-' . $width . self::VERSION . '.jpg';
 	}
+
+	/**
+	 * Marks entries rendered facing the way Insta360 Studio opens a photo
+	 * (0.6). Entries without it are turned on their next use (turnedFromBefore).
+	 */
+	private const VERSION = '-f';
 
 	private function cacheFolder(): ISimpleFolder {
 		try {

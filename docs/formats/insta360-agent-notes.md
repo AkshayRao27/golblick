@@ -734,6 +734,20 @@ So one sign in the X5's axis map was wrong, in the one component that leaves the
 
 ⚠️ What remains: the two worst frames are still ~10° out, and they are the two most tilted in the library (50° and 47°). Whether that is accelerometer error under motion, or something else, is not established.
 
+### Which way a levelled panorama faces
+
+Gravity fixes pitch and roll and says nothing about the heading, so a levelled render opens wherever the levelling rotation leaves the sensor frame. Measured against Insta360 Studio's exports, which open facing a fixed direction, that was the wrong way on every camera. Each photo was rendered levelled from gravity, and the turn about the vertical that lines it up with Studio's export was solved (`render.fit_orientation`):
+
+| | Photos | Turn to Studio, levelled from gravity | Predicted by the render frame's −z on the horizon |
+|---|---|---|---|
+| OneR | 15 | 110° to 180° | median 1.3°, worst 8.3° off |
+| X3 | 12 | 163° to 179° | median 3.4°, worst 18.3° off |
+| X5 | 12 | 179° to 180° | median 0.5°, worst 1.3° off |
+
+Studio opens looking along the horizontal projection of the render frame's −z, one lens axis, on all three cameras (`PHOTO_FORWARD`, applied by `render.face`). A constant half turn fits the X3 and X5 nearly as well and misses tilted OneR photos by up to 70°: the 110° cases are the camera tipped with gravity mostly along that axis, where the smallest levelling rotation and "keep the lens axis forward" part ways. ⚠️ The X3 photos were all held at much the same tilt, so they fit +y almost as well (median 2.4°); the OneR and X5 separate the two. An X5 levelled against its own stitch already faced Studio's way, since Studio and the stitch agree. After the change, renders of tilted OneR, X3 and X5 photos sit 0° to 6° from Studio (one X3 at 18°), and the Nextcloud app's panoramas 0.7° to 2.1°.
+
+Video opening frames, levelled the same way, were also about half a turn off on three clips with full-length Studio exports (two OneR, one X5), and the −z rule predicts them to within 1° to 7°. ⚠️ Those exports had stabilisation off, so they aren't levelled, and the comparison is rougher than for photos.
+
 ## Lens brightness in video
 
 In a still, the camera has already matched its two lenses; in a video it has not. Measured 2026-10-09 as lens 1 over lens 0 on the band both lenses see, a degree inside each rim, pixels near black or white left out:

@@ -12,6 +12,7 @@ use OCA\Golblick\Insta360\Calibration;
 use OCA\Golblick\Insta360\EmbeddedPreview;
 use OCA\Golblick\Insta360\FormatError;
 use OCA\Golblick\Insta360\Imu;
+use OCA\Golblick\Insta360\LensProfile;
 use OCA\Golblick\Insta360\Protobuf;
 use OCA\Golblick\Insta360\Trailer;
 use OCA\Golblick\Render\Equirectangular;
@@ -295,6 +296,55 @@ final class Insta360 implements IProviderV2 {
 	 * @return array{array, string}
 	 */
 	public function levelling(File $file, Trailer $trailer, array $fields, Calibration $calibration): array {
+		// Either route then faces the way Insta360 Studio opens a still.
+		[$orientation, $route] = $this->levelled($file, $trailer, $fields, $calibration);
+
+		return [Orientation::face($orientation, LensProfile::PHOTO_FORWARD), $route];
+	}
+
+	/**
+	 * How far, in radians, facing turned this photo's panorama about the
+	 * vertical: 0.5 golblick and earlier rendered it levelled but unturned, and
+	 * a panorama cached then is this one shifted sideways by that much
+	 * (PanoramaStore). Zero for an X5's own stitch, which is shown as the
+	 * camera made it and already faces the right way.
+	 *
+	 * @throws FormatError
+	 */
+	public function facingTurn(File $file): float {
+		$handle = $file->fopen('r');
+		if ($handle === false) {
+			throw new FormatError('could not open the file');
+		}
+		try {
+			$trailer = Trailer::read($handle);
+		} finally {
+			fclose($handle);
+		}
+		$payload = $trailer->get(Trailer::PREVIEW);
+		if ($payload !== null && EmbeddedPreview::parse($payload)->isStitched) {
+			return 0.0;
+		}
+		$metadata = $trailer->get(Trailer::METADATA);
+		$fields = $metadata === null ? [] : Protobuf::fields($metadata);
+		$text = Protobuf::firstText($fields, Protobuf::CALIBRATION_EQUIDISTANT);
+		if ($text === null) {
+			throw new FormatError('no equidistant calibration');
+		}
+		[$m] = $this->levelled($file, $trailer, $fields, Calibration::parse($text));
+		$f = LensProfile::PHOTO_FORWARD;
+		$x = $m[0][0] * $f[0] + $m[0][1] * $f[1] + $m[0][2] * $f[2];
+		$z = $m[2][0] * $f[0] + $m[2][1] * $f[1] + $m[2][2] * $f[2];
+
+		return hypot($x, $z) < 0.2 ? 0.0 : atan2($x, $z);
+	}
+
+	/**
+	 * levelling() before facing.
+	 *
+	 * @return array{array, string}
+	 */
+	private function levelled(File $file, Trailer $trailer, array $fields, Calibration $calibration): array {
 		$fallback = Orientation::fromRoll($calibration->bodyRoll());
 		$model = Protobuf::firstText($fields, Protobuf::MODEL);
 		$route = 'gravity, from this file\'s inertial record';

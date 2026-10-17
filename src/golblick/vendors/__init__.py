@@ -42,6 +42,12 @@ organised per vendor behind a small contract.  A vendor module provides:
     frame, with the time each video frame was captured on the same clock.
     Same rule as ``gravity_up``: raise for a camera whose axes are unmeasured.
     :mod:`golblick.stabilise` turns it into a rotation per frame.
+``PHOTO_FORWARD``
+    Optional.  Which way a still camera's front faces, as an ``(x, y, z)``
+    direction in the render's own frame.  A levelled panorama should open
+    looking along its direction on the horizon, as the vendor's own software
+    opens it; levelling alone leaves the heading wherever the sensor frame
+    put it.  Measured against the vendor's exports, never guessed.
 ``lens_profile(path) -> profile | None``
     Optional.  What the file does not carry about the lenses but a renderer
     needs: ``field_of_view``, and ``radial``, a measured correction to the
