@@ -81,6 +81,7 @@ class Clip:
     created: str | None  # when it was recorded, for the copy's own metadata
     colour_range: str = "pc"         # ffprobe's color_range: pc (full) or tv (limited)
     colour_space: str = "bt709"      # ffprobe's color_space: bt709, smpte170m, bt470bg
+    codec: str = ""                  # ffprobe's codec_name for the lens streams: h264, hevc
 
 
 def open_clip(vendor, path) -> Clip:
@@ -107,13 +108,14 @@ def open_clip(vendor, path) -> Clip:
     counts = [int(stream["nb_frames"]) for stream in streams if str(stream.get("nb_frames", "")).isdigit()]
     frames = min(counts) if counts else int(first["duration"] * rate)
     return Clip((lenses[0], lenses[1]), streams[0]["width"], rate, frames, first["duration"], first["audio"],
-                first["created"], streams[0].get("color_range") or "pc", streams[0].get("color_space") or "bt709")
+                first["created"], streams[0].get("color_range") or "pc", streams[0].get("color_space") or "bt709",
+                streams[0].get("codec_name") or "")
 
 
 def _probe(ffprobe: str, file: Path) -> dict:
     result = subprocess.run(
         [ffprobe, "-v", "error", "-show_entries",
-         "stream=codec_type,width,height,r_frame_rate,nb_frames,color_range,color_space:stream_tags=creation_time"
+         "stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,color_range,color_space:stream_tags=creation_time"
          ":format=duration:format_tags=creation_time", "-of", "json", str(file)],
         capture_output=True, text=True)
     try:

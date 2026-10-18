@@ -71,17 +71,32 @@ def hardware() -> bool:
     return probe.returncode == 0
 
 
+@functools.cache
+def _decoders() -> frozenset[str]:
+    ffmpeg, _ = binaries()
+    try:
+        listed = subprocess.run([ffmpeg, "-hide_banner", "-decoders"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return frozenset()
+    return frozenset(line.split()[1] for line in listed.stdout.splitlines() if len(line.split()) > 1)
+
+
 def command(clip: Clip, size: int, start: int, gpu: bool) -> list[str]:
     """The ffmpeg command that decodes ``clip`` from frame ``start``, each lens at ``size`` square."""
     ffmpeg, _ = binaries()
     at = f"{start / clip.rate:.6f}"
     cmd = [ffmpeg, "-v", "error", "-nostdin"]
+    # NVIDIA's own decoder starts about 30% sooner than ffmpeg's with NVDEC
+    # under it, which is most of what a seek waits for; the frames are the same.
+    cuvid = f"{clip.codec}_cuvid"
     inputs: list = []
     for file, _ in clip.lenses:
         if file not in inputs:
             inputs.append(file)
             if gpu:
                 cmd += ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
+                if cuvid in _decoders():
+                    cmd += ["-c:v", cuvid]
             cmd += ["-ss", at, "-i", str(file)]
     graph = []
     for name, (file, stream) in zip("ab", clip.lenses, strict=True):
@@ -135,10 +150,14 @@ class Decoder:
         finally:
             if not self._stop.is_set() and self._process.wait() not in (0, None):
                 self.error = self._process.stderr.read().decode(errors="replace").strip()[-300:] or "ffmpeg failed"
-            try:
-                self.frames.put_nowait(None)   # the end of the clip, or a failure
-            except queue.Full:
-                pass
+            # The end of the clip, or a failure.  Waits for room: a full queue
+            # at the end is the usual case when the player is keeping up.
+            while not self._stop.is_set():
+                try:
+                    self.frames.put(None, timeout=0.1)
+                    break
+                except queue.Full:
+                    continue
 
     def next(self, timeout: float | None = None) -> Frame | None:
         """The next frame, or None at the end; raises queue.Empty if none is ready in time."""

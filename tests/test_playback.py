@@ -145,3 +145,15 @@ def test_the_sound_comes_in_whole_samples_and_ends(sounding):
         assert total == pytest.approx(0.5 * playback.BYTES_PER_SECOND, abs=4 * 1024)
     finally:
         sound.close()
+
+
+def test_the_end_still_arrives_when_the_player_is_slow(clip):
+    """The decoder fills its queue and finishes before anything is read; the end must not be dropped."""
+    decoder = playback.Decoder(clip, SIZE, FRAMES - playback.AHEAD, gpu=False)
+    try:
+        time.sleep(1.0)
+        got = [decoder.next(timeout=20) for _ in range(playback.AHEAD + 1)]
+        assert [frame.index for frame in got[:-1]] == list(range(FRAMES - playback.AHEAD, FRAMES))
+        assert got[-1] is None
+    finally:
+        decoder.close()
