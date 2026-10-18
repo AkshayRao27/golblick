@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+import time
 from fractions import Fraction
 
 import pytest
@@ -100,3 +101,47 @@ def test_a_video_scene_turns_each_frame_after_the_opening():
     assert numpy.asarray(played.camera_from_world(1)) == pytest.approx((video.quaternion_matrix(turn) @ opening).T)
     # Past the end of the record, the last turn holds.
     assert played.camera_from_world(9) == played.camera_from_world(1)
+
+
+@pytest.fixture(scope="module")
+def sounding(tmp_path_factory):
+    """A clip whose sound rises steadily, a tenth of full scale a second, so a sample says when it is."""
+    path = tmp_path_factory.mktemp("sound") / "sound.mkv"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"nullsrc=s={SIZE}x{SIZE}:r=10:d={FRAMES / 10}",
+         "-f", "lavfi", "-i", f"aevalsrc=0.1*t|0.1*t:s=48000:d={FRAMES / 10}",
+         "-map", "0:v", "-map", "1:a", "-c:v", "ffv1", "-c:a", "pcm_s16le", str(path)],
+        check=True)
+    return video.Clip(((path, 0), (path, 0)), SIZE, Fraction(10), FRAMES, FRAMES / 10, True, None)
+
+
+def _first_sample(sound):
+    for _ in range(200):
+        data = sound.read(4)
+        if data:
+            return int.from_bytes(data[:2], "little", signed=True)
+        time.sleep(0.01)
+    raise AssertionError("no sound decoded")
+
+
+def test_the_sound_starts_where_the_picture_does(sounding):
+    sound = playback.Sound(sounding, 17)
+    try:
+        assert _first_sample(sound) / 32767 == pytest.approx(0.17, abs=0.002)
+    finally:
+        sound.close()
+
+
+def test_the_sound_comes_in_whole_samples_and_ends(sounding):
+    sound = playback.Sound(sounding, FRAMES - 5)
+    try:
+        total = 0
+        while not sound.finished:
+            data = sound.read(1001)
+            assert len(data) % 4 == 0 and len(data) <= 1000
+            total += len(data)
+            if not data:
+                time.sleep(0.01)
+        assert total == pytest.approx(0.5 * playback.BYTES_PER_SECOND, abs=4 * 1024)
+    finally:
+        sound.close()

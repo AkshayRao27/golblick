@@ -12,6 +12,9 @@ CPU at about 0.6x.
 Each frame is handed over with its index, so the player knows exactly which
 frame it is drawing and steadies it with that frame's turn.
 
+The sound comes from a second ffmpeg, as raw PCM from the same moment, for
+the player to hand to the desktop's audio output and keep time by.
+
 Qt-free; needs ffmpeg.
 """
 
@@ -27,6 +30,11 @@ from .video import Clip, binaries
 
 #: Frames decoded ahead of the one on screen.
 AHEAD = 4
+
+#: The sound as handed to a player, whatever the clip recorded: 16-bit stereo at 48 kHz.
+SAMPLE_RATE = 48000
+CHANNELS = 2
+BYTES_PER_SECOND = SAMPLE_RATE * CHANNELS * 2
 
 
 @dataclass(frozen=True)
@@ -82,7 +90,7 @@ def command(clip: Clip, size: int, start: int, gpu: bool) -> list[str]:
             graph.append(f"{source}scale_cuda={size}:{size},hwdownload,format=nv12[{name}]")
         else:
             graph.append(f"{source}scale={size}:{size}:flags=area,format=nv12[{name}]")
-    graph.append("[a][b]vstack=inputs=2,format=nv12[out]")
+    graph.append("[a][b]vstack=inputs=2:shortest=1,format=nv12[out]")   # a _00_ file can hold one frame more than its _10_
     return cmd + ["-filter_complex", ";".join(graph), "-map", "[out]", "-an",
                   "-f", "rawvideo", "-pix_fmt", "nv12", "pipe:1"]
 
@@ -135,6 +143,77 @@ class Decoder:
     def next(self, timeout: float | None = None) -> Frame | None:
         """The next frame, or None at the end; raises queue.Empty if none is ready in time."""
         return self.frames.get(timeout=timeout)
+
+    def close(self) -> None:
+        self._stop.set()
+        self._process.kill()
+        self._process.wait()
+        self._thread.join(timeout=1)
+
+
+def sound_command(clip: Clip, start: int) -> list[str]:
+    """The ffmpeg command that decodes ``clip``'s sound from the start of frame ``start``."""
+    ffmpeg, _ = binaries()
+    return [ffmpeg, "-v", "error", "-nostdin", "-ss", f"{start / clip.rate:.6f}", "-i", str(clip.lenses[0][0]),
+            "-map", "0:a:0", "-vn", "-f", "s16le", "-ac", str(CHANNELS), "-ar", str(SAMPLE_RATE), "pipe:1"]
+
+
+class Sound:
+    """Decodes ``clip``'s sound from a frame onwards in a background thread, about two seconds ahead."""
+
+    CHUNK = BYTES_PER_SECOND // 10
+
+    def __init__(self, clip: Clip, start: int = 0):
+        self.chunks: queue.Queue[bytes | None] = queue.Queue(20)
+        self._left = b""
+        self.finished = False
+        self._stop = threading.Event()
+        self._process = subprocess.Popen(sound_command(clip, start), stdout=subprocess.PIPE,
+                                         stderr=subprocess.DEVNULL, bufsize=0)
+        self._thread = threading.Thread(target=self._read, daemon=True)
+        self._thread.start()
+
+    def _read(self) -> None:
+        stream = self._process.stdout
+        try:
+            while not self._stop.is_set():
+                chunk = stream.read(self.CHUNK)
+                if not chunk:
+                    break
+                while not self._stop.is_set():
+                    try:
+                        self.chunks.put(chunk, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
+        finally:
+            while not self._stop.is_set():
+                try:
+                    self.chunks.put(None, timeout=0.1)
+                    break
+                except queue.Full:
+                    continue
+
+    def read(self, limit: int) -> bytes:
+        """Up to ``limit`` bytes of what's decoded so far, whole samples only; empty when none is ready."""
+        limit -= limit % (CHANNELS * 2)
+        out = bytearray(self._left[:limit])
+        self._left = self._left[limit:]
+        while len(out) < limit and not self.finished:
+            try:
+                chunk = self.chunks.get_nowait()
+            except queue.Empty:
+                break
+            if chunk is None:
+                self.finished = True
+                break
+            take = limit - len(out)
+            out += chunk[:take]
+            self._left = chunk[take:]
+        # A pipe read can end mid-sample; keep the part for next time.
+        whole = len(out) - len(out) % (CHANNELS * 2)
+        self._left = bytes(out[whole:]) + self._left
+        return bytes(out[:whole])
 
     def close(self) -> None:
         self._stop.set()

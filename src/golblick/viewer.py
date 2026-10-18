@@ -1,4 +1,4 @@
-"""golblick's 360 viewer window: look around in a photo, projected on the GPU as it's drawn.
+"""golblick's 360 viewer window: look around in a photo or a playing clip, projected on the GPU as it's drawn.
 
 Needs the ``desktop`` extra (PySide6).  Nothing is rendered to a file first.
 The window takes the camera's lens pair as it is stored, and a fragment shader
@@ -8,6 +8,10 @@ recorded (:mod:`golblick.scene` supplies the numbers, in
 the file is read and decoded, and what takes the CPU longer -- the routed
 seam, an X5's lens guards and its own stitch to level against -- runs in the
 background and updates the view when it's done.
+
+A clip plays the same way, from the lens pair :mod:`golblick.playback`
+decodes, each frame turned by its own steadying, and timed by its sound
+where there is an audio output to play it on.
 
 The shader covers the whole window, so there is no sphere mesh to draw inside
 out or mirror.  Directions are golblick's: longitude from the middle of the
@@ -418,21 +422,99 @@ _MATRICES = {
 _MATRICES["bt470bg"] = _MATRICES["smpte170m"]
 
 
+class _Speaker:
+    """A clip's sound through the desktop's audio output, from one frame on.
+
+    Qt's count of what it has played moves in steps of about 20 ms and
+    starts late, so the player keeps its own smooth clock and only
+    corrects it to this one (:meth:`VideoView._now`).
+    """
+
+    def __init__(self, clip, start: int, muted: bool):
+        from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
+
+        wanted = QAudioFormat()
+        wanted.setSampleRate(playback.SAMPLE_RATE)
+        wanted.setChannelCount(playback.CHANNELS)
+        wanted.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+        device = QMediaDevices.defaultAudioOutput()
+        if device.isNull() or not device.isFormatSupported(wanted):
+            raise OSError("no audio output for 16-bit stereo at 48 kHz")
+        self._sink = QAudioSink(device, wanted)
+        self._sink.setVolume(0.0 if muted else 1.0)
+        self._sound = playback.Sound(clip, start)
+        self._from = start / float(clip.rate)
+        self._out = None
+        self._since = QElapsedTimer()
+
+    @property
+    def begun(self) -> bool:
+        return self._out is not None
+
+    @property
+    def starting(self) -> bool:
+        """Begun, and the output hasn't started moving yet; an output that hasn't in a second won't."""
+        return (self._out is not None and self._sink.processedUSecs() == 0 and not self._sound.finished
+                and self._since.elapsed() < 1000)
+
+    def begin(self) -> None:
+        self._out = self._sink.start()
+        self._since.start()
+        self.feed()
+
+    def feed(self) -> None:
+        if self._out is not None:
+            free = self._sink.bytesFree()
+            if free:
+                self._out.write(self._sound.read(free))
+
+    def heard(self) -> float | None:
+        """Seconds into the clip the sound has reached; None before it starts moving and once it has run out."""
+        played = self._sink.processedUSecs()
+        if self._out is None or played == 0:
+            return None
+        if self._sound.finished and self._sink.bytesFree() == self._sink.bufferSize():
+            return None
+        return self._from + played / 1e6
+
+    def pause(self) -> None:
+        if self._out is not None:
+            self._sink.suspend()
+
+    def resume(self) -> None:
+        if self._out is not None:
+            self._sink.resume()
+
+    def mute(self, muted: bool) -> None:
+        self._sink.setVolume(0.0 if muted else 1.0)
+
+    def close(self) -> None:
+        self._sink.stop()
+        self._sound.close()
+
+
 class VideoView(SphereView):
     """A clip's lens pair as a playing sphere, each frame turned by its own steadying."""
 
     position = Signal(int)       # the frame on screen
     ended = Signal(str)          # at the end of the clip; the decoder's error, if it failed
+    muted_changed = Signal(bool)
+
+    #: How far the picture may drift from the sound before it's put back in step, in seconds.
+    DRIFT = 0.05
 
     def __init__(self, longitude: float = 0.0, latitude: float = 0.0, fov: float = 75.0):
         super().__init__(longitude, latitude, fov)
         self.video: scenes.VideoScene | None = None
         self._decoder: playback.Decoder | None = None
+        self._speaker: _Speaker | None = None
+        self.muted = False
         self._frame: playback.Frame | None = None   # waiting to be uploaded
         self._shown = 0                               # index of the frame on screen
         self.playing = False
         self._clock = QElapsedTimer()
-        self._from = 0                                # frame index when the clock started
+        self._running = False                         # the clock is counting
+        self._anchor = 0.0                            # seconds into the clip when it started
         self._waiting = False                         # a seek's first frame hasn't arrived yet
         self._tick = QTimer(self)
         self._tick.setInterval(4)
@@ -460,36 +542,78 @@ class VideoView(SphereView):
         if self._shown >= self.frames - 1:
             self.seek(0)
         self.playing = True
-        self._from = self._shown + 1
-        self._clock.start()
+        if self._speaker is not None:
+            if self._speaker.begun:
+                self._speaker.resume()
+            elif not self._waiting:
+                self._speaker.begin()
         self._tick.start()
 
     def pause(self) -> None:
         self.playing = False
+        self._running = False
+        if self._speaker is not None:
+            self._speaker.pause()
 
     def toggle(self) -> None:
         self.pause() if self.playing else self.play()
+
+    def mute(self, muted: bool | None = None) -> None:
+        """Turn the sound off or on; with no argument, the other way from now."""
+        self.muted = not self.muted if muted is None else muted
+        if self._speaker is not None:
+            self._speaker.mute(self.muted)
+        self.muted_changed.emit(self.muted)
 
     def seek(self, frame: int) -> None:
         """Start decoding at ``frame``; it's shown as soon as it arrives, playing or not."""
         if self.video is None:
             return
         frame = max(0, min(self.frames - 1, frame))
-        if self._decoder is not None:
-            self._decoder.close()
+        self._stop_decoding()
         self._decoder = playback.Decoder(self.video.clip, self.video.size, frame)
-        self._shown, self._from = frame - 1, frame
-        # The clock starts with the first frame: ffmpeg takes a moment to
-        # produce it, and counting from the request would rush to catch up.
+        if self.video.clip.audio:
+            try:
+                self._speaker = _Speaker(self.video.clip, frame, self.muted)
+            except OSError:
+                self._speaker = None   # no audio output: the picture keeps its own time
+        self._shown = frame - 1
+        # Nothing counts until the first frame is here: ffmpeg takes a moment
+        # to produce it, and a clock started at the request would rush to catch up.
         self._waiting = True
+        self._running = False
         self._tick.start()
+
+    def _now(self) -> float | None:
+        """Seconds into the clip by the playback clock; None while it isn't running."""
+        if not self.playing or self._waiting:
+            return None
+        speaker = self._speaker
+        heard = speaker.heard() if speaker is not None else None
+        if not self._running:
+            # With sound, the picture waits for it: the output takes a moment to start.
+            if speaker is not None and speaker.starting:
+                return None
+            self._anchor = heard if heard is not None else max(self._shown, 0) / self.rate
+            self._clock.start()
+            self._running = True
+        now = self._anchor + self._clock.elapsed() / 1000.0
+        if heard is not None and abs(now - heard) > self.DRIFT:
+            self._anchor, now = heard, heard
+            self._clock.start()
+        return now
 
     def _advance(self) -> None:
         decoder = self._decoder
         if decoder is None:
             return
-        clocked = self.playing and not self._waiting
-        due = self._from + int(self._clock.elapsed() / 1000.0 * self.rate) if clocked else self._shown + 1
+        if self._speaker is not None:
+            self._speaker.feed()
+        now = self._now()
+        if now is not None:
+            due = int(now * self.rate)
+        else:
+            due = self._shown + 1 if self._waiting else self._shown   # a seek's first frame, playing or not
         latest = None
         while self._shown < due:
             try:
@@ -499,6 +623,7 @@ class VideoView(SphereView):
             if frame is None:
                 self._tick.stop()
                 self.playing = False
+                self._running = False
                 self.ended.emit(decoder.error or "")
                 break
             # Behind the clock, frames are skipped rather than shown late.
@@ -506,13 +631,21 @@ class VideoView(SphereView):
         if latest is not None:
             if self._waiting:
                 self._waiting = False
-                self._from = latest.index + 1
-                self._clock.start()
+                if self.playing and self._speaker is not None:
+                    self._speaker.begin()
             self._frame = latest
             self.update()
             self.position.emit(latest.index)
         if not self.playing and self._shown >= due:
             self._tick.stop()
+
+    def _stop_decoding(self) -> None:
+        if self._decoder is not None:
+            self._decoder.close()
+            self._decoder = None
+        if self._speaker is not None:
+            self._speaker.close()
+            self._speaker = None
 
     def _upload(self) -> None:
         frame, self._frame = self._frame, None
@@ -555,14 +688,14 @@ class VideoView(SphereView):
             self.seek(self._shown + round((5 if key == Qt.Key.Key_Right else -5) * self.rate))
         elif key == Qt.Key.Key_Home:
             self.seek(0)
+        elif key == Qt.Key.Key_M:
+            self.mute()
         else:
             super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
         self._tick.stop()
-        if self._decoder is not None:
-            self._decoder.close()
-            self._decoder = None
+        self._stop_decoding()
         super().closeEvent(event)
 
 
@@ -747,11 +880,22 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
             on = view.playing
             play.setIcon(_icon("pause" if on else "play"))
             play.setToolTip("Pause" if on else "Play")
+            play.setAccessibleName(play.toolTip())
 
         play.clicked.connect(lambda: (view.toggle(), playing_changed()))
         view.position.connect(playing_changed)
         view.ended.connect(playing_changed)
-        buttons = [play, *buttons]
+
+        sound = _button("sound_on", "Mute", bar)
+
+        def sound_changed(*_) -> None:
+            sound.setIcon(_icon("sound_off" if view.muted else "sound_on"))
+            sound.setToolTip("Unmute" if view.muted else "Mute")
+            sound.setAccessibleName(sound.toolTip())
+
+        sound.clicked.connect(lambda: view.mute())
+        view.muted_changed.connect(sound_changed)
+        buttons = [play, *buttons, sound]
     for button in [*buttons, full, more]:
         row.addWidget(button)
     bar.adjustSize()
@@ -816,7 +960,7 @@ def open_window(path: str | Path) -> SphereView:
     loaded.failed.connect(lambda message: say(f"Couldn't show this {what}: {message}", None))
     if is_video:
         loaded.video.connect(lambda video: (view.show_video(video),
-                                            say("Space plays and pauses · Shift+arrows skip 5 s · drag to look around")))
+                                            say("Space plays and pauses · Shift+arrows skip 5 s · M mutes · drag to look around")))
         view.ended.connect(lambda error: say(f"Couldn't play this clip: {error}", None) if error else None)
 
     def work() -> None:

@@ -174,7 +174,7 @@ Nothing is rendered first: the graphics card projects the two lenses as it draws
 
 **Open facing this way**, in the bar's **⋮** menu, makes the current view the one the photo opens with, and **Reset point of view** goes back to the default, the middle of the panorama. The bar and its menu are the same as in the Nextcloud app's sphere view. The views are kept in `~/.local/share/golblick/views.json`, by file name and size, never in the photo.
 
-`open` plays a video the same way, straight from the `.insv` with nothing stitched first, steadied as it plays. It needs ffmpeg. Space or the play button on the bar plays and pauses, Shift with the left or right arrow skips 5 seconds, and Home goes back to the start. On a OneR or X3 either of the clip's two files will do, as long as both are in the same folder. For now it plays without sound and keeps the seam between the lenses straight, and it's smooth only on an NVIDIA graphics card, which decodes the video; elsewhere ffmpeg decodes it on the processor, which may not keep up.
+`open` plays a video the same way, straight from the `.insv` with nothing stitched first, steadied as it plays. It needs ffmpeg. Space or the play button on the bar plays and pauses, Shift with the left or right arrow skips 5 seconds, Home goes back to the start, and M or the speaker button turns the sound off and on. On a OneR or X3 either of the clip's two files will do, as long as both are in the same folder. For now it keeps the seam between the lenses straight, and it's smooth only on an NVIDIA graphics card, which decodes the video; elsewhere ffmpeg decodes it on the processor, which may not keep up.
 
 To open photos and videos by double-clicking them, run this once:
 
