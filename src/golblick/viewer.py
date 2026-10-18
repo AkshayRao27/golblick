@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import queue
 import threading
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QToolButton, QWidget
 
 from . import fling as flings
+from . import playback
 from . import scene as scenes
 
 # GLSL that desktop OpenGL 2.1 and OpenGL ES 2/3 both accept, since Wayland
@@ -53,8 +55,14 @@ _FRAGMENT = """
 #ifdef GL_ES
 precision highp float;
 #endif
-uniform sampler2D lens0;
+uniform sampler2D lens0;                    // RGB, or a video frame's luma
 uniform sampler2D lens1;
+uniform int nv12;                           // 1: a video frame, chroma in chroma0/1
+uniform sampler2D chroma0;
+uniform sampler2D chroma1;
+uniform vec3 yuvLow;                        // subtracted from (Y, Cb, Cr): the range's black and grey
+uniform vec3 yuvGain;                       // then scaled to full range
+uniform vec3 yuvR, yuvG, yuvB;              // the colour matrix, by rows
 uniform vec2 halfTan;
 uniform float yaw;
 uniform float pitch;
@@ -80,6 +88,12 @@ float corrected(float theta) {
     float t = clamp(f - i, 0.0, 1.0);
     int k = int(i);
     return theta + radians(mix(radial[k], radial[k + 1], t));
+}
+
+vec3 colourAt(sampler2D luma, sampler2D chroma, vec2 at) {
+    if (nv12 == 0) return texture2D(luma, at).rgb;
+    vec3 yuv = (vec3(texture2D(luma, at).r, texture2D(chroma, at).rg) - yuvLow) * yuvGain;
+    return clamp(vec3(dot(yuvR, yuv), dot(yuvG, yuv), dot(yuvB, yuv)), 0.0, 1.0);
 }
 
 // Where a camera-frame ray lands in one lens: texture coordinates, and the
@@ -125,8 +139,8 @@ void main() {
     wa *= clamp((thetaMax - ta) / feather, 0.0, 1.0) * va;
     wb *= clamp((thetaMax - tb) / feather, 0.0, 1.0) * vb;
     vec3 colour = vec3(0.0);
-    if (wa > 0.0) colour += texture2D(lens0, a.xy).rgb * wa;
-    if (wb > 0.0) colour += texture2D(lens1, b.xy).rgb * wb;
+    if (wa > 0.0) colour += colourAt(lens0, chroma0, a.xy) * wa;
+    if (wb > 0.0) colour += colourAt(lens1, chroma1, b.xy) * wb;
     float total = wa + wb;
     gl_FragColor = vec4(total > 0.0 ? colour / total : vec3(0.0), 1.0);
 }
@@ -242,22 +256,31 @@ class SphereView(QOpenGLWidget):
         if self._halves is not None:
             self._upload()
         scene, program = self._scene, self._program
-        if scene is None or program is None or len(self._textures) != 2:
+        if scene is None or program is None or len(self._textures) not in (2, 4):
             return
         ratio = self.devicePixelRatioF()
         width, height = max(1, round(self.width() * ratio)), max(1, round(self.height() * ratio))
         gl.glViewport(0, 0, width, height)
         program.bind()
-        self._textures[0].bind(0)
-        self._textures[1].bind(1)
+        for unit, texture in enumerate(self._textures):
+            texture.bind(unit)
         uniform = program.uniformLocation
         program.setUniformValue1i(uniform("lens0"), 0)
         program.setUniformValue1i(uniform("lens1"), 1)
+        program.setUniformValue1i(uniform("nv12"), 1 if len(self._textures) == 4 else 0)
+        program.setUniformValue1i(uniform("chroma0"), 2 if len(self._textures) == 4 else 0)
+        program.setUniformValue1i(uniform("chroma1"), 3 if len(self._textures) == 4 else 1)
+        if len(self._textures) == 4:
+            low, gain, rows = self._colour
+            program.setUniformValue(uniform("yuvLow"), *low)
+            program.setUniformValue(uniform("yuvGain"), *gain)
+            for name, row in zip(("yuvR", "yuvG", "yuvB"), rows, strict=True):
+                program.setUniformValue(uniform(name), *row)
         half = math.tan(math.radians(self.fov) / 2)
         program.setUniformValue(uniform("halfTan"), half * width / height, half)
         program.setUniformValue1f(uniform("yaw"), math.radians(self.longitude))
         program.setUniformValue1f(uniform("pitch"), math.radians(self.latitude))
-        for k, row in enumerate(scene.camera_from_world):
+        for k, row in enumerate(self._world()):
             program.setUniformValue(uniform(f"world{k}"), *row)
         for i, lens in enumerate(scene.lenses):
             for k, row in enumerate(lens.matrix):
@@ -281,6 +304,10 @@ class SphereView(QOpenGLWidget):
         self._vao.bind()
         gl.glDrawArrays(0x0005, 0, 4)  # GL_TRIANGLE_STRIP
         self._vao.release()
+
+    def _world(self):
+        """Rows of the rotation from the viewer's world to the camera frame, for what's drawn now."""
+        return self._scene.camera_from_world
 
     def closeEvent(self, event) -> None:
         self._release()
@@ -378,6 +405,167 @@ class SphereView(QOpenGLWidget):
             super().keyPressEvent(event)
 
 
+#: How each range maps code values to full range: (black, grey, grey), then the gain.
+_RANGES = {
+    "pc": ((0.0, 128 / 255, 128 / 255), (1.0, 1.0, 1.0)),
+    "tv": ((16 / 255, 128 / 255, 128 / 255), (255 / 219, 255 / 224, 255 / 224)),
+}
+#: (Y, Cb, Cr) to RGB, by rows, per colour matrix as ffprobe names it.
+_MATRICES = {
+    "bt709": ((1.0, 0.0, 1.5748), (1.0, -0.18733, -0.46813), (1.0, 1.8556, 0.0)),
+    "smpte170m": ((1.0, 0.0, 1.402), (1.0, -0.344136, -0.714136), (1.0, 1.772, 0.0)),
+}
+_MATRICES["bt470bg"] = _MATRICES["smpte170m"]
+
+
+class VideoView(SphereView):
+    """A clip's lens pair as a playing sphere, each frame turned by its own steadying."""
+
+    position = Signal(int)       # the frame on screen
+    ended = Signal(str)          # at the end of the clip; the decoder's error, if it failed
+
+    def __init__(self, longitude: float = 0.0, latitude: float = 0.0, fov: float = 75.0):
+        super().__init__(longitude, latitude, fov)
+        self.video: scenes.VideoScene | None = None
+        self._decoder: playback.Decoder | None = None
+        self._frame: playback.Frame | None = None   # waiting to be uploaded
+        self._shown = 0                               # index of the frame on screen
+        self.playing = False
+        self._clock = QElapsedTimer()
+        self._from = 0                                # frame index when the clock started
+        self._waiting = False                         # a seek's first frame hasn't arrived yet
+        self._tick = QTimer(self)
+        self._tick.setInterval(4)
+        self._tick.timeout.connect(self._advance)
+
+    def show_video(self, video: scenes.VideoScene) -> None:
+        self.video = video
+        low, gain = _RANGES.get(video.clip.colour_range, _RANGES["pc"])
+        self._colour = (low, gain, _MATRICES.get(video.clip.colour_space, _MATRICES["bt709"]))
+        self.show_scene(video.scene)
+        self.seek(0)
+        self.play()
+
+    @property
+    def frames(self) -> int:
+        return self.video.clip.frames if self.video else 0
+
+    @property
+    def rate(self) -> float:
+        return float(self.video.clip.rate) if self.video else 30.0
+
+    def play(self) -> None:
+        if self.video is None:
+            return
+        if self._shown >= self.frames - 1:
+            self.seek(0)
+        self.playing = True
+        self._from = self._shown + 1
+        self._clock.start()
+        self._tick.start()
+
+    def pause(self) -> None:
+        self.playing = False
+
+    def toggle(self) -> None:
+        self.pause() if self.playing else self.play()
+
+    def seek(self, frame: int) -> None:
+        """Start decoding at ``frame``; it's shown as soon as it arrives, playing or not."""
+        if self.video is None:
+            return
+        frame = max(0, min(self.frames - 1, frame))
+        if self._decoder is not None:
+            self._decoder.close()
+        self._decoder = playback.Decoder(self.video.clip, self.video.size, frame)
+        self._shown, self._from = frame - 1, frame
+        # The clock starts with the first frame: ffmpeg takes a moment to
+        # produce it, and counting from the request would rush to catch up.
+        self._waiting = True
+        self._tick.start()
+
+    def _advance(self) -> None:
+        decoder = self._decoder
+        if decoder is None:
+            return
+        clocked = self.playing and not self._waiting
+        due = self._from + int(self._clock.elapsed() / 1000.0 * self.rate) if clocked else self._shown + 1
+        latest = None
+        while self._shown < due:
+            try:
+                frame = decoder.next(timeout=0)
+            except queue.Empty:
+                break
+            if frame is None:
+                self._tick.stop()
+                self.playing = False
+                self.ended.emit(decoder.error or "")
+                break
+            # Behind the clock, frames are skipped rather than shown late.
+            latest, self._shown = frame, frame.index
+        if latest is not None:
+            if self._waiting:
+                self._waiting = False
+                self._from = latest.index + 1
+                self._clock.start()
+            self._frame = latest
+            self.update()
+            self.position.emit(latest.index)
+        if not self.playing and self._shown >= due:
+            self._tick.stop()
+
+    def _upload(self) -> None:
+        frame, self._frame = self._frame, None
+        size = frame.size
+        if len(self._textures) != 4:
+            for texture in self._textures:
+                texture.destroy()
+            self._textures = []
+            for side, kind in ((size, "luma"), (size, "luma"), (size // 2, "chroma"), (size // 2, "chroma")):
+                texture = QOpenGLTexture(QOpenGLTexture.Target.Target2D)
+                texture.setSize(side, side)
+                texture.setFormat(QOpenGLTexture.TextureFormat.R8_UNorm if kind == "luma"
+                                  else QOpenGLTexture.TextureFormat.RG8_UNorm)
+                texture.setMinMagFilters(QOpenGLTexture.Filter.Linear, QOpenGLTexture.Filter.Linear)
+                texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
+                texture.allocateStorage()
+                self._textures.append(texture)
+        for lens in (0, 1):
+            luma, chroma = frame.planes(lens)
+            self._textures[lens].setData(QOpenGLTexture.PixelFormat.Red, QOpenGLTexture.PixelType.UInt8,
+                                         bytes(luma))
+            self._textures[2 + lens].setData(QOpenGLTexture.PixelFormat.RG, QOpenGLTexture.PixelType.UInt8,
+                                             bytes(chroma))
+
+    def paintGL(self) -> None:
+        if self._frame is not None:
+            self.makeCurrent()
+            self._upload()
+        super().paintGL()
+
+    def _world(self):
+        return self.video.camera_from_world(max(0, self._shown)) if self.video else super()._world()
+
+    def keyPressEvent(self, event) -> None:
+        shift = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        key = event.key()
+        if key == Qt.Key.Key_Space:
+            self.toggle()
+        elif shift and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            self.seek(self._shown + round((5 if key == Qt.Key.Key_Right else -5) * self.rate))
+        elif key == Qt.Key.Key_Home:
+            self.seek(0)
+        else:
+            super().keyPressEvent(event)
+
+    def closeEvent(self, event) -> None:
+        self._tick.stop()
+        if self._decoder is not None:
+            self._decoder.close()
+            self._decoder = None
+        super().closeEvent(event)
+
+
 # -- Opening views -----------------------------------------------------------------
 
 
@@ -426,6 +614,7 @@ class _Loaded(QObject):
 
     scene = Signal(object, object)
     refined = Signal(object)
+    video = Signal(object)
     failed = Signal(str)
 
 
@@ -551,6 +740,18 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
 
     here.triggered.connect(keep)
     reset.triggered.connect(forget)
+    if isinstance(view, VideoView):
+        play = _button("pause", "Pause", bar)
+
+        def playing_changed(*_) -> None:
+            on = view.playing
+            play.setIcon(_icon("pause" if on else "play"))
+            play.setToolTip("Pause" if on else "Play")
+
+        play.clicked.connect(lambda: (view.toggle(), playing_changed()))
+        view.position.connect(playing_changed)
+        view.ended.connect(playing_changed)
+        buttons = [play, *buttons]
     for button in [*buttons, full, more]:
         row.addWidget(button)
     bar.adjustSize()
@@ -577,10 +778,14 @@ class _Follow(QObject):
 
 
 def open_window(path: str | Path) -> SphereView:
-    """A viewer window for the photo at ``path``; it loads in the background."""
+    """A viewer window for the photo or clip at ``path``; it loads in the background."""
     path = Path(path)
+    from .cli import _is_mp4
+
+    is_video = _is_mp4(path)   # by content: an .insv is an MP4
     start = load_view(path) or {}
-    view = SphereView(start.get("longitude", 0.0), start.get("latitude", 0.0), start.get("fov", 75.0))
+    kind = VideoView if is_video else SphereView
+    view = kind(start.get("longitude", 0.0), start.get("latitude", 0.0), start.get("fov", 75.0))
     view.setWindowTitle(f"{path.name} — golblick")
     view.resize(1280, 720)
 
@@ -607,9 +812,20 @@ def open_window(path: str | Path) -> SphereView:
     loaded.scene.connect(lambda scene, halves: (view.show_scene(scene, halves),
                                                 say("Drag to look around · scroll or pinch to zoom")))
     loaded.refined.connect(view.show_scene)
-    loaded.failed.connect(lambda message: say(f"Couldn't show this photo: {message}", None))
+    what = "clip" if is_video else "photo"
+    loaded.failed.connect(lambda message: say(f"Couldn't show this {what}: {message}", None))
+    if is_video:
+        loaded.video.connect(lambda video: (view.show_video(video),
+                                            say("Space plays and pauses · Shift+arrows skip 5 s · drag to look around")))
+        view.ended.connect(lambda error: say(f"Couldn't play this clip: {error}", None) if error else None)
 
     def work() -> None:
+        if is_video:
+            try:
+                loaded.video.emit(scenes.video_scene(path))
+            except Exception as exc:  # shown in the window; there may be no terminal
+                loaded.failed.emit(str(exc))
+            return
         try:
             quick = scenes.photo_scene(path)
             image = QImage.fromData(quick.jpeg)

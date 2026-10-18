@@ -847,8 +847,6 @@ def _open(args: argparse.Namespace, desktop) -> int:
     if not path.is_file():
         raise UnsupportedFile(f"{path}: no such file")
     _require_vendor(str(path))
-    if _is_mp4(path):
-        raise UnsupportedFile(f"{path.name}: open shows photos only so far; render a video with 'golblick render'")
     try:
         from . import viewer
     except ImportError as exc:

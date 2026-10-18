@@ -79,6 +79,8 @@ class Clip:
     duration: float
     audio: bool
     created: str | None  # when it was recorded, for the copy's own metadata
+    colour_range: str = "pc"         # ffprobe's color_range: pc (full) or tv (limited)
+    colour_space: str = "bt709"      # ffprobe's color_space: bt709, smpte170m, bt470bg
 
 
 def open_clip(vendor, path) -> Clip:
@@ -105,13 +107,13 @@ def open_clip(vendor, path) -> Clip:
     counts = [int(stream["nb_frames"]) for stream in streams if str(stream.get("nb_frames", "")).isdigit()]
     frames = min(counts) if counts else int(first["duration"] * rate)
     return Clip((lenses[0], lenses[1]), streams[0]["width"], rate, frames, first["duration"], first["audio"],
-                first["created"])
+                first["created"], streams[0].get("color_range") or "pc", streams[0].get("color_space") or "bt709")
 
 
 def _probe(ffprobe: str, file: Path) -> dict:
     result = subprocess.run(
         [ffprobe, "-v", "error", "-show_entries",
-         "stream=codec_type,width,height,r_frame_rate,nb_frames:stream_tags=creation_time"
+         "stream=codec_type,width,height,r_frame_rate,nb_frames,color_range,color_space:stream_tags=creation_time"
          ":format=duration:format_tags=creation_time", "-of", "json", str(file)],
         capture_output=True, text=True)
     try:
@@ -222,7 +224,6 @@ class Plan:
 def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool = False,
          field_of_view: float | None = None, guards: str = "auto") -> Plan:
     """Decide the geometry, the seam and the steadying, from the file and a few of its frames."""
-    numpy = render._numpy()
     notes = []
     cached: list[list[float]] = []
 
@@ -292,6 +293,23 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
             how = f"bisector (the seam plan failed: {exc})"
     notes.append(f"seam           {how}")
 
+    faced, turns, turned = orient(vendor, path, calibration, clip.frames, steady, lock)
+    notes.extend(turned)
+
+    return Plan(lenses, lens_size, width, field_of_view, seam, faced,
+                turns, notes)
+
+
+def orient(vendor, path, calibration, frames: int, steady: bool = True, lock: bool = False):
+    """How a clip is turned: its levelled opening facing the camera's forward, and the steadying.
+
+    Returns ``(orientation, turns, notes)``: the 3x3 opening orientation, per
+    frame a unit quaternion ``(w, x, y, z)`` applied after it (or None,
+    unsteadied), and a line on each decision.  Shared by the stitch and the
+    desktop player, so both turn a clip the same way.
+    """
+    numpy = render._numpy()
+    notes = []
     try:
         orientation = render.level(vendor.gravity_up(path))
         notes.append("levelling      from gravity at the opening (inertial record)")
@@ -315,15 +333,14 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
             turns = stabilise.turned(stabilise.track(vendor.motion(path), orientation, lock=lock), heading)
             notes.append("steadying      " + ("direction locked" if lock else "follows the camera's turns")
                          + f", {len(turns)} frames from the motion record")
-            if len(turns) < clip.frames:
-                notes.append(f"               ⚠️ the video has {clip.frames} frames; the last {clip.frames - len(turns)} keep the record's last turn")
+            if len(turns) < frames:
+                notes.append(f"               ⚠️ the video has {frames} frames; the last {frames - len(turns)} keep the record's last turn")
         except (GolblickError, ValueError, AttributeError) as exc:
             notes.append(f"steadying      not steadied: {exc}")
     else:
         notes.append("steadying      off (--no-steady)")
 
-    return Plan(lenses, lens_size, width, field_of_view, seam, numpy.asarray(faced, numpy.float64),
-                turns, notes)
+    return numpy.asarray(faced, numpy.float64), turns, notes
 
 
 def frame_orientation(plan: Plan, k: int):

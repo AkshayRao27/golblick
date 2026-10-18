@@ -150,6 +150,69 @@ def refine(path: str | Path, scene: Scene) -> Scene:
     )
 
 
+@dataclass(frozen=True)
+class VideoScene:
+    """A clip as a GPU viewer plays it: the lens geometry, and per frame how to turn it."""
+
+    scene: Scene
+    clip: object                 # video.Clip
+    size: int                    # each lens's decoded square, pixels
+    orientation: tuple[tuple[float, float, float], ...]
+    #: Per frame the steadying turn (w, x, y, z) applied after ``orientation``, or None.
+    turns: tuple[tuple[float, float, float, float], ...] | None
+
+    def camera_from_world(self, k: int) -> tuple[tuple[float, float, float], ...]:
+        """The shader's rows for frame ``k``: the turn after the levelled, faced opening."""
+        import numpy
+
+        from . import video
+
+        orientation = numpy.asarray(self.orientation)
+        if self.turns:
+            orientation = video.quaternion_matrix(self.turns[min(k, len(self.turns) - 1)]) @ orientation
+        return _rows(orientation.T)
+
+
+def video_scene(path: str | Path, size: int | None = None, steady: bool = True, lock: bool = False) -> VideoScene:
+    """What a player needs before the first frame: geometry, colour and the steadying track.
+
+    ``size`` is each lens's decoded square; None means half the camera's, as
+    Insta360's own player decodes, which a screen rarely needs more than.
+    """
+    import numpy
+
+    from . import render, video
+    from .errors import UnsupportedFile
+    from .vendors import detect
+
+    path = str(path)
+    vendor = detect(path)
+    if vendor is None:
+        raise UnsupportedFile(f"{path}: not a file golblick knows")
+    clip = video.open_clip(vendor, path)
+    size = size or clip.size // 2
+    info = vendor.describe(path)
+    calibration = info["calibrations"].get(5)
+    if calibration is None:
+        raise UnsupportedFile(f"{path}: no equidistant calibration, so the lens geometry is unknown")
+    calibration, cropped = video.video_calibration(calibration, info.get("sensor_crop"))
+    profile = vendor.lens_profile(path) if hasattr(vendor, "lens_profile") else None
+    radial = profile.radial if profile is not None else ()
+    field_of_view = profile.field_of_view_for() if profile is not None else 194.0
+    built = render.lenses_from_calibration(calibration, 2 * size, radial)
+    orientation, turns, notes = video.orient(vendor, path, calibration, clip.frames, steady, lock)
+    scene = Scene(
+        jpeg=b"", width=2 * size, height=size,
+        lenses=tuple(_shader_lens(lens, index, render) for index, lens in enumerate(built)),
+        radial=tuple(radial), theta_max=float(numpy.deg2rad(field_of_view / 2)),
+        feather=float(numpy.deg2rad(1.5)),
+        camera_from_world=_rows(numpy.asarray(orientation).T),
+        notes=(cropped, *notes),
+    )
+    return VideoScene(scene, clip, size, _rows(orientation),
+                      None if turns is None else tuple(tuple(float(v) for v in q) for q in turns))
+
+
 def _shader_lens(lens, index: int, render) -> Lens:
     import numpy
 

@@ -7,6 +7,8 @@ Path data from @mdi/js 7.4.47, Material Design Icons by Pictogrammers, Apache Li
 
 #: SVG path data on a 24 by 24 grid, by what the button does.
 PATHS = {
+    "play": "M8,5.14V19.14L19,12.14L8,5.14Z",
+    "pause": "M14,19H18V5H14M6,19H10V5H6V19Z",
     "turn_left": "M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z",  # mdiChevronLeft
     "turn_right": "M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z",  # mdiChevronRight
     "look_up": "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z",  # mdiChevronUp
