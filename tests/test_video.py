@@ -199,3 +199,29 @@ def test_planning_frames_move_to_keyframes_but_stay_distinct():
     assert video.probe_times([1.9, 2.1, 6.5], keyframes) == [2.0, 2.1, 6.0]
     # No index to go by: the moments as asked.
     assert video.probe_times([1.0, 3.0], []) == [1.0, 3.0]
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_lenses_and_tables_stay_on_the_same_frame():
+    """Two streams with the stitch's two time bases, paired by a filter that syncs on time, frame k with frame k.
+
+    The lens comes from a file at time base 1/30000, the tables from a pipe at 30000/1001, and each frame's grey is
+    its number, so a pairing one frame out shows as a difference.
+    """
+    from fractions import Fraction
+
+    rate = Fraction(30000, 1001)
+    frames = 60
+    clock = video.frame_clock(rate)
+    tables = b"".join(bytes([4 * k]) * 64 for k in range(frames))
+    graph = (f"[0:v]{clock},format=gray[lens];[1:v]{clock},format=gray[tables];"
+             f"[lens][tables]blend=all_mode=difference,format=gray[out]")
+    result = subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+         f"nullsrc=s=8x8:r={rate}:d={float(frames / rate):.6f},format=gray,geq=lum='4*N',settb=1/30000",
+         "-f", "rawvideo", "-pix_fmt", "gray", "-s", "8x8", "-framerate", str(rate), "-i", "pipe:0",
+         "-filter_complex", graph, "-map", "[out]", "-f", "rawvideo", "-"],
+        input=tables, capture_output=True, check=True)
+    differences = [max(result.stdout[k * 64:(k + 1) * 64]) for k in range(len(result.stdout) // 64)]
+    assert len(differences) >= frames - 1
+    assert max(differences) == 0

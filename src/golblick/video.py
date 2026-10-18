@@ -420,12 +420,24 @@ def _pgm(path: Path, values) -> None:
     path.write_bytes(f"P5 {width} {height} 65535\n".encode() + values.astype(">u2").tobytes())
 
 
+def frame_clock(rate: Fraction) -> str:
+    """A filter that times each frame by its number at ``rate``, whatever the stream's time base.
+
+    Frame numbers, not the files' timestamps, line the lenses and the tables
+    up.  ``round`` matters: ffmpeg evaluates the expression in floating point
+    and truncates, so without it frame 3 at 30000/1001 is 3002 on a lens (time
+    base 1/30000) and 2 on the tables (1001/30000), and a filter that pairs its
+    inputs by time puts each frame with the next one's turn.  Format notes,
+    "Stabilising video from the record".
+    """
+    return f"setpts=round(N*{rate.denominator}/{rate.numerator}/TB)"
+
+
 def _graph(clip: Clip, plan: Plan, inputs: dict[str, int]) -> str:
     """The filter graph: the app's, with every table arriving per frame from input ``tables``."""
     width, height = plan.width, plan.width // 2
     _, _, field_width, field_height = layout(width)
-    # Frame numbers, not the files' timestamps, line the lenses and the tables up.
-    pts = f"setpts=N*{clip.rate.denominator}/{clip.rate.numerator}/TB"
+    pts = frame_clock(clip.rate)
     lens = plan.lens_size
     graph = f"[{inputs['tables']}:v]{pts},split=7[t0][t1][t2][t3][t4][t5][t6];"
     for index, name in enumerate(("x0", "y0", "x1", "y1")):
