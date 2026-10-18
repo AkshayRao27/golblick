@@ -382,49 +382,59 @@ class _Loaded(QObject):
     failed = Signal(str)
 
 
-def _white(icon: QIcon, size: int = 24) -> QIcon:
-    """The theme's icon in white: icon themes draw for a light background, and the bar is dark."""
-    from PySide6.QtGui import QColor, QPainter, QPixmap
+def _icon(name: str, colour: str = "white") -> QIcon:
+    """One of :data:`golblick.icons.PATHS` in ``colour``: white for the dark bar."""
+    from PySide6.QtCore import QByteArray
+    from PySide6.QtGui import QPainter, QPixmap
+    from PySide6.QtSvg import QSvgRenderer
 
-    out = QIcon()
-    for scale in (1, 2):
-        pixmap = QPixmap(icon.pixmap(size * scale, size * scale))
+    from .icons import PATHS
+
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+           f'<path fill="{colour}" d="{PATHS[name]}"/></svg>')
+    renderer = QSvgRenderer(QByteArray(svg.encode()))
+    icon = QIcon()
+    for scale in (1, 2, 3):
+        pixmap = QPixmap(24 * scale, 24 * scale)
+        pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        painter.fillRect(pixmap.rect(), QColor("white"))
+        renderer.render(painter)
         painter.end()
         pixmap.setDevicePixelRatio(scale)
-        out.addPixmap(pixmap)
-    return out
+        icon.addPixmap(pixmap)
+    return icon
 
 
-def _button(icon: str, fallback: str, tip: str, parent: QWidget) -> QToolButton:
+def _button(name: str, tip: str, parent: QWidget) -> QToolButton:
     button = QToolButton(parent)
-    themed = QIcon.fromTheme(icon)
-    if themed.isNull():
-        button.setText(fallback)
-    else:
-        button.setIcon(_white(themed))
-        button.setIconSize(QSize(24, 24))
+    button.setIcon(_icon(name))
+    button.setIconSize(QSize(24, 24))
     button.setToolTip(tip)
     button.setAccessibleName(tip)
-    # Big enough for a finger.
+    # Big enough for a finger, and clearly something to press.
     button.setMinimumSize(44, 44)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
     button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     return button
 
 
 def _controls(view: SphereView, path: Path, say) -> QWidget:
-    """A bar of buttons along the bottom, for a touchscreen or anyone without a wheel."""
+    """A bar of buttons along the bottom, for a touchscreen or anyone without a wheel.
+
+    The same buttons, icons and order as the Nextcloud app's viewer
+    (nextcloud-app/src/overlay.ts), so the two work alike.
+    """
+    from PySide6.QtWidgets import QMenu
+
     bar = QWidget(view)
     bar.setObjectName("controls")
     bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
     bar.setStyleSheet(
         "#controls { background: rgba(0, 0, 0, 150); border-radius: 22px; }"
-        "QToolButton { color: white; background: transparent; border: 0; font-size: 18px;"
-        " border-radius: 20px; }"
+        "QToolButton { color: white; background: transparent; border: 0; border-radius: 20px; }"
+        "QToolButton:hover { background: rgba(255, 255, 255, 30); }"
         "QToolButton:pressed { background: rgba(255, 255, 255, 60); }"
-        "QToolButton:disabled { color: rgba(255, 255, 255, 90); }")
+        "QToolButton::menu-indicator { image: none; }")
     row = QHBoxLayout(bar)
     row.setContentsMargins(8, 2, 8, 2)
     row.setSpacing(2)
@@ -441,23 +451,50 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
         return view.fov / 30
 
     buttons = [
-        held(_button("go-previous", "◀", "Turn left", bar), lambda: view.turn(-step())),
-        held(_button("go-up", "▲", "Look up", bar), lambda: view.turn(0, step())),
-        held(_button("go-down", "▼", "Look down", bar), lambda: view.turn(0, -step())),
-        held(_button("go-next", "▶", "Turn right", bar), lambda: view.turn(step())),
-        held(_button("zoom-out", "−", "Zoom out", bar), lambda: view.turn(zoom=1.03)),
-        held(_button("zoom-in", "+", "Zoom in", bar), lambda: view.turn(zoom=1 / 1.03)),
+        held(_button("turn_left", "Turn left", bar), lambda: view.turn(-step())),
+        held(_button("look_up", "Look up", bar), lambda: view.turn(0, step())),
+        held(_button("look_down", "Look down", bar), lambda: view.turn(0, -step())),
+        held(_button("turn_right", "Turn right", bar), lambda: view.turn(step())),
+        held(_button("zoom_out", "Zoom out", bar), lambda: view.turn(zoom=1.03)),
+        held(_button("zoom_in", "Zoom in", bar), lambda: view.turn(zoom=1 / 1.03)),
     ]
-    full = _button("view-fullscreen", "⛶", "Full screen", bar)
+    full = _button("full_screen", "Full screen", bar)
     full.clicked.connect(view.toggle_full_screen)
-    here = _button("mark-location", "◎", "Open here: start this photo looking this way", bar)
-    reset = _button("edit-undo", "↺", "Open the default way again", bar)
+
+    def windowed_or_not() -> None:
+        on = view.window().isFullScreen()
+        full.setIcon(_icon("leave_full_screen" if on else "full_screen"))
+        full.setToolTip("Leave full screen" if on else "Full screen")
+
+    class _States(QObject):
+        def eventFilter(self, watched, event) -> bool:
+            if event.type() == QEvent.Type.WindowStateChange:
+                windowed_or_not()
+            return False
+
+    view.installEventFilter(_States(bar))
+
+    more = _button("more", "More", bar)
+    menu = QMenu(more)
+    # The menu follows the desktop's theme, so its icons take the theme's text colour.
+    ink = QApplication.palette().windowText().color().name()
+    here = menu.addAction(_icon("open_here", ink), "Open at this view next time")
+    reset = menu.addAction(_icon("open_default", ink), "Open the default way")
     reset.setEnabled(load_view(path) is not None)
+
+    def show_menu() -> None:
+        # Upwards: the bar sits along the bottom of the window.
+        from PySide6.QtCore import QPoint
+
+        size = menu.sizeHint()
+        menu.exec(more.mapToGlobal(QPoint(more.width() - size.width(), -size.height() - 4)))
+
+    more.clicked.connect(show_menu)
 
     def keep() -> None:
         save_view(path, {"longitude": view.longitude, "latitude": view.latitude, "fov": view.fov})
         reset.setEnabled(True)
-        say("It opens here now.")
+        say("It opens at this view now.")
 
     def forget() -> None:
         save_view(path, None)
@@ -465,9 +502,9 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
         view.look(0.0, 0.0, 75.0)
         say("It opens the default way again.")
 
-    here.clicked.connect(keep)
-    reset.clicked.connect(forget)
-    for button in [*buttons, full, here, reset]:
+    here.triggered.connect(keep)
+    reset.triggered.connect(forget)
+    for button in [*buttons, full, more]:
         row.addWidget(button)
     bar.adjustSize()
     return bar

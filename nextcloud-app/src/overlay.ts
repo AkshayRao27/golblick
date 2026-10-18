@@ -5,7 +5,11 @@
  * button in Nextcloud's Viewer, and the button in Memories, for a signed-in
  * user or on a public share link.
  */
-import { mdiBackupRestore, mdiClose, mdiCompassOutline, mdiImageFilterCenterFocus, mdiPause, mdiPlay, mdiVideoStabilization, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js';
+import {
+  mdiBackupRestore, mdiChevronDown, mdiChevronLeft, mdiChevronRight, mdiChevronUp, mdiClose, mdiCompassOutline,
+  mdiDotsVertical, mdiFullscreen, mdiFullscreenExit, mdiImageFilterCenterFocus, mdiMagnifyMinusOutline,
+  mdiMagnifyPlusOutline, mdiPause, mdiPlay, mdiVideoStabilization, mdiVolumeHigh, mdiVolumeOff,
+} from '@mdi/js';
 import { getRequestToken } from '@nextcloud/auth';
 import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
@@ -241,9 +245,7 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
     const answer = await info(fileId).catch(() => null);
     if (closed) return;
     if (answer?.view) view.look(answer.view.longitude, answer.view.latitude, answer.view.fov);
-    if (answer?.canSetView && answer.view) {
-      overlay.append(openingButtons(fileId, answer.view, view, () => player, status, overlay));
-    }
+    overlay.append(navigationBar(fileId, answer, view, () => player, status, overlay, isVideo));
     // Keep the controls above the canvas.
     overlay.append(close, status);
   } catch {
@@ -325,28 +327,140 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
 }
 
 /**
- * "Open here" and "Open the default way", top right beside the close button,
- * for someone who may change the file. A video's view is kept for its opening
- * frame, so it can only be set there: elsewhere the steadying has turned the
- * sphere and the same direction would point somewhere else at the start.
+ * Turning, zooming and full screen along the bottom, for a touchscreen or
+ * anyone without a wheel, and a "⋮" menu with where it opens, for someone who
+ * may change the file. The same buttons, icons and order as the desktop
+ * viewer (src/golblick/viewer.py in the library), so the two work alike.
+ *
+ * A video's opening view is kept for its opening frame, so it can only be set
+ * there: later, the steadying has turned the sphere and the same direction
+ * would point somewhere else at the start.
  */
-function openingButtons(fileId: number, current: OpeningView, view: SphereView,
-  player: () => HTMLVideoElement | null, status: HTMLElement, overlay: HTMLElement): HTMLElement {
+function navigationBar(fileId: number, answer: Info | null, view: SphereView,
+  player: () => HTMLVideoElement | null, status: HTMLElement, overlay: HTMLElement, isVideo: boolean): HTMLElement {
   const bar = document.createElement('div');
-  bar.style.cssText = 'position:absolute;top:12px;right:64px;z-index:1;display:flex;gap:8px;';
+  // Above the video controls, which take the bottom edge.
+  bar.style.cssText = `position:absolute;left:50%;bottom:${isVideo ? 72 : 16}px;transform:translateX(-50%);z-index:1;`
+    + 'display:flex;gap:2px;padding:2px 8px;border-radius:24px;background:rgba(0,0,0,.55);';
+  // The sphere listens for drags on the canvas; keep the bar's own presses to itself.
+  for (const type of ['pointerdown', 'pointermove', 'wheel', 'touchstart', 'touchmove']) {
+    bar.addEventListener(type, (e) => e.stopPropagation(), { passive: true });
+  }
   const button = (icon: string, title: string) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.title = title;
     b.setAttribute('aria-label', title);
-    b.innerHTML = svgIcon(icon, 22);
-    b.style.cssText = 'width:44px;height:44px;border:0;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;'
+    b.innerHTML = svgIcon(icon, 24);
+    b.style.cssText = 'width:44px;height:44px;border:0;border-radius:50%;background:transparent;color:#fff;'
       + 'cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;';
+    hover(b);
     return b;
   };
-  const set = button(mdiImageFilterCenterFocus, 'Open here: make this the view it opens with');
-  const reset = button(mdiBackupRestore, 'Open the default way again');
-  reset.hidden = !current.chosen;
+  // Held down, a turn or zoom keeps going, like a key.
+  const held = (icon: string, title: string, act: () => void) => {
+    const b = button(icon, title);
+    let timer: number | null = null;
+    const stop = () => { if (timer !== null) window.clearInterval(timer); timer = null; };
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      act();
+      stop();
+      timer = window.setInterval(act, 40);
+    });
+    for (const type of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(type, stop);
+    b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') act(); });
+    return b;
+  };
+  const turn = (longitude: number, latitude: number, zoom = 1) => {
+    const now = view.direction;
+    view.look(now.longitude + longitude, now.latitude + latitude, now.fov * zoom);
+  };
+  const step = () => view.direction.fov / 30;
+
+  const full = button(mdiFullscreen, 'Full screen');
+  const showFull = () => {
+    if (!overlay.isConnected) {
+      document.removeEventListener('fullscreenchange', showFull);
+      return;
+    }
+    const on = document.fullscreenElement === overlay;
+    full.innerHTML = svgIcon(on ? mdiFullscreenExit : mdiFullscreen, 24);
+    full.title = on ? 'Leave full screen' : 'Full screen';
+    full.setAttribute('aria-label', full.title);
+  };
+  full.addEventListener('click', () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void overlay.requestFullscreen().catch(() => {});
+  });
+  document.addEventListener('fullscreenchange', showFull);
+
+  bar.append(
+    held(mdiChevronLeft, 'Turn left', () => turn(-step(), 0)),
+    held(mdiChevronUp, 'Look up', () => turn(0, step())),
+    held(mdiChevronDown, 'Look down', () => turn(0, -step())),
+    held(mdiChevronRight, 'Turn right', () => turn(step(), 0)),
+    held(mdiMagnifyMinusOutline, 'Zoom out', () => turn(0, 0, 1.03)),
+    held(mdiMagnifyPlusOutline, 'Zoom in', () => turn(0, 0, 1 / 1.03)),
+    full,
+  );
+  if (answer?.canSetView && answer.view) bar.append(openingMenu(fileId, answer.view, view, player, status, overlay));
+  return bar;
+}
+
+/** A light highlight under the pointer, as the desktop viewer's buttons have. */
+function hover(b: HTMLElement, colour = 'rgba(255,255,255,.12)') {
+  b.addEventListener('pointerenter', () => { b.style.background = colour; });
+  b.addEventListener('pointerleave', () => { b.style.background = 'transparent'; });
+}
+
+/** The "⋮" button and its menu: open at this view next time, or the default way. */
+function openingMenu(fileId: number, current: OpeningView, view: SphereView,
+  player: () => HTMLVideoElement | null, status: HTMLElement, overlay: HTMLElement): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;display:flex;';
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.title = 'More';
+  more.setAttribute('aria-label', 'More');
+  more.setAttribute('aria-haspopup', 'menu');
+  more.innerHTML = svgIcon(mdiDotsVertical, 24);
+  more.style.cssText = 'width:44px;height:44px;border:0;border-radius:50%;background:transparent;color:#fff;'
+    + 'cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;';
+  hover(more);
+  // Upwards: the bar sits along the bottom.
+  const menu = document.createElement('div');
+  menu.setAttribute('role', 'menu');
+  menu.hidden = true;
+  menu.style.cssText = 'position:absolute;right:0;bottom:52px;min-width:260px;padding:4px 0;border-radius:10px;'
+    + 'background:rgba(20,20,20,.95);color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.5);';
+  const item = (icon: string, label: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    b.innerHTML = `${svgIcon(icon, 20)}<span>${label}</span>`;
+    b.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:0;background:transparent;'
+      + 'color:inherit;font:inherit;text-align:left;cursor:pointer;';
+    hover(b, 'rgba(255,255,255,.08)');
+    return b;
+  };
+  const here = item(mdiImageFilterCenterFocus, 'Open at this view next time');
+  const reset = item(mdiBackupRestore, 'Open the default way');
+  const allowReset = (on: boolean) => {
+    reset.disabled = !on;
+    reset.style.opacity = on ? '1' : '.4';
+    reset.style.cursor = on ? 'pointer' : 'default';
+  };
+  allowReset(current.chosen);
+  menu.append(here, reset);
+  wrap.append(menu, more);
+
+  const close = () => { menu.hidden = true; };
+  more.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+  });
+  overlay.addEventListener('pointerdown', (e) => { if (!wrap.contains(e.target as Node)) close(); });
 
   const say = (text: string) => {
     status.textContent = text;
@@ -367,7 +481,8 @@ function openingButtons(fileId: number, current: OpeningView, view: SphereView,
     return answer.view ?? null;
   };
 
-  set.addEventListener('click', () => {
+  here.addEventListener('click', () => {
+    close();
     const video = player();
     if (video && video.currentTime > 0.2) {
       say('Go back to the start of the video to set where it opens.');
@@ -375,20 +490,21 @@ function openingButtons(fileId: number, current: OpeningView, view: SphereView,
     }
     const { longitude, latitude, fov } = view.direction;
     send('PUT', { longitude, latitude, fov })
-      .then(() => { reset.hidden = false; say('It opens here now.'); })
+      .then(() => { allowReset(true); say('It opens at this view now.'); })
       .catch((e: Error) => say(`Not saved: ${e.message}`));
   });
   reset.addEventListener('click', () => {
+    if (reset.disabled) return;
+    close();
     send('DELETE')
       .then((fallback) => {
-        reset.hidden = true;
+        allowReset(false);
         if (fallback) view.look(fallback.longitude, fallback.latitude, fallback.fov);
         say('It opens the default way again.');
       })
       .catch((e: Error) => say(`Not saved: ${e.message}`));
   });
-  bar.append(reset, set);
-  return bar;
+  return wrap;
 }
 
 /** Play and pause, a seek bar with the time, and sound on and off, along the bottom. */

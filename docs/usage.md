@@ -172,7 +172,7 @@ golblick open IMG_20260314_090825_00_008.insp
 
 Nothing is rendered first: the graphics card projects the two lenses as it draws, with the same lens model and corrections as `render`, so the photo is on screen in about a second. A few seconds later the view updates with what takes longer to work out: where the seam between the lenses goes, and on an X5 whether lens guards were fitted and how the camera's own stitch levels it.
 
-**Open here** makes the current view the one the photo opens with next time, and the button beside it goes back to the default, which faces the way Insta360 Studio opens the photo. The views are kept in `~/.local/share/golblick/views.json`, by file name and size, never in the photo.
+**Open at this view next time**, in the bar's **⋮** menu, makes the current view the one the photo opens with, and **Open the default way** goes back to facing the way Insta360 Studio opens it. The bar and its menu are the same as in the Nextcloud app's sphere view. The views are kept in `~/.local/share/golblick/views.json`, by file name and size, never in the photo.
 
 To open photos by double-clicking them, run this once:
 
