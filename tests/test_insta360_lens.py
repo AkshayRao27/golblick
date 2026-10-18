@@ -75,3 +75,15 @@ def test_lens_guards_change_the_angle_only_where_measured():
     assert x5.field_of_view_for(guards=True) == pytest.approx(197.5 / 1.0225)
     oner = lens.PROFILES["Insta360 OneR"]
     assert oner.field_of_view_for(guards=True) == oner.field_of_view
+
+
+def test_the_preview_provider_opens_videos_the_same_way():
+    """Where a clip opens is restated in PHP for the Nextcloud player."""
+    from golblick.vendors import insta360
+
+    php = (Path(__file__).parents[1] / "nextcloud-app/lib/Insta360/LensProfile.php").read_text()
+    match = re.search(r"VIDEO_FORWARD = \[(.*)\];", php)
+    assert match, "VIDEO_FORWARD missing from LensProfile.php"
+    restated = {model: tuple(float(v) for v in values.split(","))
+                for model, values in re.findall(r"'([^']+)' => \[([^\]]*)\]", match.group(1))}
+    assert restated == insta360.VIDEO_FORWARD

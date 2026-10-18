@@ -168,3 +168,26 @@ def test_locked_and_following_views_open_the_same_and_share_the_horizon():
     for k, view in enumerate(locked):
         body_up = rotate(conjugate(attitude(motion.frame_times[k])), (0.0, 1.0, 0.0))
         assert math.degrees(math.acos(min(1.0, rotate(view, body_up)[1]))) < 0.5
+
+
+def test_a_track_turned_with_the_render_draws_the_same_picture_turned():
+    """Turning the copy to face forward must turn every frame alike, not just the first.
+
+    Frame k is drawn with q_k @ reference; turned by Y it must become Y q_k @ reference.
+    The rotations here are lopsided on purpose: a turn about the vertical alone
+    commutes with Y and would pass even if the conjugation were the wrong way round.
+    """
+    numpy = pytest.importorskip("numpy")
+    from golblick import video
+
+    rng = numpy.random.default_rng(3)
+    track = [stabilise._normalise(tuple(rng.normal(size=4))) for _ in range(6)]
+    reference = video.quaternion_matrix(stabilise._normalise((0.9, 0.2, -0.3, 0.1)))
+    angle = 2.1
+    c, s = math.cos(angle), math.sin(angle)
+    turn = numpy.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])   # about +y, column convention
+
+    for q, q_turned in zip(track, stabilise.turned(track, angle), strict=True):
+        before = video.quaternion_matrix(q) @ reference
+        after = video.quaternion_matrix(q_turned) @ (turn @ reference)
+        assert after == pytest.approx(turn @ before, abs=1e-12)

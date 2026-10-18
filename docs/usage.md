@@ -150,7 +150,7 @@ Two lines in that output are worth reading:
 
 `--level` forces the choice. `stitch`, `imu` and `calibration` fail rather than quietly falling back, which is what you want when comparing them.
 
-Whichever route levels it, a photo's panorama is turned so that its middle is the middle of Insta360 Studio's export of the same photo. That's a fixed direction relative to the camera, not a choice of the interesting part of the scene. Videos aren't turned this way yet.
+Whichever route levels it, a photo's panorama is turned so that its middle is the middle of Insta360 Studio's export of the same photo. That's a fixed direction relative to the camera, not a choice of the interesting part of the scene. A stitched video is turned the same way, so it starts facing the middle of Studio's export of the clip.
 
 The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3 and 197.5° for an X5, and a radial correction of up to 1.75° on the OneR and X3. A video uses the same angle; it only keeps less of the sensor, which the file records. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
 

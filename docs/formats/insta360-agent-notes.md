@@ -783,6 +783,16 @@ Studio's exports are centred on the horizontal projection of the render frame's 
 
 Video opening frames, levelled the same way, were also about half a turn off on three clips with full-length Studio exports (two OneR, one X5), and the −z rule predicts them to within 1° to 7°. ⚠️ Those exports had stabilisation off, so they aren't levelled, and the comparison is rougher than for photos.
 
+🔴 **Corrected 2026-10-18: the X5 is the other way round in video.** Frame 0 of a stitched clip, levelled from gravity and scored against frame 0 of Studio's FlowState export, which is levelled (`render.fit_orientation`, yaw of the fitted rotation):
+
+| | Clips | Turned to −z | Left as levelled |
+|---|---|---|---|
+| OneR | 4 | −6.7° to 0.0° | 145° to 178° off |
+| X3 | 1 | 2.5° | 179° off |
+| X5 | 3 | 147° to 180° off | −31.6° to 2.8° |
+
+Against the unstabilised exports of the same X5 clips the levelled render is −12°, 0° and −2.5° off. So an X5 video opens on +z (`VIDEO_FORWARD`), a half turn from an X5 photo. Which X5 clip the earlier paragraph used isn't recorded, and it can't be checked again. ⚠️ Not settled: whether this is how the camera and Studio centre an X5 video, or golblick pairing the X5's two video streams with the wrong lenses, which would look the same, since swapping the lenses is a half turn. Seam agreement slightly favours the current pairing on all three clips (3% to 5%), but the OneR, whose pairing can't be wrong, separates by the same small margin, so that isn't evidence either way.
+
 ## Lens brightness in video
 
 In a still, the camera has already matched its two lenses; in a video it has not. Measured 2026-10-09 as lens 1 over lens 0 on the band both lenses see, a degree inside each rim, pixels near black or white left out:

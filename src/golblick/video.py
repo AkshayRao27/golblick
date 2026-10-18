@@ -305,10 +305,20 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
         orientation = render.body_orientation(calibration)
         notes.append(f"levelling      calibration only ({exc})")
 
+    # Face the middle of the vendor's own exports, as a photo does.  The track
+    # is built for the levelled render and turned with it (stabilise.turned).
+    reader = getattr(vendor, "video_forward", None)
+    forward = reader(path) if reader is not None else None
+    faced = orientation if forward is None else render.face(orientation, forward)
+    turn = numpy.asarray(faced, numpy.float64) @ numpy.asarray(orientation, numpy.float64).T
+    heading = float(numpy.arctan2(turn[0][2], turn[0][0]))
+    if forward is not None:
+        notes.append(f"facing         the camera's forward, turned {numpy.degrees(heading):+.0f} degrees")
+
     turns = None
     if steady:
         try:
-            turns = stabilise.track(vendor.motion(path), orientation, lock=lock)
+            turns = stabilise.turned(stabilise.track(vendor.motion(path), orientation, lock=lock), heading)
             notes.append("steadying      " + ("direction locked" if lock else "follows the camera's turns")
                          + f", {len(turns)} frames from the motion record")
             if len(turns) < clip.frames:
@@ -319,7 +329,7 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
     else:
         notes.append("steadying      off (--no-steady)")
 
-    return Plan(lenses, lens_size, width, field_of_view, seam, numpy.asarray(orientation, numpy.float64),
+    return Plan(lenses, lens_size, width, field_of_view, seam, numpy.asarray(faced, numpy.float64),
                 turns, notes)
 
 

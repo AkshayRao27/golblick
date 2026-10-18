@@ -222,10 +222,13 @@ def cmd_render(args: argparse.Namespace) -> int:
     height = width // 2
     orientation, levelling = _levelling(render, vendor, args.file, model,
                                         "auto" if args.level == "stitch" else args.level)
-    # Face the way the vendor's own software opens a still. Videos aren't
-    # measured, so their heading stays where levelling leaves it.
-    forward = getattr(vendor, "PHOTO_FORWARD", None)
-    if orientation is not None and forward is not None and not video:
+    # Face the middle of the vendor's own exports.
+    if video:
+        reader = getattr(vendor, "video_forward", None)
+        forward = reader(args.file) if reader is not None else None
+    else:
+        forward = getattr(vendor, "PHOTO_FORWARD", None)
+    if orientation is not None and forward is not None:
         orientation = render.face(orientation, forward)
     if args.level in ("auto", "stitch"):
         try:

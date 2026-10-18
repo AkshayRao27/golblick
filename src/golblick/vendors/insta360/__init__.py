@@ -33,8 +33,14 @@ DESCRIPTION = "Insta360 .insp / .insv / .lrv"
 #: degrees off, worst 8.3, 18.3 and 1.3. A fixed half turn fits the X3 and X5
 #: as well but misses tilted OneR photos by up to 70 degrees, which this
 #: follows. The X3 photos were all held at much the same tilt, so they can't
-#: tell this axis from +y; the OneR and X5 can. Videos aren't measured.
+#: tell this axis from +y; the OneR and X5 can.
 PHOTO_FORWARD = (0.0, 0.0, -1.0)
+
+#: Where a video opens, per model where it differs from a photo.  Measured on
+#: frame 0 against Studio's exports, levelled from gravity: four OneR clips and
+#: one X3 land 0 to 6.7 degrees from PHOTO_FORWARD, and three X5 clips half a
+#: turn from it, on both FlowState and unstabilised exports.
+VIDEO_FORWARD = {"Insta360 X5": (0.0, 0.0, 1.0)}
 
 __all__ = [
     "DESCRIPTION",
@@ -46,6 +52,7 @@ __all__ = [
     "Motion",
     "NAME",
     "PHOTO_FORWARD",
+    "VIDEO_FORWARD",
     "Preview",
     "Record",
     "Source",
@@ -64,6 +71,7 @@ __all__ = [
     "motion",
     "read_trailer",
     "shareable",
+    "video_forward",
 ]
 
 
@@ -83,6 +91,11 @@ def matches(path: str | Path) -> bool:
             return handle.read(len(MAGIC)) == MAGIC
     except OSError:
         return False
+
+
+def video_forward(path: str | Path) -> tuple[float, float, float]:
+    """Where a video from the camera that wrote ``path`` opens; see VIDEO_FORWARD."""
+    return VIDEO_FORWARD.get(describe(path)["model"], PHOTO_FORWARD)
 
 
 def describe(path: str | Path) -> dict:

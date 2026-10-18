@@ -57,8 +57,10 @@ final class ViewStore {
 			return ['longitude' => 0.0, 'latitude' => 0.0, 'fov' => null, 'chosen' => false];
 		}
 		$default = $stored['default'] ?? null;
-		if (!\is_array($default) || ($default['etag'] ?? null) !== $subject->getEtag()) {
-			$default = ['etag' => $subject->getEtag(), 'longitude' => $this->clipForward($subject)];
+		if (!\is_array($default) || ($default['etag'] ?? null) !== $subject->getEtag()
+			|| ($default['rule'] ?? null) !== self::FORWARD_RULE) {
+			$default = ['etag' => $subject->getEtag(), 'rule' => self::FORWARD_RULE,
+				'longitude' => $this->clipForward($subject)];
 			$this->write($subject, ['default' => $default] + $stored);
 		}
 
@@ -85,10 +87,12 @@ final class ViewStore {
 	/**
 	 * Where the clip's forward direction sits in its stitched copy: the copy
 	 * is levelled from gravity at the start of the clip (VideoRenderer), and
-	 * Studio's exports are centred on LensProfile::PHOTO_FORWARD, which three
-	 * clips measured against Studio's video exports bear out for video too. 0 when the
+	 * Studio's exports are centred on LensProfile::videoForward(). 0 when the
 	 * clip carries no reading to work it out from.
 	 */
+	/** Bumped when clipForward() changes, so stored defaults are worked out again. 2: X5 videos face +z. */
+	private const FORWARD_RULE = 2;
+
 	private function clipForward(File $clip): float {
 		try {
 			$handle = $clip->fopen('r');
@@ -110,7 +114,7 @@ final class ViewStore {
 		} catch (FormatError|\InvalidArgumentException $e) {
 			return 0.0;
 		}
-		$f = LensProfile::PHOTO_FORWARD;
+		$f = LensProfile::videoForward($model);
 		$x = $m[0][0] * $f[0] + $m[0][1] * $f[1] + $m[0][2] * $f[2];
 		$z = $m[2][0] * $f[0] + $m[2][1] * $f[1] + $m[2][2] * $f[2];
 

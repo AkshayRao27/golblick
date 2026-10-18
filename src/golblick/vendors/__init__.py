@@ -48,6 +48,8 @@ organised per vendor behind a small contract.  A vendor module provides:
     looking along its direction on the horizon, as the vendor's own software
     opens it; levelling alone leaves the heading wherever the sensor frame
     put it.  Measured against the vendor's exports, never guessed.
+``video_forward(path) -> (x, y, z)``
+    Optional.  The same for a video, which can differ by camera model.
 ``lens_profile(path) -> profile | None``
     Optional.  What the file does not carry about the lenses but a renderer
     needs: ``field_of_view``, and ``radial``, a measured correction to the

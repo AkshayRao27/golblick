@@ -76,6 +76,19 @@ def track(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLO
     return [_normalise(_multiply(_yaw(turn), q)) for q, turn in zip(rotations, turns, strict=True)]
 
 
+def turned(rotations, angle: float):
+    """The same track for a render turned ``angle`` radians about the vertical afterwards.
+
+    A frame drawn with ``q @ reference`` and the whole picture then turned by
+    ``Y`` is ``Y q Y^-1 @ (Y reference)``, so each rotation is conjugated by
+    the turn.  This is exact; building the track again from the turned
+    reference is not, because its first frame is aligned by a twist that
+    doesn't simply add.
+    """
+    yaw, back = _yaw(angle), _yaw(-angle)
+    return [_normalise(_multiply(_multiply(yaw, q), back)) for q in rotations]
+
+
 def steady(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLOW):
     """The following view's rotations, and per frame how far its heading has turned since frame 0.
 
