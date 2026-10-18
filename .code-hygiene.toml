@@ -1,0 +1,5 @@
+# Settings for the code-hygiene scanner. The notes under .claude/ are a private
+# repository, so public code must not cite them.
+private = ['(?<![\w/-])history/\d\d_[\w-]+\.md', 'PLAN\.md', '\.claude/', 'prototypes/']
+notes = ["AGENTS.md", "docs/formats/insta360-agent-notes.md", "nextcloud-app/AGENT-NOTES.md"]
+exclude = ["nextcloud-app/js/*", "nextcloud-app/node_modules/*"]
