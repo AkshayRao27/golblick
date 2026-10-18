@@ -87,14 +87,14 @@ golblick render IMG_20260314_090809_00_007.insp -o pano.jpg
 golblick triage ~/Photos
 ```
 
-`uv tool upgrade golblick` updates it later. Without `[render]` everything except rendering still works, with no dependencies at all.
+`uv tool upgrade golblick` updates it later. Without `[render]` everything except rendering still works, with no dependencies at all. Each [release](https://github.com/AkshayRao27/golblick/releases) also has a wheel to install from, and the Nextcloud app.
 
 To open photos by double-clicking them, install `[desktop]` instead, which adds the viewer window (Qt, about 100 MB), and register it once:
 
 ```sh
 uv tool install 'golblick[desktop] @ git+https://github.com/AkshayRao27/golblick'
 golblick desktop install
-``` Each [release](https://github.com/AkshayRao27/golblick/releases) also has a wheel to install from, and the Nextcloud app.
+```
 
 ## More
 
