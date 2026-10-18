@@ -26,9 +26,10 @@ NAME = "insta360"
 DESCRIPTION = "Insta360 .insp / .insv / .lrv"
 
 #: Where a still opens: the render frame's -z, the same on the OneR, X3 and X5.
-#: Insta360 Studio opens each export looking along this direction's
-#: projection onto the horizon. Measured against Studio's exports of 15 OneR,
-#: 12 X3 and 12 X5 photos, levelled from gravity: median 1.3, 3.4 and 0.5
+#: Insta360 Studio's exports are centred on this direction's projection onto
+#: the horizon; whether Studio's own viewer always opens there is not
+#: measured. Measured against Studio's exports of 15 OneR, 12 X3 and 12 X5
+#: photos, levelled from gravity: median 1.3, 3.4 and 0.5
 #: degrees off, worst 8.3, 18.3 and 1.3. A fixed half turn fits the X3 and X5
 #: as well but misses tilted OneR photos by up to 70 degrees, which this
 #: follows. The X3 photos were all held at much the same tilt, so they can't

@@ -239,8 +239,8 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
       view.destroy();
       return;
     }
-    // Where this opens: the direction someone chose, or the one Insta360
-    // Studio opens in. Asked here and not before the sphere appears, so a
+    // Where this opens: the direction someone chose, or the default (the
+    // middle of Insta360 Studio's export). Asked here and not before the sphere appears, so a
     // slow answer doesn't hold it up.
     const answer = await info(fileId).catch(() => null);
     if (closed) return;

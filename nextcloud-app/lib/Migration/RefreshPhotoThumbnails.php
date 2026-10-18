@@ -18,7 +18,7 @@ use Psr\Log\LoggerInterface;
 
 /**
  * Deletes the cached thumbnails of .insp photos once, when upgrading to a
- * version whose panoramas face the way Insta360 Studio opens them
+ * version whose panoramas are centred where Insta360 Studio's exports are
  * (Orientation::face): a thumbnail made before shows the other side in the
  * middle, and the sphere viewer opens on the thumbnail before the full
  * panorama arrives, so it would open facing one way and then jump.
@@ -38,7 +38,7 @@ final class RefreshPhotoThumbnails implements IRepairStep {
 	}
 
 	public function getName(): string {
-		return 'Refresh the thumbnails of 360° photos, which now face the way Insta360 Studio opens them';
+		return 'Refresh the thumbnails of 360° photos, whose panoramas are now turned to match Insta360 Studio\'s exports';
 	}
 
 	public function run(IOutput $output): void {

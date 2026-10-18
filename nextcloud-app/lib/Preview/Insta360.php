@@ -296,7 +296,7 @@ final class Insta360 implements IProviderV2 {
 	 * @return array{array, string}
 	 */
 	public function levelling(File $file, Trailer $trailer, array $fields, Calibration $calibration): array {
-		// Either route then faces the way Insta360 Studio opens a still.
+		// Either route is then turned so the middle is the middle of Insta360 Studio's export.
 		[$orientation, $route] = $this->levelled($file, $trailer, $fields, $calibration);
 
 		return [Orientation::face($orientation, LensProfile::PHOTO_FORWARD), $route];

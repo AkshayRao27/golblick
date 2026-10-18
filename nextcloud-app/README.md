@@ -77,7 +77,7 @@ A **View as sphere** button opens the photo full-window as a sphere you can drag
 - in the image viewer that Files and Photos open, next to the edit button
 - in Memories, in the viewer's top bar
 
-It faces the way Insta360 Studio opens the photo. It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
+By default it faces the same way as the middle of Insta360 Studio's export of the photo. It opens straight away with the preview, then sharpens once the full-size panorama is ready. That's the same image Memories zooms into, so the first time for a photo can take up to about 20 seconds (see above).
 
 A bar along the bottom turns the view, zooms and switches to full screen, for a touchscreen or anyone without a mouse wheel. To have the photo open somewhere else, look that way and choose **Open at this view next time** from the bar's **⋮** menu. Everyone who opens it then starts there, in Memories' sphere view too, and **Open the default way** in the same menu undoes it. It's kept in the app's data, not in the photo, and only someone who can change the file can set it. A video's opening view works the same way, set at the start of the video, and is shared by every file of the clip and its stitched copy. Memories may keep showing the old view for up to a day, because the browser keeps the image that long.
 

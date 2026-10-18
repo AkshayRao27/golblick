@@ -9,8 +9,8 @@ measured corrections as :mod:`golblick.render`, which owns them:
 
 * :func:`photo_scene` is quick, about as long as reading the file: the lens
   pair as the camera stored it, the calibration, the measured lens
-  correction, and levelling from gravity, facing the way Insta360 Studio
-  opens the photo.
+  correction, and levelling from gravity, turned to face the middle of
+  Insta360 Studio's export of the photo (render.face).
 * :func:`refine` is what takes the CPU longer, so a viewer runs it in the
   background and updates the view when it returns: whether an X5 wore lens
   guards, alignment to an X5's own stitch, and the routed seam.  It works on a

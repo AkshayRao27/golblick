@@ -19,7 +19,8 @@ use OCP\Files\SimpleFS\ISimpleFolder;
 
 /**
  * Where a sphere opens: the direction someone chose for a photo or a clip,
- * or else the direction Insta360 Studio opens it in.
+ * or else the middle of its panorama, which is the middle of Insta360
+ * Studio's export of it.
  *
  * A view belongs to the photo, or to the clip for a video, so every file of a
  * clip and its stitched copy open the same way. It is kept in the app's data
@@ -84,8 +85,8 @@ final class ViewStore {
 	/**
 	 * Where the clip's forward direction sits in its stitched copy: the copy
 	 * is levelled from gravity at the start of the clip (VideoRenderer), and
-	 * Studio opens looking along LensProfile::PHOTO_FORWARD, which three clips
-	 * measured against Studio's exports bear out for video too. 0 when the
+	 * Studio's exports are centred on LensProfile::PHOTO_FORWARD, which three
+	 * clips measured against Studio's video exports bear out for video too. 0 when the
 	 * clip carries no reading to work it out from.
 	 */
 	private function clipForward(File $clip): float {

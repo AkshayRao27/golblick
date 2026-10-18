@@ -92,7 +92,7 @@ final class SphereController extends Controller {
 		return new JSONResponse(['view' => $this->views->get(...$subject)]);
 	}
 
-	/** Back to opening the way Insta360 Studio does. */
+	/** Back to the default: the middle of the panorama. */
 	#[NoAdminRequired]
 	#[FrontpageRoute(verb: 'DELETE', url: '/sphere/{fileId}/view', requirements: ['fileId' => '\d+'])]
 	public function clearView(int $fileId): JSONResponse {

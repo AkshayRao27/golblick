@@ -86,8 +86,8 @@ final class PanoramaStore {
 	}
 
 	/**
-	 * A panorama cached before panoramas faced the way Insta360 Studio opens
-	 * them, turned to face that way: null if there is none, or it can't be.
+	 * A panorama cached before panoramas were turned to match the middle of
+	 * Insta360 Studio's exports, turned that way now: null if there is none, or it can't be.
 	 *
 	 * The facing only turns a panorama about the vertical, which in an
 	 * equirectangular frame is a sideways shift with wrap-around, so the old
@@ -187,7 +187,7 @@ final class PanoramaStore {
 	}
 
 	/**
-	 * Marks entries rendered facing the way Insta360 Studio opens a photo
+	 * Marks entries turned to match the middle of Insta360 Studio's exports
 	 * (0.6). Entries without it are turned on their next use (turnedFromBefore).
 	 */
 	private const VERSION = '-f';

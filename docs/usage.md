@@ -150,7 +150,7 @@ Two lines in that output are worth reading:
 
 `--level` forces the choice. `stitch`, `imu` and `calibration` fail rather than quietly falling back, which is what you want when comparing them.
 
-Whichever route levels it, a photo's panorama faces the way Insta360 Studio opens it: the middle of the image is where Studio's view starts. Videos aren't turned this way yet.
+Whichever route levels it, a photo's panorama is turned so that its middle is the middle of Insta360 Studio's export of the same photo. That's a fixed direction relative to the camera, not a choice of the interesting part of the scene. Videos aren't turned this way yet.
 
 The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3 photo and 185.5° for an X3 video, 197.5° for an X5 photo and 195.3° for an X5 video, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
 
@@ -172,7 +172,7 @@ golblick open IMG_20260314_090825_00_008.insp
 
 Nothing is rendered first: the graphics card projects the two lenses as it draws, with the same lens model and corrections as `render`, so the photo is on screen in about a second. A few seconds later the view updates with what takes longer to work out: where the seam between the lenses goes, and on an X5 whether lens guards were fitted and how the camera's own stitch levels it.
 
-**Open at this view next time**, in the bar's **⋮** menu, makes the current view the one the photo opens with, and **Open the default way** goes back to facing the way Insta360 Studio opens it. The bar and its menu are the same as in the Nextcloud app's sphere view. The views are kept in `~/.local/share/golblick/views.json`, by file name and size, never in the photo.
+**Open at this view next time**, in the bar's **⋮** menu, makes the current view the one the photo opens with, and **Open the default way** goes back to the default, the middle of the panorama. The bar and its menu are the same as in the Nextcloud app's sphere view. The views are kept in `~/.local/share/golblick/views.json`, by file name and size, never in the photo.
 
 To open photos by double-clicking them, run this once:
 
