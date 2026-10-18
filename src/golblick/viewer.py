@@ -525,8 +525,8 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
     menu = QMenu(more)
     # The menu follows the desktop's theme, so its icons take the theme's text colour.
     ink = QApplication.palette().windowText().color().name()
-    here = menu.addAction(_icon("open_here", ink), "Open at this view next time")
-    reset = menu.addAction(_icon("open_default", ink), "Open the default way")
+    here = menu.addAction(_icon("open_here", ink), "Open facing this way")
+    reset = menu.addAction(_icon("open_default", ink), "Reset point of view")
     reset.setEnabled(load_view(path) is not None)
 
     def show_menu() -> None:
@@ -598,7 +598,7 @@ def open_window(path: str | Path) -> SphereView:
         if seconds:
             QTimer.singleShot(int(seconds * 1000), lambda: status.text() == text and status.hide())
 
-    say("Opening…", None)
+    say("Loading…", None)
     _Follow(view, _controls(view, path, say))
     QShortcut(QKeySequence(QKeySequence.StandardKey.Close), view, view.close)
     QShortcut(QKeySequence("Ctrl+Q"), view, view.close)

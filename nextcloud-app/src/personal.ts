@@ -19,7 +19,7 @@ const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices
     choices: [
       ['sphere', 'Open as a sphere'],
       ['paused', 'Show flat, without playing; the sphere button plays it as a sphere'],
-      ['play', 'Play flat, as Memories does'],
+      ['play', 'Play flat (Memories default)'],
     ],
   },
   {
@@ -27,7 +27,7 @@ const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices
     title: '360° photos in Memories',
     hint: 'Memories 10 also has its own "View panorama" button, which shows the same panorama.',
     choices: [
-      ['flat', 'Show flat, with the sphere button'],
+      ['flat', 'Show flat, with a sphere-viewer button'],
       ['sphere', 'Open as a sphere'],
     ],
   },

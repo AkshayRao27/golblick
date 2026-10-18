@@ -257,7 +257,7 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
     const answer = await info(fileId);
     if (closed) return;
     if (!answer.video || !answer.videoEtag) {
-      status.textContent = 'This is the first frame. The video hasn\'t been stitched yet; the server does that in the background.';
+      status.textContent = 'This is the first frame. The video hasn\'t been stitched yet; the server will stitch it in the background.';
       return;
     }
     player = document.createElement('video');
@@ -444,8 +444,8 @@ function openingMenu(fileId: number, current: OpeningView, view: SphereView,
     hover(b, 'rgba(255,255,255,.08)');
     return b;
   };
-  const here = item(mdiImageFilterCenterFocus, 'Open at this view next time');
-  const reset = item(mdiBackupRestore, 'Open the default way');
+  const here = item(mdiImageFilterCenterFocus, 'Open facing this way');
+  const reset = item(mdiBackupRestore, 'Reset point of view');
   const allowReset = (on: boolean) => {
     reset.disabled = !on;
     reset.style.opacity = on ? '1' : '.4';
