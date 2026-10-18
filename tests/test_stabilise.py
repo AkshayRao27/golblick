@@ -191,3 +191,16 @@ def test_a_track_turned_with_the_render_draws_the_same_picture_turned():
         before = video.quaternion_matrix(q) @ reference
         after = video.quaternion_matrix(q_turned) @ (turn @ reference)
         assert after == pytest.approx(turn @ before, abs=1e-12)
+
+
+def test_locking_a_turned_track_is_turning_a_locked_one():
+    """The player turns the following track to face forward and locks it after; the stitch did it the other way round."""
+    import random
+
+    rng = random.Random(5)
+    track = [stabilise._normalise(tuple(rng.gauss(0, 1) for _ in range(4))) for _ in range(6)]
+    headings = [rng.uniform(-3, 3) for _ in track]
+    one = stabilise.locked(stabilise.turned(track, 2.1), headings)
+    other = stabilise.turned(stabilise.locked(track, headings), 2.1)
+    for a, b in zip(one, other, strict=True):
+        assert a == pytest.approx(b, abs=1e-12) or a == pytest.approx(tuple(-v for v in b), abs=1e-12)

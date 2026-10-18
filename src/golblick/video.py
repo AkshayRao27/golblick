@@ -310,6 +310,29 @@ def orient(vendor, path, calibration, frames: int, steady: bool = True, lock: bo
     unsteadied), and a line on each decision.  Shared by the stitch and the
     desktop player, so both turn a clip the same way.
     """
+    level, faced, heading, notes = opening(vendor, path, calibration)
+    turns = None
+    if steady:
+        try:
+            follow, headings = steadying(vendor, path, level, heading)
+            turns = stabilise.locked(follow, headings) if lock else follow
+            notes.append("steadying      " + ("direction locked" if lock else "follows the camera's turns")
+                         + f", {len(turns)} frames from the motion record")
+            if len(turns) < frames:
+                notes.append(f"               ⚠️ the video has {frames} frames; the last {frames - len(turns)} keep the record's last turn")
+        except (GolblickError, ValueError, AttributeError) as exc:
+            notes.append(f"steadying      not steadied: {exc}")
+    else:
+        notes.append("steadying      off (--no-steady)")
+    return faced, turns, notes
+
+
+def opening(vendor, path, calibration):
+    """A clip's levelled opening, the same turned to face the camera's forward, the turn between, and notes.
+
+    Returns ``(level, faced, heading, notes)``: two 3x3 orientations, the
+    heading in radians, and a line on each decision.
+    """
     numpy = render._numpy()
     notes = []
     try:
@@ -328,21 +351,17 @@ def orient(vendor, path, calibration, frames: int, steady: bool = True, lock: bo
     heading = float(numpy.arctan2(turn[0][2], turn[0][0]))
     if forward is not None:
         notes.append(f"facing         the camera's forward, turned {numpy.degrees(heading):+.0f} degrees")
+    return orientation, numpy.asarray(faced, numpy.float64), heading, notes
 
-    turns = None
-    if steady:
-        try:
-            turns = stabilise.turned(stabilise.track(vendor.motion(path), orientation, lock=lock), heading)
-            notes.append("steadying      " + ("direction locked" if lock else "follows the camera's turns")
-                         + f", {len(turns)} frames from the motion record")
-            if len(turns) < frames:
-                notes.append(f"               ⚠️ the video has {frames} frames; the last {frames - len(turns)} keep the record's last turn")
-        except (GolblickError, ValueError, AttributeError) as exc:
-            notes.append(f"steadying      not steadied: {exc}")
-    else:
-        notes.append("steadying      off (--no-steady)")
 
-    return numpy.asarray(faced, numpy.float64), turns, notes
+def steadying(vendor, path, level, heading):
+    """The following view's per-frame turns for a clip faced ``heading`` from ``level``, and each frame's heading.
+
+    ``stabilise.locked`` makes the locked view from the two.  Raises what
+    ``vendor.motion`` and ``stabilise.steady`` raise.
+    """
+    follow, headings = stabilise.steady(vendor.motion(path), level)
+    return stabilise.turned(follow, heading), headings
 
 
 def frame_orientation(plan: Plan, k: int):

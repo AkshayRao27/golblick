@@ -158,23 +158,29 @@ class VideoScene:
     clip: object                 # video.Clip
     size: int                    # each lens's decoded square, pixels
     orientation: tuple[tuple[float, float, float], ...]
-    #: Per frame the steadying turn (w, x, y, z) applied after ``orientation``, or None.
+    #: Per frame the following view's steadying turn (w, x, y, z), applied after ``orientation``; None, unsteadied.
     turns: tuple[tuple[float, float, float, float], ...] | None
+    #: Per frame how far the following view's heading has turned, radians; turning back by it locks the direction.
+    headings: tuple[float, ...] | None = None
 
-    def camera_from_world(self, k: int) -> tuple[tuple[float, float, float], ...]:
+    def camera_from_world(self, k: int, steady: bool = True, lock: bool = False) -> tuple[tuple[float, float, float], ...]:
         """The shader's rows for frame ``k``: the turn after the levelled, faced opening."""
         import numpy
 
-        from . import video
+        from . import stabilise, video
 
         orientation = numpy.asarray(self.orientation)
-        if self.turns:
-            orientation = video.quaternion_matrix(self.turns[min(k, len(self.turns) - 1)]) @ orientation
+        if steady and self.turns:
+            k = min(k, len(self.turns) - 1)
+            turn = self.turns[k]
+            if lock and self.headings:
+                turn = stabilise.locked([turn], [self.headings[k]])[0]
+            orientation = video.quaternion_matrix(turn) @ orientation
         return _rows(orientation.T)
 
 
-def video_scene(path: str | Path, size: int | None = None, steady: bool = True, lock: bool = False) -> VideoScene:
-    """What a player needs before the first frame: geometry, colour and the steadying track.
+def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
+    """What a player needs before the first frame: geometry, colour and the steadying tracks.
 
     ``size`` is each lens's decoded square; None means half the camera's, as
     Insta360's own player decodes, which a screen rarely needs more than.
@@ -182,7 +188,7 @@ def video_scene(path: str | Path, size: int | None = None, steady: bool = True, 
     import numpy
 
     from . import render, video
-    from .errors import UnsupportedFile
+    from .errors import GolblickError, UnsupportedFile
     from .vendors import detect
 
     path = str(path)
@@ -200,7 +206,13 @@ def video_scene(path: str | Path, size: int | None = None, steady: bool = True, 
     radial = profile.radial if profile is not None else ()
     field_of_view = profile.field_of_view_for() if profile is not None else 194.0
     built = render.lenses_from_calibration(calibration, 2 * size, radial)
-    orientation, turns, notes = video.orient(vendor, path, calibration, clip.frames, steady, lock)
+    level, orientation, heading, notes = video.opening(vendor, path, calibration)
+    turns = headings = None
+    try:
+        turns, headings = video.steadying(vendor, path, level, heading)
+        notes.append(f"steadying      {len(turns)} frames from the motion record")
+    except (GolblickError, ValueError, AttributeError) as exc:
+        notes.append(f"steadying      not steadied: {exc}")
     scene = Scene(
         jpeg=b"", width=2 * size, height=size,
         lenses=tuple(_shader_lens(lens, index, render) for index, lens in enumerate(built)),
@@ -210,7 +222,8 @@ def video_scene(path: str | Path, size: int | None = None, steady: bool = True, 
         notes=(cropped, *notes),
     )
     return VideoScene(scene, clip, size, _rows(orientation),
-                      None if turns is None else tuple(tuple(float(v) for v in q) for q in turns))
+                      None if turns is None else tuple(tuple(float(v) for v in q) for q in turns),
+                      None if headings is None else tuple(float(h) for h in headings))
 
 
 def _shader_lens(lens, index: int, render) -> Lens:

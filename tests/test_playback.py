@@ -147,6 +147,18 @@ def test_the_sound_comes_in_whole_samples_and_ends(sounding):
         sound.close()
 
 
+def test_a_video_scene_locks_by_turning_back_each_frame_heading():
+    numpy = pytest.importorskip("numpy")
+    from golblick import scene, stabilise
+
+    opening = numpy.eye(3)
+    turn = tuple((0.8, -0.2, 0.5, 0.1) / numpy.linalg.norm((0.8, -0.2, 0.5, 0.1)))
+    played = scene.VideoScene(None, None, 64, tuple(map(tuple, opening)), ((1.0, 0.0, 0.0, 0.0), turn), (0.0, 0.7))
+    locked = stabilise.locked([turn], [0.7])[0]
+    assert numpy.asarray(played.camera_from_world(1, lock=True)) == pytest.approx(video.quaternion_matrix(locked).T)
+    assert played.camera_from_world(1, steady=False) == played.camera_from_world(0)
+
+
 def test_the_end_still_arrives_when_the_player_is_slow(clip):
     """The decoder fills its queue and finishes before anything is read; the end must not be dropped."""
     decoder = playback.Decoder(clip, SIZE, FRAMES - playback.AHEAD, gpu=False)

@@ -430,7 +430,7 @@ class _Speaker:
     corrects it to this one (:meth:`VideoView._now`).
     """
 
-    def __init__(self, clip, start: int, muted: bool):
+    def __init__(self, clip, start: int, volume: float):
         from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 
         wanted = QAudioFormat()
@@ -441,7 +441,7 @@ class _Speaker:
         if device.isNull() or not device.isFormatSupported(wanted):
             raise OSError("no audio output for 16-bit stereo at 48 kHz")
         self._sink = QAudioSink(device, wanted)
-        self._sink.setVolume(0.0 if muted else 1.0)
+        self._sink.setVolume(volume)
         self._sound = playback.Sound(clip, start)
         self._from = start / float(clip.rate)
         self._out = None
@@ -485,8 +485,8 @@ class _Speaker:
         if self._out is not None:
             self._sink.resume()
 
-    def mute(self, muted: bool) -> None:
-        self._sink.setVolume(0.0 if muted else 1.0)
+    def set_volume(self, volume: float) -> None:
+        self._sink.setVolume(volume)
 
     def close(self) -> None:
         self._sink.stop()
@@ -498,7 +498,8 @@ class VideoView(SphereView):
 
     position = Signal(int)       # the frame on screen
     ended = Signal(str)          # at the end of the clip; the decoder's error, if it failed
-    muted_changed = Signal(bool)
+    seeking = Signal(int)        # a seek was asked for, to this frame
+    sound_changed = Signal()     # muted or the volume changed
 
     #: How far the picture may drift from the sound before it's put back in step, in seconds.
     DRIFT = 0.05
@@ -508,7 +509,15 @@ class VideoView(SphereView):
         self.video: scenes.VideoScene | None = None
         self._decoder: playback.Decoder | None = None
         self._speaker: _Speaker | None = None
+        settings = _settings()
         self.muted = False
+        self.volume = _number(settings.value("player/volume", 1.0), 1.0)
+        # Direction Lock is on unless turned off: a view that follows the
+        # camera's turns keeps moving, which can be disorienting.
+        self.steady = _flag(settings.value("player/steady", True))
+        self.lock = _flag(settings.value("player/lock", True))
+        self._target = 0                              # the frame the last seek asked for
+        self._pending: int | None = None              # a seek asked for while another was starting
         self._frame: playback.Frame | None = None   # waiting to be uploaded
         self._shown = 0                               # index of the frame on screen
         self.playing = False
@@ -561,20 +570,56 @@ class VideoView(SphereView):
     def mute(self, muted: bool | None = None) -> None:
         """Turn the sound off or on; with no argument, the other way from now."""
         self.muted = not self.muted if muted is None else muted
+        if not self.muted and self.volume == 0:
+            self.volume = 1.0
+        self._apply_volume()
+
+    def set_volume(self, volume: float) -> None:
+        """0 to 1; at 0 the sound is muted, as in the Nextcloud player."""
+        self.volume = max(0.0, min(1.0, volume))
+        self.muted = self.volume == 0
+        _settings().setValue("player/volume", self.volume)
+        self._apply_volume()
+
+    def _apply_volume(self) -> None:
         if self._speaker is not None:
-            self._speaker.mute(self.muted)
-        self.muted_changed.emit(self.muted)
+            self._speaker.set_volume(0.0 if self.muted else self.volume)
+        self.sound_changed.emit()
+
+    def set_steady(self, on: bool) -> None:
+        self.steady = on
+        _settings().setValue("player/steady", on)
+        self.update()
+
+    def set_lock(self, on: bool) -> None:
+        self.lock = on
+        _settings().setValue("player/lock", on)
+        self.update()
+
+    @property
+    def target(self) -> int:
+        """Where playback is heading: the frame a seek asked for until it arrives, then the frame on screen."""
+        if self._pending is not None:
+            return self._pending
+        return self._target if self._waiting else max(self._shown, 0)
 
     def seek(self, frame: int) -> None:
         """Start decoding at ``frame``; it's shown as soon as it arrives, playing or not."""
         if self.video is None:
             return
         frame = max(0, min(self.frames - 1, frame))
+        self.seeking.emit(frame)
+        if self._waiting and self._decoder is not None:
+            # One is starting already: go on from its first frame, so a drag
+            # along the bar doesn't start an ffmpeg for every step.
+            self._pending = frame
+            return
+        self._target = frame
         self._stop_decoding()
         self._decoder = playback.Decoder(self.video.clip, self.video.size, frame)
         if self.video.clip.audio:
             try:
-                self._speaker = _Speaker(self.video.clip, frame, self.muted)
+                self._speaker = _Speaker(self.video.clip, frame, 0.0 if self.muted else self.volume)
             except OSError:
                 self._speaker = None   # no audio output: the picture keeps its own time
         self._shown = frame - 1
@@ -631,6 +676,12 @@ class VideoView(SphereView):
         if latest is not None:
             if self._waiting:
                 self._waiting = False
+                if self._pending is not None:
+                    pending, self._pending = self._pending, None
+                    self._frame = latest
+                    self.update()
+                    self.seek(pending)
+                    return
                 if self.playing and self._speaker is not None:
                     self._speaker.begin()
             self._frame = latest
@@ -677,7 +728,9 @@ class VideoView(SphereView):
         super().paintGL()
 
     def _world(self):
-        return self.video.camera_from_world(max(0, self._shown)) if self.video else super()._world()
+        if self.video is None:
+            return super()._world()
+        return self.video.camera_from_world(max(0, self._shown), self.steady, self.lock)
 
     def keyPressEvent(self, event) -> None:
         shift = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
@@ -685,7 +738,7 @@ class VideoView(SphereView):
         if key == Qt.Key.Key_Space:
             self.toggle()
         elif shift and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-            self.seek(self._shown + round((5 if key == Qt.Key.Key_Right else -5) * self.rate))
+            self.seek(self.target + round((5 if key == Qt.Key.Key_Right else -5) * self.rate))
         elif key == Qt.Key.Key_Home:
             self.seek(0)
         elif key == Qt.Key.Key_M:
@@ -700,6 +753,25 @@ class VideoView(SphereView):
 
 
 # -- Opening views -----------------------------------------------------------------
+
+
+def _settings():
+    """The player's remembered choices, in ``~/.config/golblick/viewer.conf``."""
+    from PySide6.QtCore import QSettings
+
+    return QSettings("golblick", "viewer")
+
+
+def _flag(value) -> bool:
+    # QSettings hands back what it read from the file as text.
+    return value if isinstance(value, bool) else str(value).lower() in ("true", "1")
+
+
+def _number(value, fallback: float) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return fallback
 
 
 def views_path() -> Path:
@@ -873,47 +945,170 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
 
     here.triggered.connect(keep)
     reset.triggered.connect(forget)
-    if isinstance(view, VideoView):
-        play = _button("pause", "Pause", bar)
-
-        def playing_changed(*_) -> None:
-            on = view.playing
-            play.setIcon(_icon("pause" if on else "play"))
-            play.setToolTip("Pause" if on else "Play")
-            play.setAccessibleName(play.toolTip())
-
-        play.clicked.connect(lambda: (view.toggle(), playing_changed()))
-        view.position.connect(playing_changed)
-        view.ended.connect(playing_changed)
-
-        sound = _button("sound_on", "Mute", bar)
-
-        def sound_changed(*_) -> None:
-            sound.setIcon(_icon("sound_off" if view.muted else "sound_on"))
-            sound.setToolTip("Unmute" if view.muted else "Mute")
-            sound.setAccessibleName(sound.toolTip())
-
-        sound.clicked.connect(lambda: view.mute())
-        view.muted_changed.connect(sound_changed)
-        buttons = [play, *buttons, sound]
     for button in [*buttons, full, more]:
         row.addWidget(button)
     bar.adjustSize()
     return bar
 
 
+def _video_controls(view: VideoView) -> QWidget:
+    """Play and pause, the time, a seek bar, steadying, and the sound, along the bottom edge.
+
+    The same controls, icons, labels and order as the Nextcloud app's player
+    (videoControls in nextcloud-app/src/overlay.ts), so the two work alike.
+    """
+    from PySide6.QtWidgets import QProxyStyle, QSlider, QStyle
+
+    class _Jump(QProxyStyle):
+        # A click on a slider's track goes there, as a browser's range input does, not a page along.
+        def styleHint(self, hint, option=None, widget=None, returned=None):
+            if hint == QStyle.StyleHint.SH_Slider_AbsoluteSetButtons:
+                return Qt.MouseButton.LeftButton.value
+            return super().styleHint(hint, option, widget, returned)
+
+    bar = QWidget(view)
+    bar.setObjectName("player")
+    bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    bar.setStyleSheet(
+        "#player { background: rgba(0, 0, 0, 140); border-radius: 22px; }"
+        "QLabel { color: white; }"
+        "QToolButton { color: white; background: transparent; border: 0; border-radius: 18px; }"
+        "QToolButton:hover { background: rgba(255, 255, 255, 30); }"
+        "QToolButton:checked { background: rgba(255, 255, 255, 64); }"
+        "QSlider::groove:horizontal { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 80); }"
+        "QSlider::sub-page:horizontal { border-radius: 2px; background: white; }"
+        "QSlider::handle:horizontal { width: 14px; margin: -5px 0; border-radius: 7px; background: white; }")
+    row = QHBoxLayout(bar)
+    row.setContentsMargins(10, 4, 10, 4)
+    row.setSpacing(8)
+    jump = _Jump()
+    jump.setParent(bar)
+
+    def small(name: str, tip: str) -> QToolButton:
+        button = _button(name, tip, bar)
+        button.setMinimumSize(36, 36)
+        button.setIconSize(QSize(22, 22))
+        return button
+
+    def slider() -> QSlider:
+        made = QSlider(Qt.Orientation.Horizontal, bar)
+        made.setStyle(jump)
+        made.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        made.setCursor(Qt.CursorShape.PointingHandCursor)
+        return made
+
+    play = small("pause", "Pause")
+    time = QLabel(bar)
+    seek = slider()
+    seek.setRange(0, max(0, view.frames - 1))
+    seek.setAccessibleName("Position")
+    mute = small("sound_on", "Mute")
+    volume = slider()
+    volume.setRange(0, 100)
+    volume.setFixedWidth(72)
+    volume.setAccessibleName("Volume")
+
+    def clock(frame: int) -> str:
+        seconds = int(frame / view.rate)
+        return f"{seconds // 60}:{seconds % 60:02d}"
+
+    def playing_changed(*_) -> None:
+        on = view.playing
+        if play.property("on") == on:
+            return
+        play.setProperty("on", on)
+        play.setIcon(_icon("pause" if on else "play"))
+        play.setToolTip("Pause" if on else "Play")
+        play.setAccessibleName(play.toolTip())
+
+    def moved(frame: int) -> None:
+        if not seek.isSliderDown():
+            seek.setValue(frame)
+        time.setText(f"{clock(frame)} / {clock(view.frames)}")
+        playing_changed()
+
+    def sound_changed() -> None:
+        mute.setIcon(_icon("sound_off" if view.muted else "sound_on"))
+        mute.setToolTip("Unmute" if view.muted else "Mute")
+        mute.setAccessibleName(mute.toolTip())
+        if not volume.isSliderDown():
+            volume.blockSignals(True)
+            volume.setValue(0 if view.muted else round(view.volume * 100))
+            volume.blockSignals(False)
+
+    play.clicked.connect(lambda: (view.toggle(), playing_changed()))
+    view.position.connect(moved)
+    view.seeking.connect(moved)
+    view.ended.connect(playing_changed)
+    seek.sliderPressed.connect(lambda: view.seek(seek.value()))
+    seek.sliderMoved.connect(view.seek)
+    mute.clicked.connect(lambda: view.mute())
+    volume.valueChanged.connect(lambda value: view.set_volume(value / 100))
+    view.sound_changed.connect(sound_changed)
+    # The time takes its widest text, so the seek bar doesn't shift as it counts.
+    time.setText(f"{clock(view.frames)} / {clock(view.frames)}")
+    time.setMinimumWidth(time.sizeHint().width() + 8)
+    moved(max(view._shown, 0))
+    sound_changed()
+
+    row.addWidget(play)
+    row.addWidget(time)
+    row.addWidget(seek, 1)
+    if view.video is not None and view.video.turns:
+        steady = small("steady", "")
+        lock = small("lock_direction", "")
+        for button in (steady, lock):
+            button.setCheckable(True)
+
+        def steadying_changed() -> None:
+            steady.setChecked(view.steady)
+            steady.setToolTip("Steadied: click for the camera's own movement" if view.steady
+                              else "Not steadied: click to steady")
+            lock.setChecked(view.lock)
+            lock.setToolTip("Direction locked: click to follow the camera's turns" if view.lock
+                            else "Following the camera's turns: click to lock the direction")
+            # Direction Lock only means something while the video is steadied.
+            lock.setEnabled(view.steady)
+            for button in (steady, lock):
+                button.setAccessibleName(button.toolTip())
+
+        steady.clicked.connect(lambda: (view.set_steady(not view.steady), steadying_changed()))
+        lock.clicked.connect(lambda: (view.set_lock(not view.lock), steadying_changed()))
+        steadying_changed()
+        row.addWidget(steady)
+        row.addWidget(lock)
+    row.addWidget(mute)
+    row.addWidget(volume)
+    return bar
+
+
 class _Follow(QObject):
-    """Keeps the control bar centred along the bottom as the window is resized."""
+    """Keeps the control bars along the bottom as the window is resized.
+
+    The navigation bar is centred; a video's bar takes the bottom edge, and
+    the navigation bar sits above it, as in the Nextcloud app.
+    """
 
     def __init__(self, view: QWidget, bar: QWidget):
         super().__init__(view)
         self._view, self._bar = view, bar
+        self._player: QWidget | None = None
         view.installEventFilter(self)
         self.place()
 
+    def add_player(self, player: QWidget) -> None:
+        self._player = player
+        player.show()
+        self.place()
+
     def place(self) -> None:
-        view, bar = self._view, self._bar
-        bar.move((view.width() - bar.width()) // 2, view.height() - bar.height() - 16)
+        view, bar, player = self._view, self._bar, self._player
+        bottom = 16
+        if player is not None:
+            player.setGeometry(12, view.height() - player.sizeHint().height() - 12, view.width() - 24,
+                               player.sizeHint().height())
+            bottom = player.height() + 24
+        bar.move((view.width() - bar.width()) // 2, view.height() - bar.height() - bottom)
 
     def eventFilter(self, watched, event) -> bool:
         if event.type() == QEvent.Type.Resize:
@@ -948,7 +1143,7 @@ def open_window(path: str | Path) -> SphereView:
             QTimer.singleShot(int(seconds * 1000), lambda: status.text() == text and status.hide())
 
     say("Loading…", None)
-    _Follow(view, _controls(view, path, say))
+    follow = _Follow(view, _controls(view, path, say))
     QShortcut(QKeySequence(QKeySequence.StandardKey.Close), view, view.close)
     QShortcut(QKeySequence("Ctrl+Q"), view, view.close)
 
@@ -959,7 +1154,7 @@ def open_window(path: str | Path) -> SphereView:
     what = "clip" if is_video else "photo"
     loaded.failed.connect(lambda message: say(f"Couldn't show this {what}: {message}", None))
     if is_video:
-        loaded.video.connect(lambda video: (view.show_video(video),
+        loaded.video.connect(lambda video: (view.show_video(video), follow.add_player(_video_controls(view)),
                                             say("Space plays and pauses · Shift+arrows skip 5 s · M mutes · drag to look around")))
         view.ended.connect(lambda error: say(f"Couldn't play this clip: {error}", None) if error else None)
 

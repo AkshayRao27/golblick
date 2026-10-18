@@ -69,8 +69,15 @@ def track(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLO
     then there is nothing to find up from.
     """
     rotations, turns = steady(motion, reference, up_window, follow)
-    if not lock:
-        return rotations
+    return locked(rotations, turns) if lock else rotations
+
+
+def locked(rotations, turns):
+    """The locked view from the following one and each frame's heading turn, both from :func:`steady`.
+
+    Holds for a track that :func:`turned` has turned as well, since turns
+    about the vertical commute.
+    """
     return [_normalise(_multiply(_yaw(turn), q)) for q, turn in zip(rotations, turns, strict=True)]
 
 
