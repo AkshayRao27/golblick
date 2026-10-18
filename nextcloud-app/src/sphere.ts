@@ -10,6 +10,7 @@
  * This module is imported dynamically, so three.js lands in its own chunk and
  * costs nothing on a page where nobody opens a sphere.
  */
+import { Fling, releaseVelocity } from './fling';
 import {
   DataTexture,
   FloatType,
@@ -315,28 +316,66 @@ export class SphereView {
       return 180 / Math.PI / focal;
     };
 
+    const turnBy = (dx: number, dy: number) => {
+      const scale = degreesPerPixel();
+      this.longitude -= dx * scale;
+      this.latitude += dy * scale;
+      this.clampView();
+      invalidate();
+    };
+
+    // Let go while moving and it carries on turning (fling.ts); a press stops it.
+    let samples: Array<[number, number, number]> = [];
+    let coast = 0;
+    const stopCoast = () => {
+      if (coast) cancelAnimationFrame(coast);
+      coast = 0;
+    };
+    const startCoast = () => {
+      const [vx, vy] = releaseVelocity(samples);
+      const fling = new Fling(vx, vy);
+      if (fling.duration <= 0) return;
+      const start = performance.now();
+      let done: [number, number] = [0, 0];
+      const step = () => {
+        const t = (performance.now() - start) / 1000;
+        const [x, y] = fling.offset(t);
+        turnBy(x - done[0], y - done[1]);
+        done = [x, y];
+        coast = fling.done(t) || this.destroyed ? 0 : requestAnimationFrame(step);
+      };
+      coast = requestAnimationFrame(step);
+    };
+    this.disposers.push(stopCoast);
+
     const down = (x: number, y: number) => {
+      stopCoast();
       dragging = true;
       lastX = x;
       lastY = y;
+      samples = [[performance.now() / 1000, x, y]];
       el.style.cursor = 'grabbing';
     };
     const move = (x: number, y: number) => {
       if (!dragging) return;
-      const scale = degreesPerPixel();
-      this.longitude -= (x - lastX) * scale;
-      this.latitude += (y - lastY) * scale;
-      this.clampView();
+      turnBy(x - lastX, y - lastY);
       lastX = x;
       lastY = y;
-      invalidate();
+      samples.push([performance.now() / 1000, x, y]);
+      if (samples.length > 64) samples.splice(0, samples.length - 64);
     };
     const up = (e?: Event) => {
+      // Touch screens send both pointerup and touchend; only the first ends the drag.
+      const wasDragging = dragging;
       dragging = false;
       el.style.cursor = 'grab';
       if (e && 'pointerId' in e) {
         const id = (e as PointerEvent).pointerId;
         if (el.hasPointerCapture?.(id)) el.releasePointerCapture(id);
+      }
+      if (wasDragging && e?.type !== 'pointercancel') {
+        samples.push([performance.now() / 1000, lastX, lastY]);
+        startCoast();
       }
     };
     const zoom = (delta: number) => {

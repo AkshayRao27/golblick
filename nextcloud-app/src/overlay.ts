@@ -108,6 +108,24 @@ function preference(key: string, fallback: boolean): boolean {
   }
 }
 
+/** The last volume chosen, 0 to 1; full where none was. */
+function storedVolume(): number {
+  try {
+    const stored = Number(localStorage.getItem('golblick-volume') ?? '1');
+    return Number.isFinite(stored) ? Math.max(0, Math.min(1, stored)) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function rememberVolume(volume: number) {
+  try {
+    localStorage.setItem('golblick-volume', String(volume));
+  } catch {
+    // Private window or blocked storage: it just won't be remembered.
+  }
+}
+
 function remember(key: string, on: boolean) {
   try {
     localStorage.setItem(key, on ? '1' : '0');
@@ -285,7 +303,7 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
     void loadMotion(fileId, answer.videoEtag).then((motion) => {
       if (closed || !motion || !view) return;
       const steadyOn = preference('golblick-steady', true);
-      const lockOn = preference('golblick-lock', false);
+      const lockOn = preference('golblick-lock', true);
       view.setMotion(motion);
       view.setSteady(steadyOn);
       view.setLocked(lockOn);
@@ -507,7 +525,7 @@ function openingMenu(fileId: number, current: OpeningView, view: SphereView,
   return wrap;
 }
 
-/** Play and pause, a seek bar with the time, and sound on and off, along the bottom. */
+/** Play and pause, a seek bar with the time, and the sound's mute and volume, along the bottom. */
 function videoControls(video: HTMLVideoElement, redraw: () => void): HTMLElement {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:absolute;left:12px;right:12px;bottom:12px;z-index:1;display:flex;align-items:center;gap:10px;'
@@ -537,6 +555,17 @@ function videoControls(video: HTMLVideoElement, redraw: () => void): HTMLElement
   seek.value = '0';
   seek.setAttribute('aria-label', 'Position');
   seek.style.cssText = 'flex:1;min-width:60px;accent-color:#fff;';
+  const volume = document.createElement('input');
+  volume.type = 'range';
+  volume.min = '0';
+  volume.max = '1';
+  volume.step = 'any';
+  volume.setAttribute('aria-label', 'Volume');
+  volume.style.cssText = 'flex:none;width:72px;accent-color:#fff;';
+  video.volume = storedVolume();
+  // Mute and volume stay together at the end, after the steadying toggles.
+  const sound = document.createElement('div');
+  sound.style.cssText = 'flex:none;display:flex;align-items:center;gap:4px;';
 
   const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   const update = () => {
@@ -547,6 +576,7 @@ function videoControls(video: HTMLVideoElement, redraw: () => void): HTMLElement
     mute.innerHTML = svgIcon(video.muted ? mdiVolumeOff : mdiVolumeHigh, 20);
     mute.title = video.muted ? 'Unmute' : 'Mute';
     mute.setAttribute('aria-label', mute.title);
+    if (document.activeElement !== volume) volume.value = String(video.muted ? 0 : video.volume);
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
     seek.max = String(duration);
     if (document.activeElement !== seek) seek.value = String(video.currentTime);
@@ -559,6 +589,12 @@ function videoControls(video: HTMLVideoElement, redraw: () => void): HTMLElement
   });
   mute.addEventListener('click', () => {
     video.muted = !video.muted;
+    if (!video.muted && video.volume === 0) video.volume = 1;
+  });
+  volume.addEventListener('input', () => {
+    video.volume = Number(volume.value);
+    video.muted = video.volume === 0;
+    rememberVolume(video.volume);
   });
   seek.addEventListener('input', () => {
     video.currentTime = Number(seek.value);
@@ -573,6 +609,7 @@ function videoControls(video: HTMLVideoElement, redraw: () => void): HTMLElement
   }
   update();
 
-  bar.append(play, time, seek, mute);
+  sound.append(mute, volume);
+  bar.append(play, time, seek, sound);
   return bar;
 }

@@ -23,12 +23,13 @@ import math
 DECELERATION = math.log(0.78) / math.log(0.9)
 #: Android's ``INFLEXION``.
 INFLEXION = 0.35
-#: Android's default scroll friction.
-FRICTION = 0.015
+#: Scroll friction: 1.5 times Android's default, so a coast is about a quarter
+#: shorter.  Turning a sphere, Android's carried on further than felt right.
+FRICTION = 0.0225
 #: Faster releases are treated as this fast, in pixels a second.
-MAX_SPEED = 4000.0
-#: Below this a release is a stop, not a fling.
-MIN_SPEED = 50.0
+MAX_SPEED = 3000.0
+#: Below this a release is a stop, not a fling, so an unhurried drag ends where it's let go.
+MIN_SPEED = 250.0
 #: How much of the drag's end the release speed is read from, in seconds.
 WINDOW = 0.08
 
