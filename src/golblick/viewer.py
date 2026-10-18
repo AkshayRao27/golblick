@@ -22,7 +22,7 @@ import os
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QImage, QKeySequence, QShortcut
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
@@ -34,6 +34,7 @@ from PySide6.QtOpenGL import (
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QToolButton, QWidget
 
+from . import fling as flings
 from . import scene as scenes
 
 # GLSL that desktop OpenGL 2.1 and OpenGL ES 2/3 both accept, since Wayland
@@ -133,7 +134,11 @@ void main() {
 
 
 class SphereView(QOpenGLWidget):
-    """A photo's lens pair as a sphere: drag or swipe to look, scroll or pinch to zoom."""
+    """A photo's lens pair as a sphere: drag or swipe to look, scroll or pinch to zoom.
+
+    A drag let go while still moving coasts on and slows to a stop
+    (:mod:`golblick.fling`); pressing again stops it.
+    """
 
     MIN_FOV, MAX_FOV = 25.0, 110.0
     changed = Signal()
@@ -147,6 +152,13 @@ class SphereView(QOpenGLWidget):
         self._program: QOpenGLShaderProgram | None = None
         self._last = None
         self._pinch_fov = None
+        self._samples: list[tuple[float, float, float]] = []
+        self._fling: flings.Fling | None = None
+        self._fling_clock = QElapsedTimer()
+        self._fling_done = (0.0, 0.0)
+        self._fling_timer = QTimer(self)
+        self._fling_timer.setInterval(16)
+        self._fling_timer.timeout.connect(self._coast)
         self.setMinimumSize(320, 200)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -289,20 +301,55 @@ class SphereView(QOpenGLWidget):
                 return True
         return super().event(event)
 
+    def _sample(self, event) -> None:
+        position = event.position()
+        self._samples.append((event.timestamp() / 1000.0, position.x(), position.y()))
+        del self._samples[:-32]
+
+    def _drag(self, dx: float, dy: float) -> None:
+        # The scene follows the pointer, at the speed it appears to move.
+        per_pixel = self.fov / max(1, self.height())
+        self.turn(-dx * per_pixel, dy * per_pixel)
+
+    def stop_fling(self) -> None:
+        self._fling_timer.stop()
+        self._fling = None
+
+    def _coast(self) -> None:
+        if self._fling is None:
+            self._fling_timer.stop()
+            return
+        t = self._fling_clock.elapsed() / 1000.0
+        x, y = self._fling.offset(t)
+        self._drag(x - self._fling_done[0], y - self._fling_done[1])
+        self._fling_done = (x, y)
+        if self._fling.done(t):
+            self.stop_fling()
+
     def mousePressEvent(self, event) -> None:
+        self.stop_fling()
         self._last = event.position()
+        self._samples = []
+        self._sample(event)
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def mouseMoveEvent(self, event) -> None:
         if self._last is None or self._pinch_fov is not None:
             return
-        # The scene follows the pointer, at the speed it appears to move.
-        per_pixel = self.fov / max(1, self.height())
         delta = event.position() - self._last
         self._last = event.position()
-        self.turn(-delta.x() * per_pixel, delta.y() * per_pixel)
+        self._sample(event)
+        self._drag(delta.x(), delta.y())
 
     def mouseReleaseEvent(self, event) -> None:
+        if self._last is not None and self._pinch_fov is None:
+            self._sample(event)
+            vx, vy = flings.release_velocity(self._samples)
+            fling = flings.Fling(vx, vy, self.logicalDpiX())
+            if fling.duration > 0:
+                self._fling, self._fling_done = fling, (0.0, 0.0)
+                self._fling_clock.start()
+                self._fling_timer.start()
         self._last = None
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 

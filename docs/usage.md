@@ -164,7 +164,7 @@ The pose fields are deliberately left out. `PoseHeadingDegrees` would state whic
 
 ## Look around in a photo
 
-`open` shows a photo as a sphere in golblick's own viewer window: drag to look around, scroll or `+` and `-` to zoom, double-click or `F` for full screen, `Esc` to leave it. A bar of buttons along the bottom does the same by touch or click, and pinching zooms on a touchscreen. It needs the `desktop` extra.
+`open` shows a photo as a sphere in golblick's own viewer window: drag to look around (let go while moving and it carries on turning), scroll or `+` and `-` to zoom, double-click or `F` for full screen, `Esc` to leave it. A bar of buttons along the bottom does the same by touch or click, and pinching zooms on a touchscreen. It needs the `desktop` extra.
 
 ```sh
 golblick open IMG_20260314_090825_00_008.insp
