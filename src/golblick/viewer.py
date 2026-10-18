@@ -582,8 +582,18 @@ def open_window(path: str | Path) -> SphereView:
     return view
 
 
+#: Qt refuses to decode an image that would take more than this, in MB. Its
+#: default, 256, is just short of a high-resolution X5 or X3 frame (11904 x
+#: 5952 and 11968 x 5984, about 270 MB decoded), which it then reported as
+#: undecodable.
+IMAGE_LIMIT_MB = 1024
+
+
 def run(path: str | Path) -> int:
     """Open the window and run until it is closed."""
+    from PySide6.QtGui import QImageReader
+
+    QImageReader.setAllocationLimit(IMAGE_LIMIT_MB)
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("golblick")
     app.setDesktopFileName("golblick-open")
