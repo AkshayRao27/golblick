@@ -50,14 +50,13 @@ def test_the_preview_provider_carries_the_same_table():
     text = php.read_text()
     for model, profile in lens.PROFILES.items():
         match = re.search(re.escape(f"'{model}' => [")
-                          + r"([\d.]+), \[([^\]]*)\](?:, ([\d.]+))?(?:, ([\d.]+))?\]", text)
+                          + r"([\d.]+), \[([^\]]*)\](?:, ([\d.]+))?\]", text)
         assert match, f"{model} missing from {php.name}"
         assert float(match.group(1)) == profile.field_of_view
         values = tuple(float(v) for v in match.group(2).split(",") if v.strip())
         assert values == profile.radial
-        video = float(match.group(3)) if match.group(3) else None
-        guard = float(match.group(4)) if match.group(4) else None
-        assert (video, guard) == (profile.video_field_of_view, profile.guard_factor)
+        guard = float(match.group(3)) if match.group(3) else None
+        assert guard == profile.guard_factor
 
 
 def test_the_preview_provider_faces_the_same_way():
@@ -70,10 +69,9 @@ def test_the_preview_provider_faces_the_same_way():
     assert tuple(float(v) for v in match.group(1).split(",")) == insta360.PHOTO_FORWARD
 
 
-def test_video_and_lens_guards_change_the_angle_only_where_measured():
+def test_lens_guards_change_the_angle_only_where_measured():
     x5 = lens.PROFILES["Insta360 X5"]
     assert x5.field_of_view_for() == 197.5
-    assert x5.field_of_view_for(video=True) == 195.3
-    assert x5.field_of_view_for(video=True, guards=True) == pytest.approx(195.3 / 1.0225)
+    assert x5.field_of_view_for(guards=True) == pytest.approx(197.5 / 1.0225)
     oner = lens.PROFILES["Insta360 OneR"]
-    assert oner.field_of_view_for(video=True, guards=True) == oner.field_of_view
+    assert oner.field_of_view_for(guards=True) == oner.field_of_view

@@ -53,7 +53,7 @@ final class RemapTables {
 	 */
 	public static function lensSizeFor(Calibration $calibration, int $nativeLensSize, int $width, ?string $model,
 		bool $guards = false): int {
-		[$fieldOfView] = LensProfile::for($model, true, $guards);
+		[$fieldOfView] = LensProfile::for($model, $guards);
 		$scale = $calibration->scaleFor(2 * $nativeLensSize);
 		$radius = $calibration->lenses[0][0] * $scale;
 		$wanted = 1.15 * ($width / 360.0) * ($fieldOfView / 2.0) / $radius * $nativeLensSize;
@@ -238,7 +238,7 @@ final class RemapTables {
 	/** The pair's geometry at $lensSize, each lens in its own frame. */
 	public static function lenses(Calibration $calibration, int $lensSize, ?string $model,
 		bool $guards = false, ?float $fieldOfView = null): array {
-		[$profileDegrees, $radial] = LensProfile::for($model, true, $guards);
+		[$profileDegrees, $radial] = LensProfile::for($model, $guards);
 		$fieldOfView ??= $profileDegrees;
 		$scale = $calibration->scaleFor(2 * $lensSize);
 		$spin = deg2rad($calibration->relativeSpin());

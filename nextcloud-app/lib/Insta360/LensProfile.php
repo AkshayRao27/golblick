@@ -30,10 +30,12 @@ final class LensProfile {
 	public const PHOTO_FORWARD = [0.0, 0.0, -1.0];
 
 	/**
-	 * model => [field of view, radial, field of view in video (or null), lens
-	 * guard divisor (or null)]. See lens.py for what each was measured against.
+	 * model => [field of view, radial, lens guard divisor (or null)]. See
+	 * lens.py for what each was measured against. A video uses the same angle:
+	 * it differs from a still only by the sensor crop, which
+	 * Calibration::forVideo() applies to the geometry.
 	 *
-	 * @var array<string, array{0: float, 1: float[], 2?: ?float, 3?: ?float}>
+	 * @var array<string, array{0: float, 1: float[], 2?: ?float}>
 	 */
 	private const PROFILES = [
 		'Insta360 OneR' => [194.0, [
@@ -51,8 +53,8 @@ final class LensProfile {
 			-0.865, -0.704, -0.536, -0.364, -0.192, -0.024, 0.135, 0.279, 0.403, 0.500,
 			0.562, 0.580, 0.547, 0.452, 0.322, 0.193, 0.063, -0.067, -0.197, -0.326,
 			-0.456,
-		], 185.5],
-		'Insta360 X5' => [197.5, [], 195.3, 1.0225],
+		]],
+		'Insta360 X5' => [197.5, [], 1.0225],
 	];
 
 	/** Whether $model has measured values, rather than the default every other camera gets. */
@@ -61,15 +63,14 @@ final class LensProfile {
 	}
 
 	/**
-	 * @param bool $video a video's lens image, which can fit a different angle than a still's
 	 * @param bool $guards clip-on lens guards fitted, which narrow the field of view
 	 * @return array{float, float[]} field of view in degrees, radial correction in degrees
 	 */
-	public static function for(?string $model, bool $video = false, bool $guards = false): array {
+	public static function for(?string $model, bool $guards = false): array {
 		$profile = self::PROFILES[$model ?? ''] ?? [self::DEFAULT_FIELD_OF_VIEW, []];
-		$degrees = $video && isset($profile[2]) ? $profile[2] : $profile[0];
-		if ($guards && isset($profile[3])) {
-			$degrees /= $profile[3];
+		$degrees = $profile[0];
+		if ($guards && isset($profile[2])) {
+			$degrees /= $profile[2];
 		}
 
 		return [$degrees, $profile[1]];
@@ -77,16 +78,11 @@ final class LensProfile {
 
 	/** Whether lens guards are modelled for $model, i.e. whether detecting them means anything. */
 	public static function hasGuards(?string $model): bool {
-		return isset(self::PROFILES[$model ?? ''][3]);
+		return isset(self::PROFILES[$model ?? ''][2]);
 	}
 
 	/** The divisor a lens guard applies to the field of view, if measured. */
 	public static function guardFactor(?string $model): ?float {
-		return self::PROFILES[$model ?? ''][3] ?? null;
-	}
-
-	/** The field of view in video, if it differs from a still's. */
-	public static function videoFieldOfView(?string $model): ?float {
 		return self::PROFILES[$model ?? ''][2] ?? null;
 	}
 }

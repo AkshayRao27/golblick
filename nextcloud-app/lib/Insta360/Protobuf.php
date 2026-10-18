@@ -23,6 +23,8 @@ final class Protobuf {
 	public const CALIBRATION_EQUIDISTANT = 5;
 	/** In a video, frame 0's timecode on the inertial clock. */
 	public const FIRST_FRAME = 24;
+	/** In a video, the part of each lens's sensor the frame keeps. */
+	public const SENSOR_CROP = 27;
 	public const CALIBRATION_POLY = 53;
 
 	/**
@@ -68,6 +70,42 @@ final class Protobuf {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * The SENSOR_CROP submessage: source width and height, kept width and
+	 * height, x and y, in calibration-reference pixels. A missing x or y reads
+	 * as 0, as the OneR and X3 write it. Null if absent or not that shape.
+	 * Port of metadata.sensor_crop() in the library.
+	 *
+	 * @return array{int, int, int, int, int, int}|null
+	 */
+	public static function sensorCrop(array $fields): ?array {
+		foreach ($fields[self::SENSOR_CROP] ?? [] as $value) {
+			if (!\is_string($value)) {
+				continue;
+			}
+			try {
+				$inner = self::fields($value);
+			} catch (FormatError $e) {
+				continue;
+			}
+			$crop = [];
+			for ($number = 1; $number <= 6; ++$number) {
+				$found = $inner[$number][0] ?? null;
+				if ($found === null && $number >= 5) {
+					$crop[] = 0;
+				} elseif (\is_int($found)) {
+					$crop[] = $found;
+				} else {
+					continue 2;
+				}
+			}
+
+			return $crop;
+		}
+
+		return null;
 	}
 
 	public static function firstText(array $fields, int $number): ?string {

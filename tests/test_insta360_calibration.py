@@ -11,6 +11,7 @@ X5-specific values get recorded as properties of the format.
 
 import pytest
 
+from golblick.errors import FormatError
 from golblick.vendors.insta360 import metadata
 from golblick.vendors.insta360.calibration import CalibrationError, best, parse
 
@@ -179,3 +180,63 @@ def test_the_lens_offset_is_only_read_where_it_is_stored():
 
     with pytest.raises(CalibrationError):
         model.lens_offset  # noqa: B018 -- the access is what raises
+
+
+# What a OneR video records in metadata field 27: each lens's 3040-pixel sensor
+# square, of which the frame keeps the central 2880.  It writes no x or y.
+ONER_VIDEO_CROP = (3040, 3040, 2880, 2880, 0, 0)
+
+
+def _varint(value: int) -> bytes:
+    out = bytearray()
+    while True:
+        byte, value = value & 0x7F, value >> 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
+def _submessage(number: int, values: dict[int, int]) -> bytes:
+    inner = b"".join(_varint(key << 3) + _varint(value) for key, value in values.items())
+    return _varint(number << 3 | 2) + _varint(len(inner)) + inner
+
+
+def test_sensor_crop_reads_missing_offsets_as_zero():
+    """A OneR or X3 leaves x and y out; an X5 writes the zeros.  Both read the same."""
+    oner = metadata.by_number(_submessage(27, {1: 3040, 2: 3040, 3: 2880, 4: 2880}))
+    x5 = metadata.by_number(_submessage(27, {1: 5376, 2: 5376, 3: 5312, 4: 5312, 5: 0, 6: 0}))
+
+    assert metadata.sensor_crop(oner) == ONER_VIDEO_CROP
+    assert metadata.sensor_crop(x5) == (5376, 5376, 5312, 5312, 0, 0)
+    assert metadata.sensor_crop(metadata.by_number(_submessage(27, {1: 3040}))) is None
+    assert metadata.sensor_crop({}) is None
+
+
+def test_a_video_crops_the_still_calibration_and_keeps_its_radius():
+    """Lens 0's centre moves in by the margin, lens 1's by three margins, the radius not at all.
+
+    Scaling the still string to the video frame instead, as golblick used to,
+    puts both centres within half a pixel of these -- which is why it looked
+    right -- and makes the radius 5.3% too small on a OneR.
+    """
+    still = parse(ONER_EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
+    video = still.for_video(ONER_VIDEO_CROP)
+
+    assert video.reference_frame == (5760, 2880)
+    assert video.scale_for(5760) == 1.0
+    (r0, x0, y0, *rest0), (r1, x1, y1, *rest1) = video.lenses
+    assert (r0, x0, y0) == pytest.approx((1478.32, 1515.09 - 80, 1518.95 - 80))
+    assert (r1, x1, y1) == pytest.approx((1481.11, 4563.81 - 240, 1515.97 - 80))
+    assert (rest0, rest1) == (list(still.lenses[0][3:]), list(still.lenses[1][3:]))
+    assert video.lenses[0][0] / (still.lenses[0][0] * still.scale_for(5760)) == pytest.approx(6080 / 5760)
+
+
+@pytest.mark.parametrize("crop", [
+    (3040, 3040, 2880, 2880, 16, 0),     # an offset window: never seen, not understood
+    (3040, 3040, 2880, 2860, 0, 0),      # not square
+    (2976, 2976, 2880, 2880, 0, 0),      # a source that isn't this string's lens
+    (3040, 3040, 3200, 3200, 0, 0),      # keeps more than there is
+])
+def test_a_crop_that_is_not_understood_is_refused(crop):
+    with pytest.raises(FormatError):
+        parse(ONER_EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT).for_video(crop)

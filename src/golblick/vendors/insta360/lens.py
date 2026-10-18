@@ -30,18 +30,17 @@ class LensProfile:
     radial: tuple[float, ...] = ()
     #: Where the numbers came from, for anyone deciding whether to trust them.
     basis: str = ""
-    #: The same lens in a video, where it differs.  The calibration describes
-    #: the still sensor's frame, and a video's lens image is not an exact
-    #: scaled copy of it, so the fitted angle comes out different.
-    video_field_of_view: float | None = None
     #: How much a clip-on lens guard narrows the field of view, as a divisor,
     #: where measured.  None means guards are not modelled for this camera.
     guard_factor: float | None = None
 
-    def field_of_view_for(self, video: bool = False, guards: bool = False) -> float:
-        """The angle to render with, for a still or a video, with or without guards."""
-        degrees = self.video_field_of_view if video and self.video_field_of_view else self.field_of_view
-        return degrees / self.guard_factor if guards and self.guard_factor else degrees
+    def field_of_view_for(self, guards: bool = False) -> float:
+        """The angle to render with, with or without guards.
+
+        The same for a still and a video: a video differs only by the sensor
+        crop, which ``Calibration.for_video`` applies to the geometry.
+        """
+        return self.field_of_view / self.guard_factor if guards and self.guard_factor else self.field_of_view
 
 
 PROFILES: dict[str, LensProfile] = {
@@ -81,17 +80,11 @@ PROFILES: dict[str, LensProfile] = {
             -0.456,
         ),
         basis="field of view fitted by lens agreement; radial measured against "
-        "Insta360 Studio exports, 2 scenes; video field of view checked at the seam",
-        # 🔴 Video is about 6.5 degrees narrower than a still, as the X5's is
-        # 2.2.  At 192 a far pole and a mountain ridge step where they cross
-        # the seam on two clips, at 188 they still do, at 185 and 186 they run
-        # straight, at 187 they start to step.  The seam planner says the same
-        # from the other side: at 192 it "lined up" about 6 degrees of parallax
-        # in every direction in every frame -- the angle error, not a near
-        # subject -- at 186 still about 0.5 on one clip, at 185 and 185.5
-        # nothing on either.  The radial table, fitted on stills at 192, is
-        # kept: dropping it changed nothing visible.
-        video_field_of_view=185.5,
+        "Insta360 Studio exports, 2 scenes",
+        # Video used to carry its own angle, 185.5, fitted where far straight
+        # things crossed the seam: that was a still calibration scaled to the
+        # video frame instead of cropped, and the crop predicts 185.8 under
+        # scaling.  See Calibration.for_video.
     ),
     "Insta360 X5": LensProfile(
         # 🔴 Without lens guards.  Fitted by lens agreement file by file, one
@@ -101,8 +94,10 @@ PROFILES: dict[str, LensProfile] = {
         # fitted on stills shot WITH guards.  Checked against Insta360 Studio exports at
         # the seam: an unguarded clip kinks at 194 and is continuous at 195.3,
         # an unguarded still lands where Studio puts it at 197.5 and not at 194.
+        # Those video angles were fitted with the calibration scaled rather
+        # than cropped (Calibration.for_video); cropped, 195.3 is 197.6 and 191
+        # is 193.3, the stills' values.
         field_of_view=197.5,
-        video_field_of_view=195.3,
         # Studio's "Standard lens guards" setting, against its "off", is a pure
         # radial scale of 2.25%, the same on three clips; the two groups above
         # are 2.1% apart.

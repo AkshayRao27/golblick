@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ...errors import FormatError
 from . import metadata
 
 # field number -> (values per lens, trailing global values, short description)
@@ -144,6 +145,42 @@ class Calibration:
             raise CalibrationError(f"field {self.field}: no lens offsets in this string")
         first, second = (tuple(block[6:9]) for block in self.lenses)
         return tuple(b - a for a, b in zip(first, second, strict=True))
+
+    def for_video(self, crop: tuple[int, int, int, int, int, int]) -> Calibration:
+        """This calibration as it applies to a video's frames, given the sensor crop.
+
+        The string describes the still sensor.  A video keeps only the centre of
+        each lens's sensor -- ``crop`` is metadata.sensor_crop(), in reference
+        pixels -- so each centre moves in by the margin, lens 1 also by lens 0's
+        two, and the radius stays what it was.  Scaling the still calibration to
+        the video frame instead makes the lens 2*kept/source too small: 5.3% on
+        a OneR, 3.2% on an X3, 1.2% on an X5, which is what the measured video
+        fields of view used to absorb.  Fitted against Studio's unstabilised
+        exports: a OneR's video lens radius is 1.0550 of the scaled one on four
+        clips across three firmware generations (this predicts 1.0556), an X3's
+        1.0325-1.035 (1.0333).  docs/formats/insta360-agent-notes.md has the detail.
+
+        Only a centred, square crop of a square lens is measured, so anything
+        else is refused rather than guessed at.
+        """
+        if self.field != metadata.CALIBRATION_EQUIDISTANT:
+            raise FormatError(f"field {self.field}: only the equidistant model is cropped")
+        reference_width, reference_height = self.reference_frame
+        source_w, source_h, kept_w, kept_h, x, y = crop
+        lens_side = reference_width / 2
+        if (source_w, source_h) != (lens_side, lens_side) or reference_height != lens_side:
+            raise FormatError(
+                f"sensor crop from {source_w}x{source_h} does not match a "
+                f"{reference_width}x{reference_height} lens pair")
+        if kept_w != kept_h or not 0 < kept_w <= source_w or (x, y) != (0, 0):
+            raise FormatError(f"sensor crop {crop} is not the centred square crop that is understood")
+        margin = (source_w - kept_w) / 2
+        lenses = tuple(
+            (block[0], block[1] - margin * (1 + 2 * index), block[2] - margin) + tuple(block[3:])
+            for index, block in enumerate(self.lenses)
+        )
+        globals_ = (2 * kept_w, kept_h) + tuple(self.globals[2:])
+        return Calibration(field=self.field, kind=self.kind, lenses=lenses, globals=globals_, raw=self.raw)
 
     def scale_for(self, width: int) -> float:
         """Factor converting stored parameters to an image ``width`` pixels wide."""

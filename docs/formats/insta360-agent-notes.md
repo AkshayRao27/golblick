@@ -132,6 +132,7 @@ Standard protobuf wire format. No schema is published, so this project reads fie
 | 3 | Firmware, e.g. `v1.10.7_build2` |
 | 5 | Calibration, equidistant model |
 | 19 | `{1: width, 2: height}` of the source image |
+| 27 | Video: the sensor crop, `{1: source width, 2: source height, 3: kept width, 4: kept height, 5: x, 6: y}` in the calibration's reference pixels, per lens. See "A video is a crop of the still sensor" |
 | 53 | Calibration, polynomial model |
 | 54 | Calibration, MEI model |
 | 111 | Calibration, extended MEI model |
@@ -249,7 +250,7 @@ The fourth and fifth per-lens values are rotations about the lens's own x and y 
 
 🔴 An earlier version of this document said these two values "score worse than ignoring them, so the convention is wrong", and later work searched 48 axis, sign and order conventions against lens agreement. The search could only apply the same signs to both lenses, and the own-frame reading needs opposite signs about x. It also could not reach the spin error, which was larger.
 
-⚠️ **The rim angle is not in the file.** The equidistant model gives the image circle's radius in pixels but not the angle that rim corresponds to, so it has to be fitted. Recovered by scoring: **194° on the X5 and the OneR, 192° on the X3.** ⚠️ Refitted on 2026-10-01 with the lenses in register, the OneR and X3 values hold; the X5's does not settle. Lens agreement prefers 198°, while the stitch the X5 embeds puts its rim at 194°. It stays at 194° until something decides between them. 🔴 **Corrected 2026-10-10: the X5's 194° was fitted on stills shot with lens guards fitted.** Without guards an X5 photo fits 197.5° and an X5 video 195.3°; guards divide either by 1.0225. See the next section. The OneR and X3 values were not affected: no guards were involved in their measurements, as far as is known.
+⚠️ **The rim angle is not in the file.** The equidistant model gives the image circle's radius in pixels but not the angle that rim corresponds to, so it has to be fitted. Recovered by scoring: **194° on the X5 and the OneR, 192° on the X3.** ⚠️ Refitted on 2026-10-01 with the lenses in register, the OneR and X3 values hold; the X5's does not settle. Lens agreement prefers 198°, while the stitch the X5 embeds puts its rim at 194°. It stays at 194° until something decides between them. 🔴 **Corrected 2026-10-10: the X5's 194° was fitted on stills shot with lens guards fitted.** Without guards an X5 photo fits 197.5° and an X5 video 195.3°; guards divide either by 1.0225. (Corrected 2026-10-18: the video figure was the sensor crop showing through, and is 197.5° too once the crop is applied; see "A video is a crop of the still sensor".) See the next section. The OneR and X3 values were not affected: no guards were involved in their measurements, as far as is known.
 
 ### Lens guards narrow the field of view (X5)
 
@@ -263,6 +264,8 @@ Clip-on lens guards refract the edge of the view, so a lens with a guard fitted 
 | At the seam, against Studio exports | a guarded clip breaks at 194° and is continuous at 189.7°; an unguarded clip kinks at 194° and is continuous at 195.3°; an unguarded still lands where Studio puts it at 197.5° and not at 194° |
 
 So the profile stores the unguarded angles (197.5° photo, 195.3° video) and a guard factor of 1.0225. Photo and video differ because a video's lens image is not an exact scaled copy of the still sensor's frame that the calibration describes; the difference is fitted, not explained.
+
+🔴 **Corrected 2026-10-18: explained, and no longer fitted.** The video angles were measured with the still calibration scaled to the video frame, and a video is a crop of the sensor, not a scaled copy. Applying the crop turns 195.3° into 197.6° and 191.2° into 193.3°, the stills' two groups, so the profile now stores one angle per camera. See "A video is a crop of the still sensor".
 
 ⚠️ **Unverified: that the two groups are guards and not firmware.** In the files measured, the change from guarded to unguarded coincides with a firmware update (v1.9.6 to v1.10.7). Two things favour guards: the groups are the same 2% apart as Studio's guard setting, and one clip from between the two periods fits best with a guard on **one** lens only (disagreement 26.2 against 30.3 with neither and 32.1 with both), which a firmware change, applied to both lenses, cannot produce. That is one clip.
 
@@ -345,6 +348,8 @@ Two limits follow from the geometry, not from the method:
 
 ### Video sees less than the still says (X3, X5)
 
+> 🔴 **Superseded 2026-10-18** by "A video is a crop of the still sensor", below. The angles in this section were real measurements of the wrong thing: a still calibration scaled to the video frame makes every lens too small, and a narrower field of view makes up for it. The OneR row was wrong outright: one clip of a wall right next to the camera, where parallax hides a 10° error. The section is kept as it was, because the method's blind spot is the lesson.
+
 The calibration is quoted against the still sensor's frame, and a video's lens image is not an exact scaled copy of it, so the field of view that makes the lenses meet at the seam differs between photo and video. Measured at the seam on far straight things (a pole, a mountain ridge), which have no parallax and only line up at the right angle:
 
 | Model | Photo | Video | How |
@@ -354,6 +359,34 @@ The calibration is quoted against the still sensor's frame, and a video's lens i
 | OneR | 194 | 194 | one clip: straight at 190 and 194, a gap opens at 186 |
 
 Lens agreement on a ring about the seam can NOT settle this: on every camera, OneR included, it keeps falling as the angle shrinks, because the samples move towards the rims, where both lenses are darker and softer. The X3 case was found by the seam planner instead, which kept finding the same parallax everywhere; at 185 and 185.5 it finds none on either clip.
+
+### A video is a crop of the still sensor
+
+The calibration describes the still sensor. A video keeps the centre of each lens's sensor and drops a margin all round, and metadata field 27 records how much: the source side, the kept side, and an x and y offset, in the calibration's reference pixels. Every video trailer in the library carries it (251 files, the rest have no trailer), always as a centred square crop of a square lens:
+
+| Model | Lens side | Kept | Margin | Files |
+|---|---|---|---|---|
+| OneR | 3040 | 2880 | 80 | 86 masters, 77 proxies |
+| X3 | 5952 | 5760 | 96 | 2 masters, 3 proxies |
+| X5 | 5376 | 5312 | 32 | 44 masters, 39 proxies |
+
+So a video's lens centres move in by the margin (lens 1 also by lens 0's two margins, since it sits in the right half) and the lens radius stays the same number of sensor pixels. Scaling the still calibration to the video frame, as golblick did until 2026-10-18, puts the centres within half a pixel of the same place and makes the radius too small by kept / side: 5.3% on a OneR, 3.2% on an X3, 1.2% on an X5.
+
+Measured against Insta360 Studio's exports with stitching optimisation and stabilisation off: features matched between one raw lens and the same frame of Studio's panorama, a rotation fitted between the two, and a single multiplier on golblick's lens radius fitted alongside it. A multiplier of 1 means the scaled calibration is right; side / kept means the crop is.
+
+| Clip | Firmware | Best multiplier | RMS | Crop predicts |
+|---|---|---|---|---|
+| X3 | 1.0.83 | 1.0325–1.035 | 0.088° | 1.0333 |
+| OneR | 2.0.8 | 1.0550 | 0.048° | 1.0556 |
+| OneR | 1.1.43 | 1.0550 | 0.069° | 1.0556 |
+| OneR | 1.2.66 | 1.0550 | 0.061° | 1.0556 |
+| OneR | 1.1.43 | 1.0550 | 0.047° | 1.0556 |
+
+The X3 is the control: the fit lands on the crop and on the 185.5° fitted independently at the seam (192 / 185.5 = 1.035). With the crop applied, the same fit gives exactly 1.000 on two OneR clips and the X3. The X5 can't be measured this way: it has no radial correction, so a single multiplier can't fit its lens shape (RMS 0.23°). Its seam-fitted 195.3° agrees with the crop to 0.15°.
+
+What it changed: on a OneR video the seam fell about 4.7° short of the true halfway line on each lens, so about 9° of the scene across the seam was never shown. Anything near the camera could vanish into that band. On the X3 the seam planner had been absorbing the same error as parallax (the correction above).
+
+⚠️ Blind spots: the fit compares against Studio's stitch, so it shares any error Studio makes in the one lens measured. And a radius error and a field-of-view error are the same thing to it. Only centred square crops are understood; anything else is refused.
 
 ### What is *not* verified
 

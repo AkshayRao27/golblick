@@ -28,6 +28,7 @@ FIRMWARE = 3
 CALIBRATION_EQUIDISTANT = 5     # exiftool exposes this one as "Parameters"
 DIMENSIONS = 19                 # {1: width, 2: height}
 FIRST_FRAME = 24                # video: frame 0's timecode on the inertial clock
+SENSOR_CROP = 27                # video: the part of each lens's sensor the frame keeps
 CALIBRATION_POLY = 53
 CALIBRATION_MEI = 54
 CALIBRATION_MEI_EXTENDED = 111  # X5 only; see docs/formats/insta360-agent-notes.md
@@ -38,6 +39,7 @@ FIELDS = {
     FIRMWARE: "firmware",
     CALIBRATION_EQUIDISTANT: "calibration_equidistant",
     DIMENSIONS: "dimensions",
+    SENSOR_CROP: "sensor_crop",
     CALIBRATION_POLY: "calibration_poly",
     CALIBRATION_MEI: "calibration_mei",
     CALIBRATION_MEI_EXTENDED: "calibration_mei_extended",
@@ -181,4 +183,32 @@ def dimensions(grouped: dict[int, list[Field]]) -> tuple[int, int] | None:
         if width is not None and height is not None:
             if isinstance(width.value, int) and isinstance(height.value, int):
                 return width.value, height.value
+    return None
+
+
+def sensor_crop(grouped: dict[int, list[Field]]) -> tuple[int, int, int, int, int, int] | None:
+    """The SENSOR_CROP submessage: source width and height, kept width and height, x and y.
+
+    In calibration-reference pixels, per lens.  A missing x or y reads as 0, which
+    is how the OneR and X3 write it; the X5 writes the zeros out.  None if the
+    field is absent or not that shape.
+    """
+    for field in grouped.get(SENSOR_CROP, ()):
+        if not isinstance(field.value, bytes):
+            continue
+        try:
+            inner = by_number(field.value)
+        except ProtobufError:
+            continue
+        values = []
+        for number in range(1, 7):
+            found = inner.get(number, [None])[0]
+            if found is None and number >= 5:
+                values.append(0)
+            elif found is not None and isinstance(found.value, int):
+                values.append(found.value)
+            else:
+                break
+        else:
+            return tuple(values)
     return None

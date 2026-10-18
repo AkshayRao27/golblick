@@ -519,8 +519,8 @@ final class VideoRenderer {
 		if (!LensProfile::hasGuards($model) || $duration <= 0) {
 			return false;
 		}
-		[$bare] = LensProfile::for($model, true);
-		[$guarded] = LensProfile::for($model, true, true);
+		[$bare] = LensProfile::for($model);
+		[$guarded] = LensProfile::for($model, true);
 		$ratios = [];
 		$keyframes = $this->decoder->keyframeTimes($inputs[$lenses[0][0]], $lenses[0][1]);
 		foreach (self::probeTimes([0.2 * $duration, 0.5 * $duration, 0.8 * $duration], $keyframes) as $at) {
@@ -637,6 +637,10 @@ final class VideoRenderer {
 			throw new FormatError('no equidistant calibration');
 		}
 		$calibration = Calibration::parse($text);
+		$crop = Protobuf::sensorCrop($fields);
+		if ($crop !== null) {
+			$calibration = $calibration->forVideo($crop);
+		}
 		$polynomial = Protobuf::firstText($fields, Protobuf::CALIBRATION_POLY);
 		$baseline = $polynomial === null ? null : Calibration::lensOffset($polynomial);
 		$model = Protobuf::firstText($fields, Protobuf::MODEL);

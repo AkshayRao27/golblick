@@ -285,7 +285,7 @@ final class VideoRender extends TimedJob {
 		}
 		$width = $this->settings->videoWidth();
 		$root = $this->store->root();
-		foreach (glob(($root ?? '/nonexistent') . "/*-$width.mp4") ?: [] as $path) {
+		foreach (glob(($root ?? '/nonexistent') . "/*-$width" . VideoStore::VERSION . '.mp4') ?: [] as $path) {
 			$name = basename($path, '.mp4');
 			if (str_ends_with($name, '.part') || !preg_match('/^(\d+)-/', $name, $m)) {
 				continue;

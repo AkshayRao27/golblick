@@ -195,6 +195,20 @@ def lens_frames(clip: Clip, at: float, size: int):
     return numpy.hstack(halves)
 
 
+def video_calibration(calibration, crop):
+    """The calibration for a video's frames, and a line saying how it was made.
+
+    The camera quotes the still sensor; a video keeps the centre of it, which
+    the file records (see ``Calibration.for_video``).  Without that record the
+    still calibration is scaled to the frame, which is what a video with no
+    crop needs and is 1-5% off in radius on every camera measured so far.
+    """
+    if crop is None:
+        return calibration, "sensor crop    none recorded, so the still calibration is scaled to the frame"
+    kept, source = crop[2], crop[0]
+    return calibration.for_video(crop), f"sensor crop    {kept} of {source} per lens, from the file"
+
+
 @dataclass
 class Plan:
     """Everything decided before the first frame: geometry, hand-over and steadying."""
@@ -221,10 +235,13 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
         if not cached:
             cached.append(keyframe_times(clip))
         return cached[0]
-    calibrations = vendor.describe(path)["calibrations"]
+    info = vendor.describe(path)
+    calibrations = info["calibrations"]
     calibration = calibrations.get(5)
     if calibration is None:
         raise UnsupportedFile(f"{path}: no equidistant calibration, so the lens geometry is unknown")
+    calibration, cropped = video_calibration(calibration, info.get("sensor_crop"))
+    notes.append(cropped)
     reader = getattr(vendor, "lens_profile", None)
     profile = reader(path) if reader is not None else None
     radial = profile.radial if profile is not None else ()
@@ -235,8 +252,8 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
         field_of_view = 194.0
         notes.append("field of view  194 degrees (this camera hasn't been measured)")
     else:
-        field_of_view = profile.field_of_view_for(True)
-        guarded = profile.field_of_view_for(True, guards=True) if profile.guard_factor else None
+        field_of_view = profile.field_of_view_for()
+        guarded = profile.field_of_view_for(guards=True) if profile.guard_factor else None
         if guarded is not None and guards == "on":
             field_of_view = guarded
             notes.append(f"lens guards    on (--lens-guards on), {guarded:.1f} degrees")
@@ -254,8 +271,8 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
                 field_of_view = guarded
             else:
                 notes.append("lens guards    none detected")
-        guarded_note = ", less for lens guards" if field_of_view != profile.field_of_view_for(True) else ""
-        notes.append(f"field of view  {field_of_view:.1f} degrees (the camera's measured value for video"
+        guarded_note = ", less for lens guards" if field_of_view != profile.field_of_view_for() else ""
+        notes.append(f"field of view  {field_of_view:.1f} degrees (the camera's measured value"
                      f"{guarded_note})")
 
     native = render.lenses_from_calibration(calibration, 2 * clip.size, radial)

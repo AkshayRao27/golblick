@@ -22,8 +22,9 @@ use OCP\IConfig;
  * object store as primary storage has no such directory). Nextcloud's file
  * cache doesn't know about these files, and nothing here relies on it.
  *
- * Names are <fileid>-<etag>-<width>.mp4, so a changed file gets a new entry,
- * as the panorama cache does. Work in progress sits next to them under the
+ * Names are <fileid>-<etag>-<width><VERSION>.mp4, so a changed file gets a
+ * new entry, as the panorama cache does, and so does every clip when the
+ * stitch itself changes. Work in progress sits next to them under the
  * same name with .part, .log, .status, .pid and a .tables directory.
  *
  * With "save next to the clip" on, a finished copy is moved out of here into
@@ -138,8 +139,16 @@ final class VideoStore {
 	}
 
 	public static function nameFor(int $fileId, string $etag, int $width): string {
-		return "$fileId-$etag-$width";
+		return "$fileId-$etag-$width" . self::VERSION;
 	}
+
+	/**
+	 * Marks copies stitched with the sensor crop applied to the lens geometry
+	 * (0.7, Calibration::forVideo): every earlier copy had the lenses up to
+	 * 5.3% too small, so each clip is stitched again. Until it is, the old copy
+	 * keeps playing (ready()), and the new one replaces it when it's done.
+	 */
+	public const VERSION = '-c';
 
 	public function nameOf(File $file): string {
 		return self::nameFor($file->getId(), $file->getEtag(), $this->settings->videoWidth());
@@ -181,9 +190,12 @@ final class VideoStore {
 		if ($root === null) {
 			return null;
 		}
-		$path = "$root/" . $this->nameOf($file) . '.mp4';
-		if (is_file($path)) {
-			return $path;
+		$name = $this->nameOf($file);
+		// The current copy, or else one from before VERSION while it's remade.
+		foreach ([$name, substr($name, 0, -\strlen(self::VERSION))] as $candidate) {
+			if (is_file("$root/$candidate.mp4")) {
+				return "$root/$candidate.mp4";
+			}
 		}
 		$beside = self::beside($file);
 
@@ -212,7 +224,7 @@ final class VideoStore {
 
 	/** @return array{files: int, bytes: int, current: int} */
 	public function stats(): array {
-		$suffix = '-' . $this->settings->videoWidth();
+		$suffix = '-' . $this->settings->videoWidth() . self::VERSION;
 		$files = $bytes = $current = 0;
 		foreach (array_keys($this->finishedNames()) as $name) {
 			$files++;

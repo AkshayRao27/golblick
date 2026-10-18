@@ -152,7 +152,7 @@ Two lines in that output are worth reading:
 
 Whichever route levels it, a photo's panorama is turned so that its middle is the middle of Insta360 Studio's export of the same photo. That's a fixed direction relative to the camera, not a choice of the interesting part of the scene. Videos aren't turned this way yet.
 
-The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3 photo and 185.5° for an X3 video, 197.5° for an X5 photo and 195.3° for an X5 video, and a radial correction of up to 1.75° on the OneR and X3. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
+The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3 and 197.5° for an X5, and a radial correction of up to 1.75° on the OneR and X3. A video uses the same angle; it only keeps less of the sensor, which the file records. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
 
 Clip-on lens guards narrow that angle by about 2%, and the file does not record whether they were fitted. On an X5, `render` works it out from the picture: it tries both angles and keeps the one at which the two lenses agree clearly better where they overlap, and assumes no guards when neither wins. The output's `lens guards` line says what it decided. `--lens-guards on` or `off` overrides it.
 
@@ -189,13 +189,14 @@ It gives `.insp` files a type of their own, as a kind of JPEG so your other imag
 ```sh
 $ golblick render VID_20260126_115034_00_011.insv
 VID_20260126_115034_00_011.360.mp4
-  lens guards    detected: the lenses agree at 191.0 degrees, not 195.3
-  field of view  191.0 degrees (the camera's measured value for video, less for lens guards)
+  sensor crop    5312 of 5376 per lens, from the file
+  lens guards    detected: the lenses agree at 193.2 degrees, not 197.5
+  field of view  193.2 degrees (the camera's measured value, less for lens guards)
   seam           aimed and routed
   levelling      from gravity at the opening (inertial record)
   steadying      follows the camera's turns, 337 frames from the motion record
   335 frames at 2880x1440, tables made by 8 processes
-  done: 15.3 MiB in 3:31
+  done: 14.8 MiB in 2:41
 ```
 
 The stitch is the one the [Nextcloud app](../nextcloud-app/README.md#videos) makes: the same lens model, one seam chosen for the whole clip, and the two lenses' brightness evened out along it. The steadying is applied in the same pass, so the picture is resampled only once. `--no-steady` gives the plain stitch, levelled at the start only, and `--lock` keeps the direction the clip opens in instead of following the camera's turns. The default size is 2880 × 1440; `-w` changes it.

@@ -207,11 +207,16 @@ def cmd_render(args: argparse.Namespace) -> int:
         )
 
     image, frame, video = _source_frame(vendor, args.file)
+    if video:
+        from .video import video_calibration
+
+        model, cropped = video_calibration(model, info.get("sensor_crop"))
+        frame += "; " + " ".join(cropped.split())
     reader = getattr(vendor, "lens_profile", None)
     profile = reader(args.file) if reader is not None else None
     radial = profile.radial if profile is not None else ()
     lenses = render.lenses_from_calibration(model, image.shape[1], radial)
-    field_of_view, guards = _field_of_view(render, args, profile, image, lenses, video)
+    field_of_view, guards = _field_of_view(render, args, profile, image, lenses)
 
     width = args.width or 4096
     height = width // 2
@@ -271,7 +276,7 @@ def _render_video(args: argparse.Namespace, vendor) -> int:
     return 0
 
 
-def _field_of_view(render, args, profile, image, lenses, video: bool):
+def _field_of_view(render, args, profile, image, lenses):
     """The angle to render with, and a line about lens guards (None if not modelled).
 
     A clip-on guard narrows what the lens sees, and the file does not say
@@ -283,10 +288,10 @@ def _field_of_view(render, args, profile, image, lenses, video: bool):
         return args.field_of_view, None
     if profile is None:
         return 194.0, None
-    bare = profile.field_of_view_for(video)
+    bare = profile.field_of_view_for()
     if not profile.guard_factor:
         return bare, None
-    guarded = profile.field_of_view_for(video, guards=True)
+    guarded = profile.field_of_view_for(guards=True)
     if args.lens_guards == "on":
         return guarded, "on (--lens-guards on)"
     if args.lens_guards == "off":
@@ -441,11 +446,10 @@ def cmd_report(args: argparse.Namespace) -> int:
         add(f"{'lens':<12} not measured for this camera")
     else:
         correction = f", radial correction ({len(profile.radial)} terms)" if profile.radial else ""
-        video = f", {profile.video_field_of_view:g} in video" if profile.video_field_of_view else ""
         guards = (f", divided by {profile.guard_factor:g} with lens guards"
                   if profile.guard_factor else "")
         add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees"
-            f"{video}{guards}{correction}")
+            f"{guards}{correction}")
 
     if is_video:
         _report_video(vendor, path, add, step)
@@ -952,8 +956,8 @@ def build_parser() -> argparse.ArgumentParser:
     pano.add_argument("-f", "--field-of-view", type=float, default=None,
                       help="full angle each lens sees, in degrees. Not carried in the file; "
                            "defaults to the camera's measured value (194 on a OneR, 192 on an "
-                           "X3, 197.5 on an X5 photo and 195.3 on an X5 video, less with lens "
-                           "guards), or 194 for a camera nobody has measured")
+                           "X3, 197.5 on an X5, less with lens guards), or 194 for a camera "
+                           "nobody has measured")
     pano.add_argument("--lens-guards", choices=("auto", "on", "off"), default="auto",
                       help="whether clip-on lens guards were fitted, which narrows the field "
                            "of view (X5 only so far). auto decides from how well the two lenses "

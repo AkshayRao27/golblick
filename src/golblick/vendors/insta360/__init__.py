@@ -97,6 +97,7 @@ def describe(path: str | Path) -> dict:
         "firmware": None,
         "dimensions": None,
         "calibrations": {},
+        "sensor_crop": None,
     }
     if record is None:
         return info
@@ -107,4 +108,5 @@ def describe(path: str | Path) -> dict:
     info["firmware"] = _metadata.first_text(grouped, _metadata.FIRMWARE)
     info["dimensions"] = _metadata.dimensions(grouped)
     info["calibrations"] = _calibration.from_metadata(grouped)
+    info["sensor_crop"] = _metadata.sensor_crop(grouped)
     return info

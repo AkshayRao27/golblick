@@ -88,6 +88,40 @@ final class Calibration {
 		return $width;
 	}
 
+	/**
+	 * This calibration as it applies to a video's frames: the string describes
+	 * the still sensor and a video keeps the centre of it, so each centre moves
+	 * in by the margin, lens 1 also by lens 0's two, and the radius is kept.
+	 * Port of Calibration.for_video() in the library, which has the
+	 * measurement; only a centred square crop is understood.
+	 *
+	 * @param array{int, int, int, int, int, int} $crop Protobuf::sensorCrop()
+	 */
+	public function forVideo(array $crop): self {
+		[$sourceW, $sourceH, $keptW, $keptH, $x, $y] = $crop;
+		$referenceWidth = (int)$this->referenceWidth();
+		$referenceHeight = (int)($this->globals[1] ?? 0);
+		if ($sourceW !== $referenceHeight || $sourceH !== $referenceHeight || $referenceWidth !== 2 * $referenceHeight) {
+			throw new FormatError("sensor crop from {$sourceW}x{$sourceH} does not match a "
+				. "{$referenceWidth}x{$referenceHeight} lens pair");
+		}
+		if ($keptW !== $keptH || $keptW <= 0 || $keptW > $sourceW || $x !== 0 || $y !== 0) {
+			throw new FormatError('sensor crop is not the centred square crop that is understood');
+		}
+		$margin = ($sourceW - $keptW) / 2;
+		$lenses = [];
+		foreach ($this->lenses as $index => $lens) {
+			$lens[1] -= $margin * (1 + 2 * $index);
+			$lens[2] -= $margin;
+			$lenses[] = $lens;
+		}
+		$globals = $this->globals;
+		$globals[0] = (float)(2 * $keptW);
+		$globals[1] = (float)$keptH;
+
+		return new self($lenses, $globals);
+	}
+
 	public function scaleFor(int $width): float {
 		return $width / $this->referenceWidth();
 	}
