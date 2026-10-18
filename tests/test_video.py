@@ -117,3 +117,75 @@ def test_the_copy_is_marked_as_360_and_still_plays(tmp_path, faststart):
                               "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(clip)],
                              capture_output=True, text=True, check=True)
     assert decoded.stdout.strip().strip(",") == "10"
+
+
+def _pattern(direction):
+    """synthetic_pair's scene, by camera-frame direction: what each output pixel ought to show."""
+    x, y, z = direction[..., 0], direction[..., 1], direction[..., 2]
+    lon, lat = numpy.arctan2(x, z), numpy.arcsin(numpy.clip(y, -1, 1))
+    return numpy.stack([(numpy.sin(lon * 2) * 0.5 + 0.5) * 255, (numpy.sin(lat * 3) * 0.5 + 0.5) * 255,
+                        (numpy.cos(lon + lat) * 0.5 + 0.5) * 255], -1)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None, reason="needs ffmpeg")
+def test_a_whole_clip_stitches_to_the_scene_its_lenses_recorded(tmp_path):
+    """The whole video path, file to file: a synthetic X5-style clip (both
+    lenses as streams of one MP4, a trailer with the calibration), through
+    video.stitch, compared with the scene the lenses were painted from -- the
+    pattern's own formula, not anything the renderer computes."""
+    from conftest import build_trailer
+    from PIL import Image
+
+    from golblick.vendors import detect
+    from golblick.vendors.insta360 import METADATA
+
+    image, _ = synthetic_pair(SIZE)
+    for index in range(2):
+        Image.fromarray(image[:, index * SIZE:(index + 1) * SIZE]).save(tmp_path / f"lens{index}.png")
+    clip = tmp_path / "VID_20260101_120000_00_001.insv"
+    subprocess.run(["ffmpeg", "-v", "error", "-y",
+                    "-loop", "1", "-framerate", "10", "-t", "1", "-i", str(tmp_path / "lens0.png"),
+                    "-loop", "1", "-framerate", "10", "-t", "1", "-i", str(tmp_path / "lens1.png"),
+                    "-map", "0:v", "-map", "1:v", "-c:v", "libx264", "-crf", "4", "-pix_fmt", "yuv444p",
+                    "-f", "mp4", str(clip)], check=True)
+
+    def text(number, value):
+        def varint(n):
+            out = b""
+            while True:
+                out += bytes([n & 0x7F | (0x80 if n > 0x7F else 0)])
+                n >>= 7
+                if not n:
+                    return out
+        return varint(number << 3 | 2) + varint(len(value)) + value
+
+    c = (SIZE - 1) / 2
+    calibration = (f"2_{SIZE / 2 - 2}_{c}_{c}_0_0_90_{SIZE / 2 - 2}_{SIZE + c}_{c}_0_0_90"
+                   f"_{2 * SIZE}_{SIZE}_100").encode()
+    with clip.open("ab") as handle:
+        handle.write(build_trailer([(METADATA, text(2, b"Insta360 Test") + text(5, calibration))]))
+
+    vendor = detect(str(clip))
+    output = tmp_path / "stitched.360.mp4"
+    plan = video.stitch(vendor, str(clip), output, width=2 * SIZE, steady=False, say=lambda _line: None)
+
+    probe = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                            "-show_entries", "stream=width,height,nb_read_frames", "-of", "csv=p=0",
+                            str(output)], capture_output=True, text=True, check=True)
+    probe = probe.stdout.strip().strip(",")
+    assert probe == f"{2 * SIZE},{SIZE},10"
+    assert b"<GSpherical:ProjectionType>equirectangular" in output.read_bytes()
+
+    frame = tmp_path / "frame.png"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(output), "-frames:v", "1", str(frame)],
+                   check=True)
+    got = numpy.asarray(Image.open(frame).convert("RGB"), float)
+    height, width = got.shape[:2]
+    # Each output pixel's direction in the camera frame, which is where the pattern is defined.
+    rays = render._rays(width, height) @ numpy.asarray(plan.orientation, float)
+    keep = slice(0, height - 12)   # the frame-number strip along the bottom is the player's, not the scene
+    error = numpy.abs(got - _pattern(rays))[keep]
+    assert error.mean() < 6, error.mean()
+    # And a mirror of the scene doesn't pass: the test can tell.
+    mirrored = numpy.abs(got - _pattern(rays * numpy.array([-1.0, 1.0, 1.0])))[keep]
+    assert mirrored.mean() > 4 * error.mean()
