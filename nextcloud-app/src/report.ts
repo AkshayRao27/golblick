@@ -82,17 +82,14 @@ export async function openReport(fileId: number): Promise<void> {
     const kind = data.video ? 'video' : 'photo';
     if (untested) {
       title.textContent = 'Report an untested camera';
-      note.textContent = `golblick hasn't been tested with the ${data.model} yet. A report helps whether this ${kind} looks `
-        + 'right or not: the button below opens an issue on GitHub with this report filled in, and you add how it looks.';
+      note.textContent = `golblick hasn't been tested with the ${data.model} yet. A report helps whether this ${kind} looks right or not: the button below opens an issue on GitHub with this report filled in, and you add how it looks.`;
       issue.textContent = 'Report the camera on GitHub';
     } else {
       title.textContent = `Report a problem with this ${kind}`;
-      note.textContent = `If this ${kind} looks wrong or won't ${data.video ? 'play' : 'open'}, the button below opens `
-        + 'an issue on GitHub with this report filled in, and you add what\'s wrong.';
+      note.textContent = `If this ${kind} looks wrong or won't ${data.video ? 'play' : 'open'}, the button below opens an issue on GitHub with this report filled in, and you add what's wrong.`;
       issue.textContent = 'Report the problem on GitHub';
     }
-    note.textContent += ` You need a GitHub account. If you can send ${data.video ? 'the original clip' : 'a few original photos'}, `
-      + 'say so in the issue and you\'ll get a private upload link; don\'t attach anything to the issue, which is public.';
+    note.textContent += ` You need a GitHub account. If you can send ${data.video ? 'the original clip' : 'a few original photos'}, say so in the issue and you'll get a private upload link; don't attach anything to the issue, which is public.`;
     // Fenced, so it stays a block when pasted into a GitHub issue by hand.
     report = '```\n' + data.report + '\n```';
     copy.disabled = issue.disabled = false;

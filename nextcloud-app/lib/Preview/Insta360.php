@@ -27,27 +27,12 @@ use Psr\Log\LoggerInterface;
 /**
  * Timeline thumbnails for Insta360 .insp stills.
  *
- * WHY THIS CLAIMS image/jpeg
- * --------------------------
- * A .insp *is* a JPEG: everything in front of the proprietary trailer is a
- * complete one, and PHP's own finfo identifies it as image/jpeg. Nextcloud
- * stores application/octet-stream only because its extension map has never
- * heard of .insp, so this app ships a mapping that makes the extension agree
- * with content detection rather than inventing a new type.
- *
- * That choice is what lets the files reach a photo timeline at all: Nextcloud
- * Memories selects what to index from a hardcoded list of image mimetypes, so
- * a bespoke image/x-something would be indexed by nothing, however good its
- * previews were.
- *
- * The cost is that this provider has to share image/jpeg with the core one.
- * Nextcloud orders providers by the *length* of their mimetype regex,
- * descending, so a longer pattern than core's '/image\/jpeg/' is tried first;
- * declining by returning null then hands ordinary JPEGs straight back to core.
- * ⚠️ That ordering is an implementation detail rather than published API. If
- * it ever changes the failure is graceful -- core renders the frame it finds,
- * which is the unprojected lens pair -- so this trades a wrong-looking
- * thumbnail for a hard dependency, deliberately.
+ * A .insp is a JPEG with a trailer, so it is mapped to image/jpeg (Memories
+ * indexes only the image types on its own list), and this provider shares
+ * that type with core's: it is tried first and returns null for anything
+ * without the trailer. That ordering is not published API; if it changes,
+ * core shows the unprojected lens pair. AGENT-NOTES.md, "Sharing image/jpeg
+ * with Nextcloud's own provider" and "Why image/jpeg".
  */
 final class Insta360 implements IProviderV2 {
 	/**
@@ -59,18 +44,11 @@ final class Insta360 implements IProviderV2 {
 	}
 
 	/**
-	 * ⚠️ Narrowed by extension, decided by content.
-	 *
-	 * The project's standing rule is to detect by content, and getThumbnail
-	 * does exactly that -- it checks for the trailer magic and declines if it
-	 * is absent. But isAvailable() runs for *every JPEG in the library* while
-	 * previews are generated, and opening each one to seek to its end would
-	 * cost a great deal to find the handful that are ours. So the cheap filter
-	 * comes first. This is the same deliberate exception the triage module
-	 * makes, for the same reason.
-	 *
-	 * What it costs: a .insp renamed to .jpg gets a core thumbnail of the lens
-	 * pair instead of a panorama. It is not mistaken for something else.
+	 * Narrowed by extension, decided by content (getThumbnail checks the
+	 * trailer). This runs for every JPEG in the library, and opening each one
+	 * to seek to its end would cost far too much: the same deliberate
+	 * exception triage makes. A .insp renamed to .jpg gets core's thumbnail of
+	 * the lens pair.
 	 */
 	public function isAvailable(FileInfo $file): bool {
 		return strcasecmp($file->getExtension(), 'insp') === 0;
@@ -108,8 +86,8 @@ final class Insta360 implements IProviderV2 {
 
 			return $image->valid() ? $image : null;
 		} catch (FormatError $e) {
-			// Refusing is a normal outcome, not a failure: six files in one
-			// library of 1,415 carry no trailer at all.
+			// Refusing is a normal outcome, not a failure: some .insp carry no
+			// trailer at all.
 			\OC::$server->get(LoggerInterface::class)->debug(
 				'golblick: declined ' . $file->getPath() . ': ' . $e->getMessage(),
 				['app' => 'golblick']
@@ -129,19 +107,10 @@ final class Insta360 implements IProviderV2 {
 	/**
 	 * An equirectangular frame is 2:1, so the requested box constrains both.
 	 *
-	 * 🔴 This used to cap at 1024 on the grounds that a timeline tile is small
-	 * and the cost is per output pixel. That was right about tiles and wrong
-	 * about everything else: Nextcloud serves the same preview to the full-size
-	 * viewer, and the panorama viewer wraps it around a whole sphere. At 1024
-	 * for 360 degrees that is 2.8 pixels per degree -- a five-fold upscale at
-	 * the default field of view and eleven-fold zoomed in. It is the same
-	 * mistake as cutting the lens seam because it was invisible at thumbnail
-	 * size.
-	 *
-	 * The ceiling now matches Nextcloud's own preview_max_x default, and the
-	 * cost stays proportional because Nextcloud asks for the size it wants: a
-	 * tile still requests a tile. {@see sourceFor} decides what can actually
-	 * supply it.
+	 * Don't cap this at tile size: Nextcloud serves the same preview to the
+	 * full-size viewer and the sphere, where 1024 for 360 degrees is a
+	 * five-fold upscale. The ceiling is Nextcloud's own preview_max_x default;
+	 * a tile still asks for a tile. {@see sourceFor} decides what can supply it.
 	 */
 	private const MAX_WIDTH = 4096;
 
@@ -159,12 +128,9 @@ final class Insta360 implements IProviderV2 {
 		$preview = $payload === null ? null : EmbeddedPreview::parse($payload);
 
 		// An X5 already stitched and levelled this on the device; there is
-		// nothing to project, only a colour conversion.
-		//
-		// ⚠️ Deliberately NOT upgraded to the full frame when more width is
-		// asked for. The camera's own stitch blends the seam and knows how the
-		// body was held; projecting the 11904-wide lens pair ourselves would
-		// buy pixels and lose both. Its 2560 is the honest ceiling for an X5.
+		// nothing to project, only a colour conversion. Not upgraded to the
+		// full frame when more width is asked for: projecting the lens pair
+		// ourselves would buy pixels and lose the camera's seam and levelling.
 		if ($preview !== null && $preview->isStitched) {
 			return Equirectangular::fromNv12($preview, min($width, $preview->width));
 		}
@@ -201,16 +167,14 @@ final class Insta360 implements IProviderV2 {
 	 *
 	 * A fisheye circle of diameter d spans 180 degrees, so a pair -- two
 	 * circles side by side, 2d across -- samples the scene as finely as an
-	 * equirectangular frame 2d wide. The useful output width of a source is
-	 * therefore just its own width, which is what makes this one comparison
-	 * rather than a lens calculation. Measured: the embedded preview is
-	 * 1920x960 on a OneR and an X3, and the frame behind it is 6080 and 11968.
+	 * equirectangular frame 2d wide, so the useful output width of a source is
+	 * its own width. The embedded preview is 1920x960 on a OneR and an X3, the
+	 * frame behind it 6080 and 11968 wide.
 	 *
-	 * ⚠️ The full frame is 18 to 72 megapixels and GD decodes to four bytes a
-	 * pixel regardless of the output size, so this is the expensive path. It is
-	 * taken only when the extra width was actually asked for, and it steps back
-	 * to the preview rather than failing when it will not fit -- a panorama
-	 * narrower than requested beats no panorama at all.
+	 * The full frame is 18 to 72 megapixels and GD decodes to four bytes a
+	 * pixel whatever the output size (AGENT-NOTES.md, "Memory"), so it is
+	 * taken only when the extra width was asked for, and this steps back to
+	 * the preview when it won't fit: a narrower panorama beats none.
 	 *
 	 * @param resource $handle
 	 * @return array{string, int} the encoded frame, and the width it can supply
@@ -222,9 +186,9 @@ final class Insta360 implements IProviderV2 {
 		}
 
 		try {
-			// 25 of the 1,415 stills in one library carry no preview record at
-			// all, so this is also the only route for those -- which is why a
-			// failure here is fatal when there is nothing to fall back to.
+			// Some stills carry no preview record at all, so this is also the
+			// only route for those, and a failure is fatal when there is
+			// nothing to fall back to.
 			$frame = $trailer->sourceFrame($handle);
 			Equirectangular::refuseIfTooBigToDecode($frame);
 			$size = @getimagesizefromstring($frame);
@@ -242,15 +206,9 @@ final class Insta360 implements IProviderV2 {
 	/**
 	 * How wide a source frame is, in pixels.
 	 *
-	 * 🔴 {@see EmbeddedPreview::parse} leaves width and height at ZERO for a
-	 * JPEG lens pair -- deliberately, because the record does not carry them
-	 * and it will not invent what it has not read. Only the NV12 form declares
-	 * its geometry in a header. Comparing against the raw property therefore
-	 * silently answers "0" for every OneR and X3, which is every file that has
-	 * a choice of source to make.
-	 *
-	 * getimagesizefromstring reads the JPEG header only, so this costs nothing
-	 * next to a decode.
+	 * Don't read $preview->width directly: {@see EmbeddedPreview::parse}
+	 * leaves it 0 for a JPEG lens pair (only the NV12 form has a header), which
+	 * is every OneR and X3. getimagesizefromstring reads the JPEG header only.
 	 */
 	private static function widthOf(EmbeddedPreview $preview): int {
 		if ($preview->width > 0) {
@@ -265,24 +223,12 @@ final class Insta360 implements IProviderV2 {
 	/**
 	 * Which way is up, by the best route this file supports.
 	 *
-	 * ⚠️ The two routes are not equivalent and the better one is not always
-	 * available. Gravity knows how the camera was actually held, so it fixes
-	 * PITCH as well as roll; the calibration knows only the sensor's mounting
-	 * angle, which is a constant of the camera body, so a shot taken tilted
-	 * forward stays tilted.
-	 *
-	 * Measured against Insta360 Studio's own levelled exports, over 358 OneR
-	 * stills: gravity lands the horizon within 1.2 degrees (p90 3.8), where
-	 * the calibration route alone leaves a median of 9.7 and a p90 of 46.9.
-	 *
-	 * ✅ Superseded: this used to say gravity reaches only a minority of files
-	 * and that falling back is the normal case, because 965 of 1,415 stills
-	 * carry no inertial record and the X3's axis mapping was refused. Both
-	 * changed. A still without a record borrows the identical one from another
-	 * frame of the same shutter press ({@see burstImu}), which Studio's exports
-	 * confirm to 1.09 degrees median where the fallback scores 10.43, and the
-	 * X3's mapping has been measured. The fallback is now for a file whose
-	 * whole burst carries no record, or a camera nobody has measured.
+	 * Gravity knows how the camera was held, so it fixes pitch as well as
+	 * roll; the calibration knows only the sensor's mounting angle, so a shot
+	 * taken tilted stays tilted. The calibration route is the fallback for a
+	 * file whose whole burst carries no inertial record, or a camera whose
+	 * axes nobody has measured. AGENT-NOTES.md, "Levelling routes"; the
+	 * measurements are in the format notes, "Levelling".
 	 */
 	private function orientationFor(File $file, Trailer $trailer, array $fields, Calibration $calibration): array {
 		return $this->levelling($file, $trailer, $fields, $calibration)[0];
@@ -368,23 +314,15 @@ final class Insta360 implements IProviderV2 {
 	}
 
 	/**
-	 * The inertial record of another frame from the same shutter press.
+	 * The inertial record of another frame from the same shutter press: a port
+	 * of imu.gravity_up_nearby in the library (docs/formats/insta360-agent-notes.md,
+	 * "Borrowing the record from the same shutter press"). The
+	 * camera takes one reading per press and writes it to some frames and not
+	 * others, so this borrows identical bytes rather than inventing an attitude.
 	 *
-	 * 🔴 Most stills carry none of their own -- 965 of 1,438 in one library --
-	 * and every one of them sits in a burst or HDR bracket where another frame
-	 * does. The record is not merely similar across those frames, it is
-	 * IDENTICAL: on the 13 capture instants carrying three records apiece, the
-	 * gravity vectors agree to 0.00 degrees over 36 frames. The camera takes one
-	 * reading per shutter press and writes it to some frames and not others, so
-	 * this borrows bytes rather than inventing an attitude.
-	 *
-	 * Measured against Insta360 Studio's own levelled exports, on 291 frames
-	 * that carry no record: 1.09 degrees median, p90 1.94, 98% within 5 --
-	 * against 10.43 and 52.99 for the mounting-angle fallback this replaces.
-	 *
-	 * ⚠️ A burst shares the timestamp and differs in sequence number, and that
-	 * only identifies a group WITHIN a directory, so the search never leaves
-	 * the file's own folder.
+	 * A burst shares the timestamp and differs in sequence number, which only
+	 * identifies a group within one directory, so the search never leaves the
+	 * file's own folder.
 	 */
 	private function burstImu(File $file): ?string {
 		if (!preg_match('/^(IMG_\d{8}_\d{6})_\d{2}_\d+\.insp$/i', $file->getName(), $m)) {

@@ -29,18 +29,11 @@ final class Seam {
 	public const ROWS = 48;
 
 	/**
-	 * Width of the probe render the seam is chosen from.
-	 *
-	 * 🔴 It has to be this big. Measured across nine frames, a grid built at
-	 * 2048 wide improves every one of them and never by less than 7 per cent;
-	 * at 1024 one frame loses 25 per cent and at 512 two lose up to 30. The
+	 * Width of the probe render the seam is chosen from. Don't lower it: the
 	 * cost landscape holds many near-equal paths, so a thin grid picks one by
-	 * noise, and a badly placed seam is worse than not moving it at all.
-	 *
-	 * ⚠️ An earlier 384 saw about half a sample per bin against a 512 x 64 grid,
-	 * left it mostly empty, and made the port DECLINE on a frame the library
-	 * routed. The band is only about 11 per cent of the sphere, so the useful
-	 * sample count is a ninth of the probe's pixels.
+	 * noise, and a badly placed seam is worse than not moving it. The band is
+	 * only about 11 per cent of the sphere. docs/formats/insta360-agent-notes.md,
+	 * "Routing the seam", has the measurement.
 	 */
 	private const PROBE_WIDTH = 2048;
 
@@ -87,11 +80,10 @@ final class Seam {
 			return null;
 		}
 
-		// 🔴 The test needs a margin AND a floor. Asking only whether the route
-		// is cheaper than the straight line can never decline: the search
-		// minimises over connected paths and the bisector is one of them, so
-		// its optimum is always at least as good. Without both, a featureless
-		// scene gets a seam that wanders after noise, for nothing.
+		// The test needs a margin and a floor. "Cheaper than the straight
+		// line" alone can never decline: the bisector is one of the paths the
+		// search minimises over. Without both, a featureless scene gets a seam
+		// that wanders after noise.
 		$middle = intdiv(self::ROWS - 1, 2);
 		$routed = self::meanAlong($wide, $path);
 		$straight = self::meanAlong($wide, array_fill(0, self::COLUMNS, $middle));
@@ -186,9 +178,8 @@ final class Seam {
 					if ($sx < 0 || $sy < 0 || $sx >= $sampleWidth || $sy >= $sampleHeight) {
 						continue 2;
 					}
-					// Bilinear, to match the library. Nearest-neighbour here
-					// still routes but picks a measurably worse seam: 20 per
-					// cent median gain against 26.
+					// Bilinear, to match the library; nearest-neighbour picks
+					// a worse seam (20 per cent median gain against 26).
 					$tx = $fx - $sx;
 					$ty = $fy - $sy;
 					$sx1 = $sx + 1 < $sampleWidth ? $sx + 1 : $sx;
@@ -232,12 +223,9 @@ final class Seam {
 	}
 
 	/**
-	 * Cost each candidate over the width the CROSS-FADE averages, not one row.
-	 *
-	 * 🔴 Without this the search minimises a slice far thinner than the blend,
-	 * so the path dodges a near subject and the blend drags it straight back
-	 * in. That alone was the difference between routing measuring as worthless
-	 * and worthwhile.
+	 * Cost each candidate over the width the cross-fade averages, not one row.
+	 * Otherwise the search minimises a slice far thinner than the blend, so
+	 * the path dodges a near subject and the blend drags it straight back in.
 	 *
 	 * @param array<int, array<int, float>> $grid
 	 * @return array<int, array<int, float>>
@@ -272,11 +260,11 @@ final class Seam {
 	/**
 	 * Minimum-cost closed path, one row per column, steps of at most one row.
 	 *
-	 * ⚠️ Cyclic because the azimuth wraps, connected because a seam that jumps
+	 * Cyclic because the azimuth wraps, connected because a seam that jumps
 	 * is a tear. Two passes -- free start, then pinned to where that landed --
-	 * rather than solving every start: measured against the exact answer the
-	 * difference is 0.0% median and 3.9% worst, and the exact form needs a
-	 * back-pointer table per start that does not fit here.
+	 * rather than solving every start, which needs a back-pointer table per
+	 * start that does not fit here; docs/formats/insta360-agent-notes.md,
+	 * "Routing the seam", has the difference measured.
 	 *
 	 * @param array<int, array<int, float>> $grid
 	 * @return int[]|null
@@ -351,7 +339,6 @@ final class Seam {
 		return $unwind($back, $end);
 	}
 
-	/** The offset to use at one azimuth, interpolated between grid columns. */
 	/**
 	 * Where a lens actually recorded a direction theta off its axis, given its
 	 * measured correction in radians; see LensProfile. Matches the inline
@@ -370,6 +357,7 @@ final class Seam {
 		return $theta + ($i >= $last ? $radial[$last] : $radial[$i] + ($radial[$i + 1] - $radial[$i]) * ($k - $i));
 	}
 
+	/** The offset to use at one azimuth, interpolated between grid columns. */
 	public static function offsetAt(array $delta, float $azimuth): float {
 		$position = (($azimuth + M_PI) / (2 * M_PI) * self::COLUMNS);
 		$low = ((int)floor($position)) % self::COLUMNS;

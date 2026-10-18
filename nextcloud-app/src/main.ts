@@ -12,7 +12,7 @@
  * | Viewer (Files, Photos) | a button added to the open viewer's header    |
  * | Memories           | a button added to its viewer's top bar            |
  *
- * ⚠️ The last two are provisional. Neither the Viewer nor Memories offers a way
+ * The last two are provisional. Neither the Viewer nor Memories offers a way
  * for another app to add a button, so these find their place in the page by
  * class name and work out which file is open from what is on screen. If those
  * apps change their markup the button stops appearing; nothing else breaks.
@@ -222,8 +222,8 @@ function memoriesOpensOwnSphere(fileId: number | null): boolean {
 
 function memoriesPano(fileId: number | null): number {
   const photo = (globalThis as { _m?: MemoriesGlobal })._m?.viewer?.currentPhoto;
-  // Its sphere is for photos only: it skips a video even when it has marked
-  // it as a panorama, so a video keeps this button.
+  // Memories' own sphere skips videos even when it marks them `pano`, so a
+  // video keeps this button (AGENT-NOTES.md, "Video spheres").
   if (((photo?.flag ?? 0) & MEMORIES_IS_VIDEO) !== 0) return 0;
   return fileId !== null && photo?.fileid === fileId ? photo.pano ?? 0 : 0;
 }

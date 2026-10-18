@@ -17,10 +17,9 @@ use OCP\IConfig;
  *
  * The plan is still made here (field of view, seam plan, levelling, the
  * tables); the worker does the per-frame work, which is nearly all of it:
- * decoding, stitching, steadying, evening the lenses out, encoding. On a
- * production server with four cores the CPU stitch ran its ffmpeg at 81% of
- * all of them, for hours, and slowed everything else down; the GPU stitch
- * needs about 2 CPU-seconds per second of video and under 1 GB.
+ * decoding, stitching, steadying, evening the lenses out, encoding. The CPU
+ * stitch can hold a small server's cores for hours; AGENT-NOTES.md,
+ * "Video spheres" (Stitching on the GPU worker), has the measurements.
  *
  * A job is a folder `<name>.stitch/` in the video folder: the packed tables
  * (GpuTables), the clip's paths as the worker sees them, `job`, and `ready`
@@ -61,8 +60,8 @@ final class StitchQueue {
 	public function start(string $name, string $tables, array $inputs, int $lensSize, int $width, int $bitrate,
 		array $probe, ?array $track): void {
 		// Written beside and renamed into place, so the worker never sees a
-		// job half written, or rewritten under it: a table that changed while
-		// the worker read it put a band across every frame of a copy.
+		// job half written, or rewritten under it: a table that changes while
+		// the worker reads it puts a band across every frame of the copy.
 		$final = $this->store->root() . "/$name.stitch";
 		$dir = "$final.part";
 		VideoStore::removeDirectory($dir);

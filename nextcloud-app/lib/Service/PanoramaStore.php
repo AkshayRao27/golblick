@@ -21,12 +21,11 @@ use OCP\Files\SimpleFS\ISimpleFolder;
  * Memories zoom image and the sphere viewer's texture. They share this cache,
  * so whichever runs first pays for the render.
  *
- * ⚠️ The render costs about 2.2 microseconds per output pixel on a OneR,
- * whatever the source: measured 5.7 s at 1920 wide, 11 s at 3072 and 19 s at
- * 4096. It is paid once per photo and then cached under the file's etag, so a
- * changed file gets a new entry and the stale one is dropped when it is
- * replaced. 4096 is the most the preview provider renders, and an X5 stops at
- * 2560, its own stitch.
+ * A render costs seconds (AGENT-NOTES.md, "Memories zoom", has the figures),
+ * so it is paid once per photo and cached under the file's etag: a changed
+ * file gets a new entry and the stale one is dropped when it is replaced.
+ * 4096 is the most the preview provider renders, and an X5 stops at 2560,
+ * its own stitch.
  */
 final class PanoramaStore {
 	public function __construct(

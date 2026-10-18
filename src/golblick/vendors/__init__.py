@@ -33,7 +33,7 @@ organised per vendor behind a small contract.  A vendor module provides:
     to read the *directory*: where a still carries no inertial record, another
     frame of the same burst usually does, and on Insta360 hardware that record
     is byte-identical across the burst rather than merely similar.
-    ⚠️ It is a separate entry point on purpose.  Everything else here is handed
+    It is a separate entry point on purpose.  Everything else here is handed
     a path and reports what is inside it; this is the one that looks outside,
     so a caller that must not touch the filesystem can still use ``gravity_up``.
 ``motion(path) -> Motion``

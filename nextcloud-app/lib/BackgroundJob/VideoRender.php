@@ -71,9 +71,8 @@ final class VideoRender extends TimedJob {
 		private LoggerInterface $logger,
 	) {
 		parent::__construct($time);
-		// Shorter than any cron's period, so every pass looks in: at five
-		// minutes, a five-minute cron skipped every other pass and a bake the
-		// GPU finished in seconds waited twelve minutes to be collected.
+		// Shorter than any cron's period, so every pass looks in: at the same
+		// period as cron, passes get skipped and a finished bake waits.
 		$this->setInterval(60);
 		$this->setTimeSensitivity(self::TIME_INSENSITIVE);
 	}

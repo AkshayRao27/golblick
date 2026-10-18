@@ -283,8 +283,7 @@ function render(status: Status) {
     const width = Number(videoWidth.value);
     // Every clip is stitched again at the new size, which on a big library
     // runs for days on the CPU; say so before doing it.
-    if (v.clips > 0 && !window.confirm(`Stitch all ${v.clips} videos again at ${width} wide? `
-      + `That's ${gigabytes(v.bytes)} of camera files, roughly ${span(v.bytes / CAMERA_BYTES_PER_SECOND)} of video. `
+    if (v.clips > 0 && !window.confirm(`Stitch all ${v.clips} videos again at ${width} wide? That's ${gigabytes(v.bytes)} of camera files, roughly ${span(v.bytes / CAMERA_BYTES_PER_SECOND)} of video. `
       + (v.worker?.alive && v.worker.stitch
         ? 'On the GPU worker that takes about as long again, or up to twice as long. '
         : 'On the server\'s CPU that takes several times as long, and slows the server while it runs. ')
@@ -327,8 +326,7 @@ function render(status: Status) {
   const besideClearNote = feedback('video_clear_beside');
   const besideClear = el('button', { type: 'button', textContent: 'Delete copies saved next to clips', disabled: v.beside === 0 });
   besideClear.addEventListener('click', async () => {
-    if (!window.confirm(`Delete the .360.mp4 copies saved next to their clips (${v.beside})? They go to the trash bin, so the space comes back once that is emptied. `
-      + 'With stitching and saving on, they are made again.')) return;
+    if (!window.confirm(`Delete the .360.mp4 copies saved next to their clips (${v.beside})? They go to the trash bin, so the space comes back once that is emptied. With stitching and saving on, they are made again.`)) return;
     besideClear.disabled = true;
     try {
       const r = await api<{ removed: number; bytes: number }>('POST', '/settings/videos/clear-beside');
@@ -341,8 +339,7 @@ function render(status: Status) {
   });
   const videoProgress = `${v.cache.current} of ${v.clips} registered videos are stitched at this size, ${megabytes(v.cache.bytes)} in all.`
     + (v.rendering ? renderingLine(v.rendering) : '')
-    + (v.queue.clips > 0 ? ` ${v.queue.clips}${v.rendering ? ' more' : ''} ${v.queue.clips === 1 ? 'is' : 'are'} waiting, `
-      + `${gigabytes(v.queue.bytes)} of camera files`
+    + (v.queue.clips > 0 ? ` ${v.queue.clips}${v.rendering ? ' more' : ''} ${v.queue.clips === 1 ? 'is' : 'are'} waiting, ${gigabytes(v.queue.bytes)} of camera files`
       + (!v.hours.open && s.video_hours ? `, until the stitching hours begin at ${String(s.video_hours[0]).padStart(2, '0')}:00.` : '.') : '')
     + (v.failed > 0 ? ` ${v.failed} couldn't be stitched; the server log says why.` : '');
 

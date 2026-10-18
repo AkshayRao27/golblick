@@ -5,8 +5,8 @@ lives in a different protobuf field and is deliberately not reproduced here.
 
 Two cameras appear, on purpose: an X5, which carries all four models, and a
 OneR, which carries only the equidistant one and quotes it against a completely
-different reference frame.  Testing against one camera is what let a handful of
-X5-specific values get recorded as properties of the format.
+different reference frame, so X5-specific values can't pass as properties of
+the format.
 """
 
 import pytest
@@ -215,9 +215,9 @@ def test_sensor_crop_reads_missing_offsets_as_zero():
 def test_a_video_crops_the_still_calibration_and_keeps_its_radius():
     """Lens 0's centre moves in by the margin, lens 1's by three margins, the radius not at all.
 
-    Scaling the still string to the video frame instead, as golblick used to,
-    puts both centres within half a pixel of these -- which is why it looked
-    right -- and makes the radius 5.3% too small on a OneR.
+    Scaling the still string to the video frame instead puts both centres
+    within half a pixel of these, which is why it looks right, and makes the
+    radius 5.3% too small on a OneR.
     """
     still = parse(ONER_EQUIDISTANT, metadata.CALIBRATION_EQUIDISTANT)
     video = still.for_video(ONER_VIDEO_CROP)

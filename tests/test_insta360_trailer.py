@@ -39,8 +39,8 @@ def test_pad_width_is_discovered(tmp_path, pad):
 def test_zero_length_records_are_read(tmp_path):
     """OneR and X3 files declare 0x0900 and 0x0b00 with no payload.
 
-    Treating an empty record as the end of the walk stopped six bytes short of
-    the trailer boundary and failed the self-check, which refused 63% of a real
+    Treating an empty record as the end of the walk stops six bytes short of
+    the trailer boundary and fails the self-check, which refuses 63% of a real
     library.  The empty records must be read, and must keep their ids.
     """
     path = write_file(tmp_path / "a.insp", [(0x0B00, b""), (0x0900, b""), (METADATA, b"meta")])

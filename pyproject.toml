@@ -51,6 +51,9 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B"]
+# line-length is the target for code, not a hard limit: prose in a string stays
+# on one line so it can be edited, as in Ruff's own default rule set.
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 # numpy is skipped for, not imported, before the modules that need it.

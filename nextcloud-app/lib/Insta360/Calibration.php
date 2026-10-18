@@ -102,8 +102,7 @@ final class Calibration {
 		$referenceWidth = (int)$this->referenceWidth();
 		$referenceHeight = (int)($this->globals[1] ?? 0);
 		if ($sourceW !== $referenceHeight || $sourceH !== $referenceHeight || $referenceWidth !== 2 * $referenceHeight) {
-			throw new FormatError("sensor crop from {$sourceW}x{$sourceH} does not match a "
-				. "{$referenceWidth}x{$referenceHeight} lens pair");
+			throw new FormatError("sensor crop from {$sourceW}x{$sourceH} does not match a {$referenceWidth}x{$referenceHeight} lens pair");
 		}
 		if ($keptW !== $keptH || $keptW <= 0 || $keptW > $sourceW || $x !== 0 || $y !== 0) {
 			throw new FormatError('sensor crop is not the centred square crop that is understood');
@@ -129,12 +128,11 @@ final class Calibration {
 	/**
 	 * Relative rotation between the sensors, degrees, signed the short way.
 	 *
-	 * 🔴 A SUM, not a difference: each lens states its yaw in its own frame,
-	 * and lens 1 faces the other way, so its rotation about the shared axis
-	 * reads with the opposite sense in lens 0's. Taken modulo 180. The
-	 * difference was 0.44 degrees out on a OneR against the vendor's stitch.
-	 * See render.lenses_from_calibration() in the parent library, which owns
-	 * the measurement.
+	 * A sum, not a difference: each lens states its yaw in its own frame, and
+	 * lens 1 faces the other way, so its rotation about the shared axis reads
+	 * with the opposite sense in lens 0's. Taken modulo 180.
+	 * docs/formats/insta360-agent-notes.md, "Lens orientation differs between cameras",
+	 * has the measurement.
 	 */
 	public function relativeSpin(): float {
 		$sum = -($this->lenses[0][5] + $this->lenses[1][5]);

@@ -27,19 +27,12 @@ DESCRIPTION = "Insta360 .insp / .insv / .lrv"
 
 #: Where a still opens: the render frame's -z, the same on the OneR, X3 and X5.
 #: Insta360 Studio's exports are centred on this direction's projection onto
-#: the horizon; whether Studio's own viewer always opens there is not
-#: measured. Measured against Studio's exports of 15 OneR, 12 X3 and 12 X5
-#: photos, levelled from gravity: median 1.3, 3.4 and 0.5
-#: degrees off, worst 8.3, 18.3 and 1.3. A fixed half turn fits the X3 and X5
-#: as well but misses tilted OneR photos by up to 70 degrees, which this
-#: follows. The X3 photos were all held at much the same tilt, so they can't
-#: tell this axis from +y; the OneR and X5 can.
+#: the horizon (measured on its exports, not its viewer).  See
+#: docs/formats/insta360-agent-notes.md, "Which way a levelled panorama faces".
 PHOTO_FORWARD = (0.0, 0.0, -1.0)
 
-#: Where a video opens, per model where it differs from a photo.  Measured on
-#: frame 0 against Studio's exports, levelled from gravity: four OneR clips and
-#: one X3 land 0 to 6.7 degrees from PHOTO_FORWARD, and three X5 clips half a
-#: turn from it, on both FlowState and unstabilised exports.
+#: Where a video opens, per model where it differs from a photo: an X5 video
+#: faces half a turn from its photos.  Same section of the format notes.
 VIDEO_FORWARD = {"Insta360 X5": (0.0, 0.0, 1.0)}
 
 __all__ = [

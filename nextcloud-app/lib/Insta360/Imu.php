@@ -20,16 +20,15 @@ namespace OCA\Golblick\Insta360;
  * A direct port of src/golblick/vendors/insta360/imu.py, kept close enough
  * to read side by side. docs/formats/insta360-agent-notes.md owns the measured facts.
  *
- * ⚠️ Two encodings, and the camera does not announce which. An entry is a
- * 64-bit millisecond timecode followed by six values -- three accelerometer
+ * Two encodings, and the camera does not announce which. An entry is a
+ * 64-bit timecode (units by stride, CLOCK) followed by six values -- three accelerometer
  * axes in g, then three angular velocities -- stored either as six uint16
- * biased by 0x8000, or as six float64. The stride is NOT a property of the
- * camera model: of 379 OneR stills carrying this record, 285 use one form and
- * 94 the other. So the decoder tries both and keeps the one that divides the
- * record exactly and whose timecodes rise, refusing when none fits or both do.
- * That is the same discipline the trailer's padding search uses.
+ * biased by 0x8000, or as six float64. The stride is not a property of the
+ * camera model, so the decoder tries both and keeps the one that divides the
+ * record exactly and whose timecodes rise, refusing when none fits or both do,
+ * as the trailer's padding search does.
  *
- * ⚠️ Most files carry no such record: 965 of 1,415 in one library, all OneR.
+ * Many stills carry no such record; see Preview\Insta360::burstImu.
  */
 final class Imu {
 	/** Stride in bytes => [unpack format for the six values, scale, bias]. */
@@ -53,42 +52,22 @@ final class Imu {
 	 * How each camera's inertial axes sit relative to the render's, as rows of
 	 * a map applied to the acceleration vector.
 	 *
-	 * 🔴 Measured per camera, never borrowed. Upright, an X5 reads gravity
-	 * along -x and a OneR along +x, so lending one camera's mapping to another
-	 * hangs the panorama upside down.
+	 * Measured per camera, never borrowed: upright, an X5 reads gravity along
+	 * -x and a OneR along +x, so lending one camera's map to another hangs the
+	 * panorama upside down. Each was measured against Insta360 Studio's
+	 * levelled exports; docs/formats/insta360-agent-notes.md, "Route 2" and the sections after it, has the evidence.
 	 *
-	 * 🔴 The X5's map is a REFLECTION, determinant -1. That is not a mistake
-	 * and must not be "corrected" by flipping a sign back; it says the stored
-	 * triple, as this code labels it, is not right-handed on that camera.
-	 * ⚠️ So are the OneR's and the X3's: it is the vendor's convention. It
-	 * matters for rotation as well as gravity, because the gyroscope shares
-	 * these axes and an angular velocity changes sign under a reflection
-	 * (motionAxes).
+	 * Every map here is a reflection (determinant -1). That is the vendor's
+	 * convention, not a mistake: don't "correct" it by flipping a sign. It
+	 * matters for rotation too, because the gyroscope shares these axes and an
+	 * angular velocity changes sign under a reflection (motionAxes).
 	 */
 	private const AXES = [
 		'Insta360 X5' => [[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
-		// 🔴 Corrected 2026-09-29. The previous map for this camera was chosen
-		// by matching the calibration's body-up, a proxy that misleads here.
-		// Scored against Insta360 Studio's own levelled exports over 358
-		// stills, this map gives a median error of 1.2 degrees where the old
-		// one gave 9.1, and 1.0 where the old one gave 61.5 on the files using
-		// the other inertial encoding. imu.py owns the evidence.
 		'Insta360 OneR' => [[-1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]],
-		// 🔴 Measured 2026-09-29, after this camera had been refused outright.
-		// The same map as the X5. 38 stills over five sessions against Studio's
-		// levelled exports: 0.83 degrees median, every file within 5, where the
-		// mounting angle alone leaves 46 to 53. imu.py owns the evidence and
-		// why the earlier refusal was wrong.
 		'Insta360 X3' => [[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
 	];
 
-	/**
-	 * Which way is up, as a unit vector in the render's own frame.
-	 *
-	 * @param string $record the raw 0x0300 payload
-	 * @param string $model  the camera model, from the metadata record
-	 * @return array{float, float, float}
-	 */
 	/**
 	 * Where a camera's VIDEO record differs from its stills': imu.py's
 	 * _VIDEO_AXES, which has the measurement (44 X5 videos against the
@@ -108,8 +87,8 @@ final class Imu {
 	/**
 	 * The map that turns the gyroscope's readings into the render's frame, in
 	 * radians per second: the gravity map, negated where it is a reflection,
-	 * because an angular velocity is an axial vector. imu.py's motion() has
-	 * the measurement against Insta360 Studio.
+	 * because an angular velocity is an axial vector. docs/formats/insta360-agent-notes.md,
+	 * "Stabilising video from the record", has the measurement against Insta360 Studio.
 	 *
 	 * @return array<int, array<int, float>>
 	 */
@@ -151,7 +130,7 @@ final class Imu {
 
 	/**
 	 * When each video frame was captured, in seconds from the record's first
-	 * sample: imu.py's motion(), which says how the rule was measured. Frame 0
+	 * sample, as imu.py's motion() works it out (docs/formats/insta360-agent-notes.md, "When each frame was captured"). Frame 0
 	 * is metadata field 24, which must fall inside the record and on (or
 	 * within half a frame of) an entry of the frame log, 0x0400; the frames
 	 * after it follow at the log's spacing.
@@ -210,12 +189,18 @@ final class Imu {
 			($entry['v4'] - $bias) * $scale, ($entry['v5'] - $bias) * $scale, ($entry['v6'] - $bias) * $scale];
 	}
 
+	/**
+	 * Which way is up, as a unit vector in the render's own frame.
+	 *
+	 * @param string $record the raw 0x0300 payload
+	 * @param string $model  the camera model, from the metadata record
+	 * @return array{float, float, float}
+	 */
 	public static function gravityUp(string $record, string $model, ?int $first = null, bool $video = false): array {
 		$axes = ($video ? (self::VIDEO_AXES[$model] ?? null) : null) ?? self::AXES[$model] ?? null;
 		if ($axes === null) {
 			throw new FormatError(sprintf(
-				'the inertial axis mapping for "%s" has not been measured (only %s); '
-					. 'levelling it would be a guess',
+				'the inertial axis mapping for "%s" has not been measured (only %s); levelling it would be a guess',
 				$model,
 				implode(', ', array_keys(self::AXES)),
 			));

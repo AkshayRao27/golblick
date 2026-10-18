@@ -27,11 +27,11 @@ The block structure, the lens count, the reference frame and the scaling rule
 are measured.  For the equidistant model the six per-lens values are identified
 (radius, centre x, centre y, roll, pitch, yaw) by cross-checking exiftool.
 
-The interior layout of the richer models is *not* yet confirmed.  The names in
+The interior layout of the richer models is *not* confirmed.  The names in
 MODELS are descriptions of shape, not claims about meaning, and the parameters
 are deliberately exposed as a raw tuple rather than as named attributes so that
-nothing here reads as a fact it has not earned.  Identifying them is the first
-experiment of the rendering work; see docs/formats/insta360-agent-notes.md.
+nothing here reads as a fact it has not earned.
+``docs/formats/insta360-agent-notes.md``, "Calibration", has the evidence.
 """
 
 from __future__ import annotations
@@ -97,29 +97,21 @@ class Calibration:
         from the body's up, so rolling the finished panorama by ``90 - yaw``
         about the lens axis puts it back upright.
 
-        This is worth having because it needs neither the IMU nor a reference
-        stitch, so it applies to every file -- including the 965 OneR stills
-        that carry no IMU record at all.  It corrects the *mounting* only; a
-        camera that was actually tilted when the shutter fired stays tilted.
+        It needs neither the IMU nor a reference stitch, so it applies to every
+        file.  It corrects the *mounting* only; a camera that was actually
+        tilted when the shutter fired stays tilted.
 
-        Measured over 1,409 files from three bodies: the value has **zero
-        spread** within a model (OneR -178.89, X3 88.99, X5 90.05), giving
-        rolls of -91.11, +1.01 and -0.05 degrees.  Applying it turns a OneR
-        render from 90 degrees on its side into a level panorama, and leaves
-        the X3 and X5 where they already were.
-
-        ⚠️ The 90 in the formula is fitted to three camera bodies, not derived
-        from anything the file states.  It holds across a 90-degree difference
-        in mounting, which is why it is trusted at all, but a fourth camera
-        could still disagree.  ``docs/formats/insta360-agent-notes.md`` owns the evidence.
+        The 90 in the formula is fitted to three camera bodies, not derived from
+        anything the file states, so a fourth camera could disagree.  Format
+        notes, "The absolute yaw is the mounting angle, and it levels the roll
+        axis for free".
         """
         if self.field != metadata.CALIBRATION_EQUIDISTANT:
             # Only the equidistant model's interior is confirmed, so only it
             # has a yaw to read.  Refuse rather than index into a tuple whose
             # meaning is unknown.
             raise CalibrationError(
-                f"field {self.field}: body roll needs the equidistant model, "
-                f"whose parameter meanings are confirmed"
+                f"field {self.field}: body roll needs the equidistant model, whose parameter meanings are confirmed"
             )
         if not self.lenses or len(self.lenses[0]) < 6:
             raise CalibrationError(f"field {self.field}: lens 0 carries no yaw")
@@ -129,14 +121,10 @@ class Calibration:
     def lens_offset(self) -> tuple[float, float, float]:
         """Where lens 1 sits relative to lens 0, from the polynomial model.
 
-        The seventh to ninth values of each of its lens blocks.  Lens 0 reads
-        zero on every file measured, and lens 1 reads about 0.0325 along the lens
-        axis on an X5 and 0.0273 on an X3, under 0.001 sideways -- the two
-        lenses' separation through the body, if the unit is metres.
-        The DIRECTION is what is verified: aiming both lenses at a common point
-        along it lines up near subjects across the seam, and the opposite sign
-        cannot.  ⚠️ The unit is not verified, and nothing here depends on it.
-        A OneR carries no polynomial model and so no offset.
+        The seventh to ninth values of each of its lens blocks.  Only the
+        DIRECTION is verified; the unit is not, and nothing here depends on it.
+        A OneR carries no polynomial model and so no offset.  Format notes,
+        "Field 53 says where the two lenses sit".
         """
         if self.field != metadata.CALIBRATION_POLY:
             raise CalibrationError(
@@ -153,12 +141,9 @@ class Calibration:
         each lens's sensor -- ``crop`` is metadata.sensor_crop(), in reference
         pixels -- so each centre moves in by the margin, lens 1 also by lens 0's
         two, and the radius stays what it was.  Scaling the still calibration to
-        the video frame instead makes the lens 2*kept/source too small: 5.3% on
-        a OneR, 3.2% on an X3, 1.2% on an X5, which is what the measured video
-        fields of view used to absorb.  Fitted against Studio's unstabilised
-        exports: a OneR's video lens radius is 1.0550 of the scaled one on four
-        clips across three firmware generations (this predicts 1.0556), an X3's
-        1.0325-1.035 (1.0333).  docs/formats/insta360-agent-notes.md has the detail.
+        the video frame instead makes the lens too small by kept/source.
+        Checked against Studio's exports; format notes, "A video is a crop of
+        the still sensor".
 
         Only a centred, square crop of a square lens is measured, so anything
         else is refused rather than guessed at.
@@ -170,8 +155,7 @@ class Calibration:
         lens_side = reference_width / 2
         if (source_w, source_h) != (lens_side, lens_side) or reference_height != lens_side:
             raise FormatError(
-                f"sensor crop from {source_w}x{source_h} does not match a "
-                f"{reference_width}x{reference_height} lens pair")
+                f"sensor crop from {source_w}x{source_h} does not match a {reference_width}x{reference_height} lens pair")
         if kept_w != kept_h or not 0 < kept_w <= source_w or (x, y) != (0, 0):
             raise FormatError(f"sensor crop {crop} is not the centred square crop that is understood")
         margin = (source_w - kept_w) / 2

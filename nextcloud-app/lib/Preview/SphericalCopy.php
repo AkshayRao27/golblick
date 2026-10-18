@@ -23,9 +23,8 @@ use Psr\Log\LoggerInterface;
  * Thumbnails for the stitched copies saved next to their clips (*.360.mp4),
  * without the frame-number strip along their bottom edge.
  *
- * Nextcloud's own video thumbnails take a frame as it is, so every copy's
- * thumbnail had a dashed line along the bottom, in Files and in Memories.
- * This takes the same frame core would (5 s in, else 1 s, else the first)
+ * Nextcloud's own video thumbnails take a frame as it is, strip included, so
+ * a copy's thumbnail shows a dashed line along the bottom. This takes the same frame core would (5 s in, else 1 s, else the first)
  * and cuts the strip off. It's tried before core's provider because its
  * pattern is longer (see "Sharing image/jpeg" in AGENT-NOTES.md), and anything
  * that isn't a *.360.mp4 marked as 360° video on local storage is left to core.

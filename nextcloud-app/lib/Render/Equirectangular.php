@@ -16,10 +16,9 @@ use OCA\Golblick\Insta360\FormatError;
 /**
  * Projects a dual-fisheye pair into an equirectangular thumbnail, with GD.
  *
- * GD only, on purpose. It is already a Nextcloud requirement, so a 360 preview
- * costs the administrator no new server-side dependency -- which is the whole
- * reason this is a reimplementation in PHP rather than a call out to the
- * Python library. Measured at roughly 100 ms for a 512x256 thumbnail.
+ * GD only, on purpose: it is already a Nextcloud requirement, so a 360 preview
+ * costs the administrator no new server-side dependency, which is why this is
+ * a reimplementation in PHP rather than a call out to the Python library.
  *
  * The geometry is the equidistant model: each lens maps angle from its axis
  * linearly to radius in its image circle. docs/formats/insta360-agent-notes.md owns what
@@ -34,43 +33,26 @@ final class Equirectangular {
 	private const MIN_SOURCE_WIDTH = 480;
 
 	/**
-	 * Width of the cross-fade between the two lenses, in degrees.
+	 * Width of the cross-fade between the two lenses, in degrees. The lenses
+	 * see past 180 degrees, so both have a real view of the scene in the
+	 * overlap. Matches the default in render.equirectangular() in the parent
+	 * library, which owns the choice. Not a hard cut: Nextcloud serves this
+	 * preview at full viewer size too, where a cut seam shows.
 	 *
-	 * The lenses see 194 degrees, so they overlap by 14 and both of them have
-	 * a real view of the scene in that band. Matches the default in
-	 * render.equirectangular() in the parent library, which owns the choice.
-	 *
-	 * ⚠️ This was originally a hard cut, on the reasoning that a seam is
-	 * invisible at thumbnail size. That was wrong, because Nextcloud serves
-	 * this same preview at full viewer resolution: measured on a 1024px
-	 * render, the two seam columns were the sharpest in the whole frame, at
-	 * 6.6x and 4.1x the median column gradient.
-	 *
-	 * 🔴 It is a cross-fade about the BISECTOR of the two lenses, not a taper
-	 * from each lens's own rim. Tapering from the rim leaves both weights
-	 * saturated at one across the middle of the overlap, so the output there
-	 * is a straight 50/50 average of two views separated by parallax and near
-	 * objects come out transparent. That covered 17.9% of every OneR sphere.
+	 * Must fade about the bisector of the two lenses, not taper from each
+	 * lens's rim: a rim taper leaves both weights at one across the middle of
+	 * the overlap, and near objects there come out a transparent 50/50 blend.
 	 */
 	private const FEATHER_DEGREES = 3.0;
 
 	/**
-	 * Refuse a full-resolution frame that will not fit in memory.
+	 * Refuse a full-resolution frame that will not fit in memory. Only the
+	 * fallback path needs it: the full frame is 18 to 72 megapixels, and GD
+	 * decodes to four bytes a pixel with no way to decode at reduced scale.
 	 *
-	 * ⚠️ This guards the *fallback* path only. The embedded preview is a couple
-	 * of megapixels and always fits; the full frame is 18 to 72, and GD decodes
-	 * to four bytes a pixel whatever size the output is, with no way to decode
-	 * at reduced scale.
-	 *
-	 * 🔴 It has to be a check and not a try/catch, because exhausting the PHP
-	 * memory limit is a fatal error: it takes the whole request down rather
-	 * than raising something this class could catch and decline on. Measured on
-	 * a real server, an 18.5 MP frame peaked at 89 MB, which is already over
-	 * what a 128 MB limit leaves once the framework is loaded.
-	 *
-	 * Nextcloud's own guard is the same shape -- see checkImageMemory() in
-	 * lib/private/Image.php, which compares width * height * 4 against
-	 * preview_max_memory.
+	 * Must be a check, not a try/catch: exhausting the PHP memory limit is
+	 * fatal and takes the whole request down. Core's checkImageMemory() in
+	 * lib/private/Image.php has the same shape. AGENT-NOTES.md, "Memory".
 	 */
 	public static function refuseIfTooBigToDecode(string $encoded): void {
 		$size = @getimagesizefromstring($encoded);
@@ -89,9 +71,7 @@ final class Equirectangular {
 		$spare = $limit - memory_get_usage(true);
 		if ($needed > $spare * 0.9) {
 			throw new FormatError(sprintf(
-				'the full-resolution frame is %.1f MP and needs about %d MB to decode, '
-					. 'but only %d MB is left of the %d MB memory limit; '
-					. 'raise memory_limit to render this file',
+				'the full-resolution frame is %.1f MP and needs about %d MB to decode, but only %d MB is left of the %d MB memory limit; raise memory_limit to render this file',
 				$size[0] * $size[1] / 1e6,
 				(int)($needed / 1048576),
 				(int)($spare / 1048576),
@@ -155,13 +135,10 @@ final class Equirectangular {
 		$radialRad = array_map('deg2rad', $radial);
 		$radialLast = count($radialRad) - 1;
 		$perStep = (180.0 / M_PI) / LensProfile::RADIAL_STEP;
-		// A few PIXELS, so the hand-over does not stair-step at small sizes,
-		// but never below a minimum ANGLE. 🔴 Hiding the photometric step
-		// between two lenses is a question about angle, and treating it as
-		// pixels alone makes the cross-fade narrower as resolution rises --
-		// backwards. At 4096 wide that gave 0.35 degrees and the seam showed
-		// as a hard line across a boat deck. See render.equirectangular() in
-		// the parent library, which owns the choice and the measurements.
+		// A few pixels, so the hand-over does not stair-step at small sizes,
+		// but never below a minimum angle: hiding the step between two lenses
+		// is a question of angle, and pixels alone make the fade narrower as
+		// resolution rises. render.equirectangular() in the library owns it.
 		$feather = deg2rad(min(self::FEATHER_DEGREES, max(1.5, 4.0 * 180.0 / $height)));
 		$spin = deg2rad($calibration->relativeSpin());
 
@@ -169,10 +146,9 @@ final class Equirectangular {
 		// corrects roll only; an orientation passed in has usually come from
 		// the inertial record and corrects pitch as well.
 		$m = $orientation ?? Orientation::fromRoll($calibration->bodyRoll());
-		// Hoisted, and TRANSPOSED: for each output direction we want the
-		// camera-frame direction that belongs there, not the other way round.
-		// Applying it the other way turns a -91 degree roll into +91, i.e. 182
-		// degrees out, which renders upside down rather than merely askew.
+		// Hoisted, and transposed: for each output direction we want the
+		// camera-frame direction that belongs there. Applied the other way, a
+		// -91 degree roll becomes +91 and the render comes out upside down.
 		[$m00, $m01, $m02] = [$m[0][0], $m[0][1], $m[0][2]];
 		[$m10, $m11, $m12] = [$m[1][0], $m[1][1], $m[1][2]];
 		[$m20, $m21, $m22] = [$m[2][0], $m[2][1], $m[2][2]];
@@ -310,12 +286,9 @@ final class Equirectangular {
 						continue;
 					}
 
-					// Bilinear. The projection lands between source pixels
-					// everywhere, and nearest-neighbour was the larger of the
-					// two resolution losses: scored against a 3x render boxed
-					// down to the target, RMSE falls from 5.28 to 3.26 at the
-					// same output size. Matches render._sample() in the parent
-					// library, which owns the choice.
+					// Bilinear: the projection lands between source pixels
+					// everywhere. Matches render._sample() in the parent
+					// library, which owns the choice and its measurement.
 					$tx = $fx - $sx;
 					$ty = $fy - $sy;
 					$sx1 = $sx + 1 < $sampleWidth ? $sx + 1 : $sx;

@@ -20,7 +20,7 @@ namespace OCA\Golblick\Insta360;
  * the CLI: a preview provider runs over a whole library, and an X5 still is 24
  * MB of which the trailer is the last few.
  *
- * ⚠️ Unlike the Python reader, it does not load the trailer in one piece. A
+ * Unlike the Python reader, it does not load the trailer in one piece. A
  * video's trailer runs to 83 MB (X5) and a thumbnail needs one or two of its
  * records, so the records are located by seeking from footer to footer, and
  * only the payloads asked for are read. The proofs are the same: the walk must
@@ -136,13 +136,10 @@ final class Trailer {
 	/**
 	 * Read exactly $length bytes, or fewer only at end of stream.
 	 *
-	 * ⚠️ Not the same as fread(). Nextcloud hands out **user-space stream
-	 * wrappers**, and a single fread() on one returns at most one chunk --
-	 * 8192 bytes by default -- however much was asked for. Reading a
-	 * multi-megabyte trailer in one call therefore silently returns a
-	 * fragment. That only shows up through the storage layer: the same code
-	 * against a plain local path passes, because fread() on a real file does
-	 * return what was asked for.
+	 * Never replace this with one fread(): on Nextcloud's user-space stream
+	 * wrappers a single fread() returns at most one 8 KiB chunk, and a test
+	 * against a plain local path won't show it. AGENTS.md, "Verification
+	 * habits that earned their place".
 	 */
 	private static function readExactly($handle, int $length): string {
 		$out = '';
@@ -161,10 +158,9 @@ final class Trailer {
 	 * The full-resolution frame the container wraps: everything in front of
 	 * the trailer, which for a .insp is a complete JPEG of the lens pair.
 	 *
-	 * Only read when the camera embedded no preview of its own -- 25 of the
-	 * 1,415 stills in one library. It is twenty times the pixels and costs
-	 * about a second to decode, which is worth paying once for a cached
-	 * thumbnail and is not worth paying by default.
+	 * Read only when the embedded preview is missing (25 of 1,415 stills in one
+	 * library) or narrower than what was asked for (Preview\Insta360::sourceFor):
+	 * it is twenty times the pixels and about a second to decode.
 	 */
 	public function sourceFrame($handle): string {
 		fseek($handle, 0);
@@ -223,8 +219,7 @@ final class Trailer {
 			}
 		}
 		if ($locations === null) {
-			throw new FormatError('no padding width makes the record walk consume the trailer exactly, '
-				. 'or ends on a consistent record index');
+			throw new FormatError('no padding width makes the record walk consume the trailer exactly, or ends on a consistent record index');
 		}
 
 		$records = [];

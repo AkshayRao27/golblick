@@ -100,7 +100,7 @@ final class SetupCheck {
 	 * Adds the mapping (keeping whatever else the file holds) and updates the
 	 * .insp files already in the file cache.
 	 *
-	 * ⚠️ `\OC::$configDir` is private API. It is the directory core reads the
+	 * `\OC::$configDir` is private API. It is the directory core reads the
 	 * mapping from (OC\Files\Type\Detection), and the Maps app writes the same
 	 * file the same way. There is no public equivalent.
 	 *

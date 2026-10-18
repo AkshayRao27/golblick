@@ -27,25 +27,15 @@ use Psr\Log\LoggerInterface;
  * Makes zooming in Memories, and its sphere view, show the panorama instead of
  * the lens pair.
  *
- * WHY THIS EXISTS
- * ---------------
- * When the viewer is zoomed past the preview's resolution, Memories swaps in
- * `/api/image/decodable/{id}`, which for an image/jpeg is the original file,
- * byte for byte. For a .insp that is the two fisheye circles, so every zoom
- * turned a panorama into a lens pair. Memories' own sphere view (after
- * 9.1.0-alpha.2) loads the same URL, so without this a .insp goes onto the
- * sphere as a sideways lens pair. This replaces that single response: the
- * Memories controller still runs and still decides whether the caller may see
- * the file, and only a 200 for a .insp that this app can render is rewritten.
+ * Both load `/api/image/decodable/{id}`, which for an image/jpeg is the
+ * original file: for a .insp, the two fisheye circles. This replaces that one
+ * response. The Memories controller still runs and decides whether the caller
+ * may see the file; only a 200 for a .insp this app can render is rewritten.
  *
- * ⚠️ It keys on Memories' class and method names, which are not API. If either
- * changes, this stops matching and both zoom and the sphere show the lens pair
- * again -- the same graceful failure as the preview provider's ordering
- * dependency.
- *
- * ⚠️ Deliberately NOT done for WebDAV. files_photospheres loads its sphere from
- * the WebDAV download, and rewriting that would hand sync clients and
- * downloads a panorama in place of the original.
+ * It keys on Memories' class and method names, which are not API: if either
+ * changes, zoom and the sphere show the lens pair again. Never do the same
+ * for WebDAV, which would hand sync clients and downloads a panorama in place
+ * of the original. AGENT-NOTES.md, "Memories zoom".
  */
 final class MemoriesZoom extends Middleware {
 	private const CONTROLLER = 'OCA\Memories\Controller\ImageController';
@@ -82,7 +72,7 @@ final class MemoriesZoom extends Middleware {
 			}
 			// Memories' sphere view opens where the metadata says. Only a
 			// chosen view needs saying: by default it opens in the middle,
-			// which is already the right way. ⚠️ The browser keeps this image
+			// which is already the right way. The browser keeps this image
 			// for a day under a URL keyed on the file, so a newly chosen view
 			// reaches Memories once that has run out.
 			$view = $this->views->get($file, false);

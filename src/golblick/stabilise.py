@@ -8,13 +8,11 @@ renderer bakes it in.
 
 The steadied view keeps the horizon level and lets its heading follow the
 camera's, smoothed over a couple of seconds, so a turn comes through as a turn
-and the shake doesn't.  It was scored against Insta360 Studio's FlowState: per
-frame, the rotation between each FlowState export and Studio's unstabilised
-export of the same clip, for the horizon and for the shake left.  ⚠️ Not for
-the heading itself: FlowState follows turns much more slowly than this does
-(over three clips the two headings drifted 130 to 230 degrees apart, while
-the camera turned through 130 to 300), so where the view points after a turn
-is a choice here, not a match.  See ``docs/formats/insta360-agent-notes.md``.
+and the shake doesn't.  The horizon and the shake were scored against
+Insta360 Studio's FlowState; the heading was not, and FlowState follows turns
+much more slowly, so where the view points after a turn is a choice here, not
+a match.  ``docs/formats/insta360-agent-notes.md``, "Stabilising video from
+the record".
 
 How the camera's attitude is found, and why offline:
 
@@ -231,9 +229,9 @@ def _smooth_trend(values, sigma):
 
     The sequence is extended past each end by point reflection, so a turn
     that is under way when the clip starts or stops is smoothed as a turn,
-    not pulled towards the average of whatever lies on one side.  The plain
-    weighted version jumped 90 degrees ahead at the start of a clip that
-    opens mid-pan.  The point it reflects through is a straight line fitted
+    not pulled towards the average of whatever lies on one side (which jumps
+    ahead at the start of a clip that opens mid-pan).  The point it reflects
+    through is a straight line fitted
     to the end, not the end value itself, which would pin the first and last
     frames to whatever the shake was doing at that instant.
     """

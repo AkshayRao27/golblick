@@ -11,8 +11,6 @@ It is *not* a stitch on a OneR or an X3.  There the thumbnail is the
 dual-fisheye pair shrunk to 320x160: two circles side by side, not viewable as
 a panorama, and useless as ground truth.  Measured over 1,415 ``.insp`` files:
 all 25 X5 files carry a stitch, and all 1,344 OneR and 40 X3 files do not.
-An earlier version of this project generalised from two X5 stills and recorded
-the stitch as a property of the format; it is a property of the camera.
 
 So callers must not assume this returns something displayable.
 :mod:`.preview` reports its layout explicitly, and is much larger besides.

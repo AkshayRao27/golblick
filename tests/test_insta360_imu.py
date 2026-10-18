@@ -187,10 +187,7 @@ def test_gravity_up_refuses_a_camera_whose_axes_are_unmeasured(tmp_path):
     """Refusing is the point: a borrowed mapping produces a confident, wrong
     horizon, so an unknown model must raise rather than guess.
 
-    ⚠️ This used the X3, which was refused until 2026-09-29 and is now measured.
-    An invented model name is the better fixture anyway -- it cannot be made
-    stale by measuring a real camera, and the behaviour under test is about
-    models that are absent, not about any particular one.
+    An invented model name, so measuring a real camera can't make it stale.
     """
     path = write_file(tmp_path / "i.insp", [
         (METADATA, model_record("Insta360 Nonesuch")),
@@ -207,13 +204,8 @@ def test_both_measured_maps_are_reflections():
     Both maps have determinant -1: the stored triple, as this module labels
     it, is not right-handed on either camera.  Flipping a sign back to make
     one a proper rotation would restore the mirrored tilt azimuth that cost
-    tilted X5 frames 0.16 of correlation against the camera's own stitch.
-
-    ⚠️ The OneR's map was a proper rotation until 2026-09-29, and that was the
-    wrong map.  Correcting it against Studio's levelled exports made it a
-    reflection too -- so what read as a one-camera anomaly worth a warning is
-    just the vendor's convention.  A candidate map with determinant +1 should
-    now be treated as suspect rather than reassuring.
+    tilted X5 frames 0.16 of correlation against the camera's own stitch.  A
+    candidate map with determinant +1 should be treated as suspect.
     """
     def determinant(rows):
         (a, b, c), (d, e, f), (g, h, i) = rows

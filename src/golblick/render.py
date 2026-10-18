@@ -3,49 +3,29 @@
 This is the only module that needs numpy, which is why it sits behind the
 ``render`` extra.  Everything else in the package stays dependency-free.
 
-WHAT IS MEASURED, AND WHAT IS NOT
----------------------------------
-The geometry here is built from the *equidistant* calibration model, because it
-is the only one every camera carries and the only one whose interior is
-confirmed.  See ``docs/formats/insta360-agent-notes.md``.
+The geometry is built from the *equidistant* calibration model, the only one
+every camera carries and the only one whose interior is confirmed.
+``docs/formats/insta360-agent-notes.md`` (the format notes, below) has the
+measurements under "Calibration".
 
-Confirmed by measurement across three cameras:
+Conventions the code relies on:
 
-* Each lens maps angle from its axis nearly linearly to radius in its image
-  circle, ``r = radius * theta / theta_max`` -- the equidistant model.  Nearly:
-  measured against the vendor's own stitch, a OneR departs from it by up to
-  1.45 degrees and an X3 by up to 1.75, the same curve in every scene.  That
-  curve is not in the file; a vendor supplies it per camera model, and
-  :attr:`Lens.radial` applies it.
-* The two lenses sit back to back, and the stored yaw is the sensor's rotation
-  *within* its image circle, not the direction the lens points.  Each lens
-  states its angles in its **own** frame, and lens 1's frame is lens 0's turned
-  180 degrees, which reverses the sense of a rotation about the lens axis.  So
-  the relative spin is ``-(yaw0 + yaw1)`` modulo 180 -- not the difference.
-  Measured against the vendor's own stitch on all three cameras, to within
-  0.04 degrees.
-* The fourth and fifth values are small rotations about the lens's own x and y
-  axes, in the same own-frame sense.  Confirmed on both axes on a OneR against
-  the vendor's stitch; on an X3 and X5 only about x, with an unexplained
-  ~0.3 degree residual about y that the stored values do not predict.
-* The *absolute* yaw is the sensor's mounting angle in the camera body, and it
-  is a constant of the body -- zero spread over 1,409 files from three of them.
-  Rolling the render by ``90 - yaw`` lands it in the body frame, which levels a
-  OneR that would otherwise come out 90 degrees on its side.  See
-  :func:`body_orientation`.
-* Image rows run downward while world Y runs up, so the azimuth is negated.
-  Without that the panorama comes out mirrored.
+* Each lens maps angle from its axis to radius in its image circle,
+  ``r = radius * theta / theta_max``, plus a measured per-model correction
+  that is not in the file (:attr:`Lens.radial`).
+* The two lenses sit back to back.  Each states its angles in its own frame,
+  and lens 1's frame is lens 0's turned 180 degrees, so the relative spin is
+  ``-(yaw0 + yaw1)`` modulo 180, not the difference.  The fourth and fifth
+  values are small rotations about the lens's own x and y, in the same sense.
+* The absolute yaw is the sensor's mounting angle in the body; rolling by
+  ``90 - yaw`` lands the render in the body frame (:func:`body_orientation`).
+* Image rows run downward while world Y runs up, so the azimuth is negated;
+  without that the panorama comes out mirrored.
 
-⚠️ **Not** established, and therefore not applied:
-
-* ``theta_max``, the angle the image circle's rim corresponds to.  It is not in
-  the file.  :func:`fit_field_of_view` recovers it by scoring, and it differs
-  per camera (194 degrees on a OneR, 192 on an X3, 197.5 on an X5 photo), and
-  clip-on lens guards narrow it; :func:`pick_field_of_view` tells which.
-* The camera's attitude when the shutter fired.  :func:`body_orientation`
-  removes the mounting angle, but a camera that was genuinely tilted stays
-  tilted; that needs :func:`fit_orientation` or the IMU.  See
-  :func:`overlap_agreement` for why the projection alone cannot tell.
+Not in the file, and so supplied or fitted: ``theta_max``, the angle the rim
+corresponds to (:func:`fit_field_of_view`, :func:`pick_field_of_view` for lens
+guards), and the camera's attitude when the shutter fired
+(:func:`fit_orientation`, or the IMU).
 """
 
 from __future__ import annotations
@@ -105,13 +85,11 @@ def lenses_from_calibration(calibration, width: int, radial: tuple[float, ...] =
 
     scale = calibration.scale_for(width)
     yaws = [lens[5] for lens in calibration.lenses]
-    # 🔴 A SUM, not a difference.  Each lens states its yaw in its own frame,
-    # and lens 1 faces the other way, so its rotation about the shared axis
-    # reads with the opposite sign in lens 0's frame.  Modulo 180, signed the
-    # short way.  The difference, used until 2026-09-30, was 0.44 degrees out
-    # on a OneR -- about 5 px at 4096 wide, along the whole seam -- and broke
-    # every horizon that crossed it.  Measured against the vendor's stitch:
-    # OneR -1.328 (sum -1.328, difference -0.892), X3 and X5 within 0.04.
+    # A SUM, not a difference: lens 1 faces the other way, so its yaw reads with
+    # the opposite sign in lens 0's frame.  Modulo 180, signed the short way.
+    # The difference is 0.44 degrees out on a OneR, along the whole seam.  See
+    # the format notes, "Lens orientation differs between cameras — do not
+    # assume 0/180".
     relative = (-(yaws[0] + yaws[1]) + 90.0) % 180.0 - 90.0
 
     built = []
@@ -186,12 +164,7 @@ def _project(rays, lens: Lens, index: int, theta_max: float):
 def _sample(image, u, v, valid):
     """Bilinear, because the projection lands between source pixels everywhere.
 
-    Nearest-neighbour was measurably the larger of the two resolution losses.
-    Scored against a 3x render box-downsampled to the target -- which is what
-    the pixels ought to be, and the comparison to make, since high-frequency
-    energy would reward nearest-neighbour for its own aliasing -- the RMSE at
-    2048 falls from 5.28 to 3.26.  That is 62 per cent of what quadrupling the
-    pixel count buys, for none of the pixels.
+    Measured against nearest-neighbour in the format notes, "Sampling".
 
     ``u`` and ``v`` are in source-pixel index space, so the integer part is the
     texel and the fraction is the weight; there is no half-pixel offset to add.
@@ -217,14 +190,13 @@ def _sample(image, u, v, valid):
 
 
 #: Grid the seam is chosen on: azimuth columns by offset rows.  Finer buys
-#: nothing measurable -- 512x64 scores 28% and 192x32 scores 25% -- and it has
-#: to stay coarse enough that the PHP port, which decides the seam from a small
-#: probe render rather than the full frame, gets enough samples per bin to fill
-#: it.  At 512x64 the port saw about 0.5 samples per bin and declined outright.
+#: nothing measurable, and the PHP port, which decides from a small probe
+#: render, needs enough samples per bin.  Format notes, "Routing the seam".
 _SEAM_COLUMNS = 256
 _SEAM_ROWS = 48
 
-#: Do not route below this output width; see the note where it is used.
+#: Do not route below this output width: a thinner grid picks a path by noise
+#: (format notes, "Routing the seam").
 _SEAM_MIN_WIDTH = 2048
 
 #: Below this mean disagreement (0-255) the lenses already agree along the
@@ -258,10 +230,8 @@ def _seam_cost(a, b, both, d, phi, room):
 def _widen(grid, feather, room):
     """Cost each candidate over the width the CROSS-FADE averages, not one row.
 
-    🔴 Without this the search minimises a slice far thinner than the blend, so
-    the path dodges a near object and the blend drags it straight back in.  On
-    the first frame tried that was the whole of the difference between routing
-    looking worthless (16.86 -> 17.51) and worthwhile.
+    Otherwise the search minimises a slice far thinner than the blend, so the
+    path dodges a near object and the blend drags it straight back in.
     """
     numpy = _numpy()
     rows = grid.shape[0]
@@ -283,16 +253,11 @@ def _widen(grid, feather, room):
 def _cheapest_cycle(grid):
     """Minimum-cost closed path, one row per column, steps of at most one row.
 
-    ⚠️ The path has to be CYCLIC because the azimuth wraps, and it has to be
-    CONNECTED because a seam that jumps is a tear.  The connectivity is what
-    limits the gain: the per-column minima are scattered, jumping as much as 62
-    of 64 rows between neighbours, so a seam cannot visit them.
-
-    Two passes -- solve with a free start, then re-solve pinned to where that
-    landed -- rather than solving every start exactly.  Measured against the
-    exact answer on five frames the difference is 0.0% median and 3.9% worst,
-    and the exact version needs a back-pointer table for every start, which the
-    PHP port cannot afford.  Both implementations run this same algorithm.
+    The path is cyclic because the azimuth wraps, and connected because a seam
+    that jumps is a tear.  Two passes (a free start, then re-solved pinned to
+    where that landed) rather than every start exactly, which the PHP port
+    can't afford; both implementations run this same algorithm, and the format
+    notes, "Routing the seam", measure what it gives up.
     """
     numpy = _numpy()
     rows, columns = grid.shape
@@ -338,8 +303,7 @@ def _seam_offset(a, b, both, d, phi, feather, half):
     """Where the two lenses should hand over, as an offset per azimuth.
 
     Returns ``None`` -- meaning hand over on the bisector -- whenever routing
-    cannot be shown to beat it.  An estimator that cannot decline has no place
-    here; the image-only horizon fit is the cautionary tale.
+    cannot be shown to beat it.
     """
     numpy = _numpy()
     columns = _seam_columns(a, b, both, d, phi, feather, half)
@@ -379,13 +343,9 @@ def _seam_columns(a, b, both, d, phi, feather, half):
     if routed.size == 0 or straight.size == 0:
         return None
 
-    # 🔴 The test has to carry a MARGIN, and has to ask whether there is a
-    # problem at all.  A bare "is the route cheaper" cannot ever decline: the
-    # search minimises over connected paths and the bisector is itself one of
-    # them, so its optimum is always at least as good.  Comparing an optimum
-    # against a feasible solution of the same problem has one possible answer.
-    # Without both tests a featureless scene still gets a seam that wanders
-    # after noise, for nothing.
+    # Needs both the floor and the MARGIN: a bare "is the route cheaper" can
+    # never decline, because the bisector is one of the paths the search
+    # minimises over.  Format notes, "Routing the seam".
     if straight.mean() < _SEAM_FLOOR:
         return None
     if routed.mean() >= _SEAM_MARGIN * straight.mean():
@@ -527,21 +487,16 @@ def _cheapest_parallax(grid):
     """Parallax level per column: a cyclic path with a cost per degree of change.
 
     Unlike the routing path, any jump is allowed, because distance is
-    discontinuous at the edge of a near subject; a path limited to one level
-    per column leaked near parallax 17 degrees either side of one and bent the
-    far scene there.
+    discontinuous at the edge of a near subject.  Two guards, each against an
+    artefact the disagreement score can't see:
 
-    Two guards, each from an artefact the disagreement score could not see:
+    * A column still improving at the last parallax the overlap can measure has
+      its subject in the blind zone, so only a minimum INSIDE the range counts.
+    * Runs narrower than :data:`_DEPTH_RUN` columns are removed afterwards: a
+      sun flare can halve the disagreement, and a near subject worth stitching
+      for spans far more.
 
-    * 🔴 A column whose agreement is still improving at the last parallax the
-      overlap can measure has its subject at or past that limit -- the blind
-      zone, closer than the lenses can both see.  Any parallax there is a guess,
-      and the warp bent a glove into a swirl.  Only a minimum INSIDE the range is
-      a measurement.
-    * 🔴 Spikes narrower than :data:`_DEPTH_RUN` columns are removed afterwards.
-      The one that prompted it was the sun: sliding one lens 9 degrees laid its
-      flare over the other lens's sun, halved the disagreement, and sheared the
-      sky into a swirl.  A near subject worth stitching for spans far more.
+    Format notes, "Aiming the lenses at a parallax (video)".
     """
     numpy = _numpy()
     levels = numpy.asarray(DEPTH_LEVELS)
@@ -600,19 +555,15 @@ def plan_seam(images, lenses, field_of_view, direction):
     where the near subject stays put relative to the camera, and has to
     decline where nothing does.
 
-    🔴 So the plan is chosen on every other frame and checked on the rest,
-    and declined unless it clears routing's margin THERE.  Checked on the
-    frames it was chosen on, a plan always looks good -- an optimum against one
-    of its own feasible solutions -- and a clip filmed from a stand, where
-    people walk past, passed that check and then did worse than the bisector
-    on a third of the frames it had not seen.  Measured on held-out frames of a
-    clip with the holder near the seam: 19% less disagreement than the
-    bisector, never worse on any frame.
+    The plan is chosen on every other frame and checked on the rest, and
+    declined unless it clears routing's margin THERE: checked on the frames it
+    was chosen on, a plan always looks good.
 
-    ⚠️ An across-the-seam shift is what a wrong field of view produces too, so
-    this will "line up" an angle error with a warp that bends straight lines
-    crossing the seam.  It did, on X3 video, at 6 degrees in every direction;
-    a parallax that is the same everywhere means check the angle.
+    A wrong field of view also shifts the lenses across the seam, so this will
+    "line up" an angle error with a warp that bends straight lines; a parallax
+    that is the same everywhere means check the angle.  Format notes, "Aiming
+    the lenses at a parallax (video)" and "Field 53 says where the two lenses
+    sit".
 
     ``images`` are lens pairs side by side, as for :func:`equirectangular`;
     ``direction`` is the baseline from lens 0 to lens 1 in any unit, or None
@@ -723,28 +674,17 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     is produced.  Without it the result's orientation is whatever the camera
     body happened to be doing, because the calibration fixes the lenses
     relative to each other and not relative to the world.  Recover the rotation
-    with :func:`fit_orientation`, or eventually from the gravity vector in the
-    IMU record, which is still undecoded.
+    with :func:`fit_orientation`, or from the gravity vector in the IMU record
+    (:func:`level`).
     """
     numpy = _numpy()
     width, height = size
     theta_max = numpy.deg2rad(field_of_view / 2)
     if feather_degrees is None:
-        # Two requirements, and they pull opposite ways.
-        #
-        # A few PIXELS, so the hand-over does not alias into a stair-step at
-        # small output sizes -- and a wide blend drags back the content a
-        # routed seam was routed around, so wider is not free.
-        #
-        # 🔴 But also a minimum ANGLE, because hiding the photometric step
-        # between two lenses is a question about angle, not pixels.  Treating
-        # it as pixels alone makes the cross-fade NARROWER as resolution rises,
-        # which is backwards: at 4096 wide it came to 0.35 degrees and the seam
-        # showed as a hard line across a boat deck.  Measured as the gradient at
-        # the seam over the gradient just outside it, over nine frames: 1.16 at
-        # 0.35 degrees and 1.11 at 0.70 -- i.e. sharper than its own
-        # surroundings -- against 1.01 at 1.5, which still keeps 17% of the
-        # routing gain.  Above 2 degrees routing stops paying at all.
+        # A few pixels, so the hand-over doesn't alias at small sizes, but never
+        # under 1.5 degrees: hiding the brightness step between the lenses is a
+        # question of angle, and a width in pixels alone shows as a hard line at
+        # large sizes.  Format notes, "Cross-fade width".
         feather_degrees = min(3.0, max(1.5, 4.0 * 180.0 / height))
     feather = numpy.deg2rad(feather_degrees)
     rays = _rays(width, height)
@@ -767,39 +707,16 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
         thetas.append(numpy.where(valid, theta, theta_max + feather))
         hemispheres.append((pixels, valid))
 
-    # 🔴 Cross-fade on how far each lens is from the BEST-PLACED lens, not on
-    # how far it is from its own rim.  Tapering from the rim looks right and is
-    # not: with a 194 degree lens the taper only starts at 92 degrees, so both
-    # lenses carry full weight across the middle of the 14 degree overlap and
-    # the result is a straight 50/50 average of two views separated by
-    # parallax.  Near objects then appear as ghosts -- you can see the scene
-    # through a person standing near the seam -- and the mix stays visible for
-    # about 12 degrees whatever ``feather_degrees`` is set to.  Narrowing the
-    # feather makes it worse, not better, because it widens the plateau where
-    # both weights saturate at one.
+    # Cross-fade on how far each lens is from the BEST-PLACED lens, never on how
+    # far it is from its own rim: a rim taper leaves both lenses at full weight
+    # across the overlap, a 50/50 average in which near objects turn
+    # transparent.  Format notes, "Blend weights".
     #
-    # Relative to the closest lens, the hand-over happens in a band of width
-    # ``feather_degrees`` about the bisector, and the weights never both
-    # saturate away from it.  Objects near the seam are cut rather than made
-    # transparent, which is the trade the vendor's own stitcher makes too.
-    #
-    # Three degrees rather than one: narrower is measurably cleaner and carries
-    # no photometric penalty, but the cross-fade has to stay several pixels
-    # wide at the smallest size anything renders at.  One degree is about 1.4
-    # rows of a 256-row preview, which aliases into a hard cut; three is about
-    # four rows.
-    # With exactly two lenses the hand-over can be ROUTED rather than left on
-    # the bisector: parametrise it by d = theta_0 - theta_1 against the azimuth
-    # about the lens axis, and put it where the two lenses already agree -- i.e.
-    # where nothing is close enough for parallax to separate the views.  A near
-    # subject is then walked around instead of cut through.  Median 25% less
-    # disagreement across nine frames, 10% to 57%.
-    # 🔴 Only decide a seam when there is enough of the frame to decide it on.
-    # Measured across nine frames, a grid built at 2048 wide is positive on all
-    # of them and never worse than +7%; at 1024 one frame loses 25% and at 512
-    # two lose up to 30%.  The cost landscape has many near-equal paths, so a
-    # thin grid picks one by noise, and a badly placed seam is worse than the
-    # bisector.  Below this the seam is not visible anyway.
+    # With exactly two lenses the hand-over can be ROUTED: parametrise it by
+    # d = theta_0 - theta_1 against the azimuth about the lens axis, and put it
+    # where the lenses already agree, so a near subject is walked round instead
+    # of cut through.  Only at _SEAM_MIN_WIDTH or more; below that the seam
+    # isn't visible anyway.  Format notes, "Routing the seam".
     offset = None
     if len(lenses) == 2 and width >= _SEAM_MIN_WIDTH:
         def grey(p):
@@ -1025,27 +942,14 @@ def overlap_agreement(hemispheres):
     views of it coincide.  Every file carries this evidence.
 
     Returns Pearson correlation over the overlap band, or None if the lenses do
-    not overlap.  Measured on correctly-projected stills: 0.75 to 0.90.  A wrong
-    rotation convention drops it to about 0.02.
+    not overlap: 0.75 to 0.90 on correctly projected stills, about 0.02 under a
+    wrong rotation convention.
 
-    🔴 It compares the lenses to each other, not to the world, so it is blind to
-    the absolute orientation of the result: because lens 1 faces backwards, a
-    world rotation about the lens axis appears as +a in one lens and -a in the
-    other and leaves the score untouched.  Levelling has to come from somewhere
-    else -- the camera's own stitch, or gravity from the IMU.
-
-    Note that adding the same spin to *both* lenses is not a rotation at all;
-    it turns them in opposite world senses and the score collapses.  That
-    asymmetry is what made the stored yaw identifiable.
-
-    🔴 It is also blind to the QUALITY of a stitch that is basically correct,
-    so do not rank files by it.  A correlation over the band is dominated by
-    large-scale luminance: across a 1,432-file corpus the highest score in the
-    library, 0.985, is a visibly misregistered sky-against-trees frame, the
-    lowest, 0.096, is a blank white room that stitches cleanly, and a file
-    verified against the vendor's own export sits below the median.  This
-    separates a correct projection from a wrong convention -- 0.75 to 0.90
-    against 0.02, one file at a time -- and nothing finer.
+    Blind spots: it compares the lenses to each other, so it can't see the
+    absolute orientation (a world rotation about the lens axis is +a in one
+    lens and -a in the other), a mirror, or an error both lenses share.  And it
+    is dominated by large-scale brightness, so it must not rank files by
+    stitch quality.  Format notes, "Scoring without a reference".
     """
     numpy = _numpy()
     (pixels_a, valid_a), (pixels_b, valid_b) = hemispheres
@@ -1137,11 +1041,10 @@ def pick_field_of_view(images, lenses, candidates, margin=PICK_MARGIN):
     pairs from the same file (frames of a video), scored at both candidates;
     the median ratio decides, and it has to clear ``margin`` either way.
 
-    ⚠️ Lens agreement also rewards an angle that suits a near subject, which is
+    Lens agreement also rewards an angle that suits a near subject, which is
     why this picks between two values rather than fitting one: a free fit
-    wanders with the scene, a choice of two separated by 4 degrees does not.
-    Returns the chosen candidate, or None -- the caller then falls back to its
-    default rather than trusting a coin toss.
+    wanders with the scene.  Returns the chosen candidate, or None, and the
+    caller then falls back to its default.
     """
     numpy = _numpy()
     first, second = candidates
@@ -1272,9 +1175,8 @@ def fit_orientation(image, reference, coarse_degrees=10.0, seed=None):
     Returns ``((yaw, pitch, roll), score)`` in degrees, where ``score`` is the
     correlation after alignment.  Feed the angles to :func:`rotation`.
 
-    ⚠️ This is ground truth only where a levelled reference exists, which is
-    25 files in 1,415 of one library -- X5 only.  A OneR or X3 embeds the
-    fisheye pair instead, so for those the rotation has to come from the IMU.
+    Only the X5 embeds a levelled reference; a OneR or X3 embeds the fisheye
+    pair, so for those the rotation has to come from the IMU.
 
     ``seed`` skips the coarse grid and refines around a known answer, which is
     how a cheap low-resolution pass hands off to an accurate one.
@@ -1290,10 +1192,8 @@ def fit_orientation(image, reference, coarse_degrees=10.0, seed=None):
         raise ValueError("frames have too little in common to align")
 
     # Refuse a frame with no structure rather than return the angles that
-    # happen to score highest on noise.  One X5 still in the library is an
-    # all-black exposure, and it aligned to a confident-looking nonsense
-    # rotation before this check existed: it reads 0.3 to 0.6 grey levels of
-    # deviation where a real frame reads 50 to 65.
+    # happen to score highest on noise: an all-black exposure reads 0.3 to 0.6
+    # grey levels of deviation where a real frame reads 50 to 65.
     overlap = weight.astype(bool)
     if a[overlap].std() < 2.0 or b[overlap].std() < 2.0:
         raise ValueError("frames carry no structure to align: is one of them blank?")
@@ -1337,10 +1237,8 @@ def orientation_from_reference(image, lenses, field_of_view, reference, start=No
 
     On an X5 the reference is the camera's own stitch, which the camera
     levelled itself.  That is ground truth, so it beats the inertial record,
-    which on a long record can be badly wrong: one X5 still logged 13 seconds
-    of the camera being turned over, and the median of that rendered it
-    upside down.  It also fixes which way the panorama faces, which gravity
-    cannot.
+    whose median can be badly wrong when the record is long (format notes,
+    "Route 1 — solve the rotation against the camera's own stitch").  It also fixes which way the panorama faces.
 
     ``reference`` is an equirectangular frame, any even 2:1 size; 512x256 is
     plenty, as the result is a rotation, not pixels.  ``start`` is the
@@ -1351,10 +1249,8 @@ def orientation_from_reference(image, lenses, field_of_view, reference, start=No
     cannot be aligned or agree less than :data:`REFERENCE_MIN_SCORE`, so the
     caller falls back to another route rather than trusting a bad fit.
 
-    The correction composes on the LEFT, ``rotation(...) @ start``.  Measured
-    on the upside-down X5 by trying all four products: only this one leaves
-    the result aligned (score 0.81, about 1 degree off); the other three
-    scored 0.27 or less.
+    The correction composes on the LEFT, ``rotation(...) @ start``; the other
+    orders were measured and don't align.
     """
     numpy = _numpy()
     reference = numpy.asarray(reference, numpy.float32)
@@ -1374,8 +1270,7 @@ def orientation_from_reference(image, lenses, field_of_view, reference, start=No
     angles, _ = fit_orientation(halve(pixels), halve(reference))
     angles, score = fit_orientation(pixels, reference, seed=angles)
     if score < REFERENCE_MIN_SCORE:
-        raise ValueError(f"the render agrees with the reference only {score:.2f}, "
-                         f"below {REFERENCE_MIN_SCORE}")
+        raise ValueError(f"the render agrees with the reference only {score:.2f}, below {REFERENCE_MIN_SCORE}")
     return rotation(*angles) @ start, score
 
 
@@ -1406,9 +1301,9 @@ def level(up, yaw: float = 0.0):
     The rotation is the shortest one that does the job, so it adds no spin of
     its own; ``yaw`` then turns the levelled panorama about the vertical.
     Which way it should face is a separate question that gravity cannot answer.
-    ⚠️ Matching an X5's own stitch takes ``yaw=180``: measured at 180.3 degrees,
-    sd 1.8, over the 24 files in one library that embed a stitch to measure
-    against.  For a camera that embeds none, nothing fixes the yaw at all.
+    Matching an X5's own stitch takes ``yaw=180`` (format notes, "Route 1 — solve the
+    rotation against the camera's own stitch").
+    For any camera, :func:`face` turns it to the vendor's measured forward.
     """
     numpy = _numpy()
     vector = numpy.asarray(up, numpy.float64)

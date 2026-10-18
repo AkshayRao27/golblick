@@ -29,15 +29,13 @@ use Psr\Log\LoggerInterface;
 /**
  * Panoramic thumbnails for Insta360 videos: the clip's opening frame.
  *
- * WHY A TYPE OF ITS OWN
- * ---------------------
  * An .insv is an MP4, but mapping it to video/mp4 would put it in Memories'
  * timeline and in the Viewer, which play it as it is: one fisheye on a OneR,
- * the first of two on an X5. Until golblick can serve a stitched video, these
- * files get a type nothing else claims, so they show this thumbnail in Files
- * and nothing tries to play them. The app's setup check registers the mapping.
+ * the first of two on an X5. So these files get a type nothing else claims:
+ * they show this thumbnail in Files, nothing tries to play them, and the
+ * stitched copy (VideoStore) is what plays. The setup check registers the mapping.
  *
- * WHERE THE PICTURE COMES FROM, by camera (docs/formats/insta360-agent-notes.md):
+ * Where the picture comes from, by camera (docs/formats/insta360-agent-notes.md):
  * - X5: record 0x0200 is the camera's own stitched, levelled panorama of the
  *   opening frame, NV12, 1280x640. Plain PHP, as for X5 stills.
  * - OneR, X3: records 0x0200 and 0x0500 are the opening frame's keyframes, one

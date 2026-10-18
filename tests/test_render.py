@@ -44,8 +44,7 @@ def test_relative_spin_reads_each_yaw_in_its_own_lens_frame():
     Lens 1 faces the other way, so a rotation about the shared axis that it
     states in its own frame has the opposite sense in lens 0's.  Measured
     against the vendor's own stitch, a OneR's lens 1 sits at -1.328 degrees,
-    which is what the sum gives; the difference gives -0.892.  The difference
-    broke every horizon that crossed the seam.
+    which is what the sum gives; the difference gives -0.892.
     """
     x5 = build(X5, width=5888)
     oner = build(ONER, width=6080)
@@ -162,10 +161,9 @@ def _box_down(values, factor):
 def textured_pair(cell=128, period=4.0):
     """A pair carrying detail near the sampling limit.
 
-    ⚠️ The smooth pattern in :func:`synthetic_pair` cannot detect a sampling
+    The smooth pattern in :func:`synthetic_pair` cannot detect a sampling
     error: nearest-neighbour reproduces a slow gradient about as well as
-    bilinear does, and a first version of the test below passed under both.
-    Aliasing needs something to alias.
+    bilinear does.  Aliasing needs something to alias.
     """
     radius = cell / 2 - 1
     image = numpy.zeros((cell, cell * 2, 3), numpy.uint8)
@@ -185,16 +183,15 @@ def textured_pair(cell=128, period=4.0):
 
 
 def test_the_projection_samples_between_source_pixels():
-    """🔴 Nearest-neighbour sampling costs more resolution than the output size.
+    """Nearest-neighbour sampling costs more resolution than the output size.
 
     Render the same scene three times larger and box it back down; that is what
     the pixels ought to be, so a sampler that aliases disagrees with itself
     across scales.
 
-    ⚠️ Do NOT score this with high-frequency energy. Nearest-neighbour *adds*
-    high frequencies, because its jaggies are aliasing, so that metric rewards
-    the worse sampler. On real media the RMSE at 2048 fell from 5.28 to 3.26 --
-    62% of what quadrupling the pixel count buys, for none of the pixels.
+    Do NOT score this with high-frequency energy: nearest-neighbour *adds* high
+    frequencies, because its jaggies are aliasing, so that metric rewards the
+    worse sampler.
     """
     image, lenses = textured_pair()
     size = (256, 128)
@@ -207,22 +204,17 @@ def test_the_projection_samples_between_source_pixels():
     error = numpy.sqrt((((got - reference) ** 2).mean(axis=-1))[inside].mean())
 
     assert error < 15.0, (
-        f"RMSE {error:.2f} against a 3x reference; nearest-neighbour sampling "
-        "scores 32.6 on this fixture and bilinear 8.5"
+        f"RMSE {error:.2f} against a 3x reference; nearest-neighbour sampling scores 32.6 on this fixture and bilinear 8.5"
     )
 
 
 def test_the_lenses_hand_over_rather_than_averaging():
-    """🔴 The overlap must not come out as a 50/50 average of both lenses.
+    """The overlap must not come out as a 50/50 average of both lenses.
 
-    The lenses see 194 degrees and so overlap by 14, and they are separated by
-    a baseline, so a near object sits in different places in the two views.
-    Averaging across that band makes it semi-transparent -- you could see the
-    scene through a person standing near the seam.  The first weighting shipped
-    tapered each lens from its own rim, which leaves both weights saturated at
-    one across the middle of the band; 17.9 per cent of every sphere was a
-    50/50 mix and no metric in the suite could see it, because a correlation
-    between the two lenses is blindest exactly where they are averaged.
+    The lenses are a baseline apart, so a near object sits in different places
+    in the two views, and averaging across the overlap makes it
+    semi-transparent.  A correlation between the two lenses is blindest exactly
+    where they are averaged, so this paints them different colours instead.
     """
     image, lenses = flat_coloured_pair()
     pixels, _ = render.equirectangular(image, lenses, (512, 256), 194.0)
@@ -233,8 +225,7 @@ def test_the_lenses_hand_over_rather_than_averaging():
     share = float((lit & (mixed > 0.4)).sum()) / lit.sum()
 
     assert share < 0.05, (
-        f"{share:.1%} of the sphere is a blend of both lenses, which is where "
-        "near objects turn transparent; the rim-taper weighting scored 0.179"
+        f"{share:.1%} of the sphere is a blend of both lenses, which is where near objects turn transparent; the rim-taper weighting scored 0.179"
     )
 
 
@@ -668,14 +659,11 @@ def test_the_seam_follows_the_cheap_corridor():
 
 
 def test_routing_declines_when_there_is_nothing_to_route_around():
-    """🔴 The decline has to be reachable, and once was not.
+    """The decline has to be reachable.
 
-    The first guard asked only whether the routed path was cheaper than the
-    straight one.  It can never fail: the search minimises over connected paths
-    and the bisector is one of them, so its optimum is always at least as good.
-    Comparing an optimum against a feasible solution of the same problem has
-    one possible answer.  A featureless pair got a seam that wandered after
-    noise, and the test that would have caught it is this one.
+    "Is the routed path cheaper than the straight one" can never fail, because
+    the bisector is one of the paths the search minimises over, so a
+    featureless pair would get a seam that wanders after noise.
     """
     image, lenses = flat_coloured_pair()
     theta_max = numpy.deg2rad(97.0)
@@ -798,7 +786,7 @@ def test_a_clip_plan_finds_the_parallax_of_a_near_subject():
 
 
 def test_a_clip_plan_declines_when_nothing_is_near():
-    """🔴 The decline has to be reachable: a scene at infinity has no parallax to fix."""
+    """The decline has to be reachable: a scene at infinity has no parallax to fix."""
     image, lenses = parallax_pair(near=False)
     assert render.plan_seam([image, image], lenses, 194.0, (0.0, 0.0, -0.03)) is None
 

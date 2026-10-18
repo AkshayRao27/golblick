@@ -19,8 +19,8 @@ record is followed by its own six-byte footer rather than preceded by a header::
     uint16 record_id
     uint32 record_size     length of the data immediately preceding this footer
 
-Verified against an Insta360 X5 on firmware v1.10.7_build2 (trailer version 3).
-The padding between the last record and the trailer footer was 32 zero bytes on
+Verified on OneR, X3 and X5 files (trailer version 3); see
+``docs/formats/insta360-agent-notes.md``, "The trailer".  The padding between the last record and the trailer footer was 32 zero bytes on
 every file measured, but nothing in the format announces it, so the reader tries
 the plausible widths and keeps whichever one makes the record walk land exactly
 on the start of the trailer.  That check is the parser's correctness proof: a
@@ -63,7 +63,7 @@ _INDEX_ENTRY_SIZE = _INDEX_ENTRY.size + _SIZE_OFFSET.size
 RECORD_NAMES = {
     0x0101: "metadata",       # protobuf: serial, model, firmware, calibration
     0x0200: "preview",        # full-size preview: NV12 stitch (X5) or JPEG pair (OneR, X3)
-    0x0300: "imu",            # 20-byte entries: int64 timecode + 12-byte payload
+    0x0300: "imu",            # 20- or 56-byte entries: int64 timecode + six values
     0x0400: "frames",         # video: one 16-byte entry per frame, timecode + exposure
     0x0900: "unknown_0900",
     0x0B00: "unknown_0b00",
@@ -115,14 +115,10 @@ def _walk(blob: bytes, end: int) -> tuple[list[Record], int]:
     while pos >= _REC_FOOTER.size:
         record_id, size = _REC_FOOTER.unpack_from(blob, pos - _REC_FOOTER.size)
         start = pos - _REC_FOOTER.size - size
-        # A zero-length record is legal and common: OneR and X3 files declare
-        # 0x0900 and 0x0b00 with no payload, and refusing those loses 63% of a
-        # real library.  But an all-zero footer is the *pad*, not a record, and
-        # a run of zero bytes that divides by six would otherwise be read as
-        # phantom records and make the pad width ambiguous.  Id 0 only ever
-        # appears as the index of an X5 video trailer, which a walk cannot
-        # read anyway, so treating it as the end of the walk keeps the boundary
-        # check decisive and leaves the index to ``_read_index``.
+        # A zero-length record is legal and common, so it must not end the walk.
+        # Id 0 does: an all-zero footer is the pad (or an X5 video's index, left
+        # to _read_index), and reading it as records makes the pad width
+        # ambiguous.  Format notes, "Zero-length records" and "The padding".
         if start < 0 or record_id == 0:
             break
         records.append(Record(record_id, start, size, blob[start : pos - _REC_FOOTER.size]))
@@ -138,8 +134,8 @@ def _read_index(blob: bytes, end: int) -> list[Record] | None:
     consume the trailer exactly.  What replaces that proof: every entry must
     point at a record whose own footer repeats the entry's id and size, the
     records must not overlap, and the last of them must end exactly where the
-    index begins -- the one boundary this layout still has.  All 83 X5 videos
-    measured satisfy all three, and anything else is refused.
+    index begins -- the one boundary this layout still has.  Anything else is
+    refused.
     """
     if end < _REC_FOOTER.size:
         return None
@@ -222,9 +218,7 @@ def read_trailer(path: str | Path) -> Trailer:
 
     if found is None:
         raise FormatError(
-            f"{path}: no padding width in {_CANDIDATE_PADS} makes the record walk "
-            f"consume the trailer exactly, or ends on a consistent record index; "
-            f"the layout may have changed"
+            f"{path}: no padding width in {_CANDIDATE_PADS} makes the record walk consume the trailer exactly, or ends on a consistent record index; the layout may have changed"
         )
     pad, records = found
     return Trailer(

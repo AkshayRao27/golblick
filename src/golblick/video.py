@@ -11,14 +11,11 @@ The difference is the steadying.  The app writes one set of tables per clip
 and turns the picture afterwards, in its player or on a GPU.  Here every
 frame gets its own tables, already turned by that frame's rotation from
 :mod:`golblick.stabilise`, and ffmpeg's ``remap`` takes them as a stream, so
-the picture is resampled once.  Measured on a OneR clip before choosing:
-
-- turning a stitched frame again, as a second bilinear pass, kept 0.66 of its
-  pixel-level detail (0.76 for a pure turn about the vertical);
-- stitching each frame in numpy took 3.5 to 4.7 s at 2880 wide, against
-  0.13 to 0.21 s for ffmpeg's ``remap``;
-- the tables themselves take about 1.1 s a frame at 2880 and 2 s at 3840 on
-  one core, so they are made by a pool of processes, several frames ahead.
+the picture is resampled once: turning a stitched frame again, as a second
+bilinear pass, kept 0.66 of its detail on a OneR clip, and stitching a frame
+in numpy took 3.5 to 4.7 s at 2880 wide against 0.13 to 0.21 s for ffmpeg's
+``remap``.  The tables take about 1.1 s a frame at 2880 on one core, so a pool
+of processes makes them, several frames ahead.
 
 Frames: the render's own, and rotations in the column convention.  A frame's
 tables use ``R @ O``: ``O`` levels the opening and ``R`` is that frame's
@@ -155,10 +152,9 @@ def probe_times(wanted: list[float], keyframes: list[float]) -> list[float]:
     """``wanted`` moved to the nearest keyframe, where that's a frame not already taken.
 
     Planning wants frames spread through the clip, not at exact moments, and
-    seeking to a moment means decoding forward from the keyframe before it: an
-    X5 keyframes every 2 seconds, so up to 60 full-size frames for each one
-    asked for, and 60 of an X5 clip's 62 seconds of planning went on that. At
-    a keyframe it is one frame.  Both lenses are read at the same moment
+    seeking to a moment means decoding forward from the keyframe before it (up
+    to 60 full-size frames on an X5, which keyframes every 2 seconds).  At a
+    keyframe it is one frame.  Both lenses are read at the same moment
     either way: the cameras measured keyframe their two streams together, and
     a seek to a moment is exact even if a stream didn't.  A moment whose
     nearest keyframe is already taken keeps its own time, so a short clip
@@ -184,7 +180,7 @@ def lens_frames(clip: Clip, at: float, size: int):
     for file, index in clip.lenses:
         result = subprocess.run(
             # One decoder thread: with several, the decoder reads frames ahead
-            # before handing over the first, which tripled the time for one.
+            # before handing over the first, which triples the time for one.
             [ffmpeg, "-v", "error", "-nostdin", "-threads", "1", "-ss", f"{at:.6f}", "-i", str(file),
              "-map", f"0:v:{index}", "-frames:v", "1", "-vf", f"scale={size}:{size}",
              "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
@@ -266,14 +262,12 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
                     continue
             probe = render.lenses_from_calibration(calibration, 2 * GUARD_SIZE, radial)
             if images and render.pick_field_of_view(images, probe, (guarded, field_of_view)) == guarded:
-                notes.append(f"lens guards    detected: the lenses agree at {guarded:.1f} degrees, "
-                             f"not {field_of_view:g}")
+                notes.append(f"lens guards    detected: the lenses agree at {guarded:.1f} degrees, not {field_of_view:g}")
                 field_of_view = guarded
             else:
                 notes.append("lens guards    none detected")
         guarded_note = ", less for lens guards" if field_of_view != profile.field_of_view_for() else ""
-        notes.append(f"field of view  {field_of_view:.1f} degrees (the camera's measured value"
-                     f"{guarded_note})")
+        notes.append(f"field of view  {field_of_view:.1f} degrees (the camera's measured value{guarded_note})")
 
     native = render.lenses_from_calibration(calibration, 2 * clip.size, radial)
     lens_size = render.lens_size_for(native, clip.size, width, field_of_view)
@@ -322,8 +316,7 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
             notes.append("steadying      " + ("direction locked" if lock else "follows the camera's turns")
                          + f", {len(turns)} frames from the motion record")
             if len(turns) < clip.frames:
-                notes.append(f"               ⚠️ the video has {clip.frames} frames; the last "
-                             f"{clip.frames - len(turns)} keep the record's last turn")
+                notes.append(f"               ⚠️ the video has {clip.frames} frames; the last {clip.frames - len(turns)} keep the record's last turn")
         except (GolblickError, ValueError, AttributeError) as exc:
             notes.append(f"steadying      not steadied: {exc}")
     else:

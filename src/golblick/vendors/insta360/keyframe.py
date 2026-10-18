@@ -17,7 +17,7 @@ it matches frame 0 of the clip to within one grey level; on a proxy it is
 both fisheyes side by side.  So a master carries a whole lens pair of its
 opening frame, even though the second lens's video is in another file.
 
-⚠️ The header is not decoded: only its length is relied on, and the reader
+The header is not decoded: only its length is relied on, and the reader
 checks that a start code follows it.  Nothing here decodes video either --
 that needs a video decoder, which the library deliberately does not carry.
 The CLI hands the streams to ffmpeg.
@@ -116,8 +116,7 @@ def lens_streams(path: str | Path) -> list[tuple[Path, int]]:
         raise FormatError(f"{path}: a low-resolution copy; stitch the clip's _00_ file instead")
     match = re.match(r"^(.+_\d{8}_\d{6})_00_(\d+\.insv)$", path.name, re.IGNORECASE)
     if match is None:
-        raise FormatError(f"{path}: the second lens is in another file, and this name "
-                          "isn't the camera's _00_ one, so it can't be found")
+        raise FormatError(f"{path}: the second lens is in another file, and this name isn't the camera's _00_ one, so it can't be found")
     partner = path.with_name(f"{match[1]}_10_{match[2]}")
     if not partner.is_file():
         raise FormatError(f"{path}: the second lens file, {partner.name}, is not next to it")

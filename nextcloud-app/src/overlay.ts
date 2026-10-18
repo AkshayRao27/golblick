@@ -40,9 +40,9 @@ const infoCache = new Map<number, Promise<Info>>();
 /**
  * Whether a file is one of ours. Cheap on the server, and cached per page.
  *
- * Only an answer is cached, never a failure: a request that failed while
- * the app was being upgraded was once kept as "not a sphere" for the life of
- * the tab, and with it the button and the sphere player for that file.
+ * Only an answer is cached, never a failure: a cached failure (during an app
+ * upgrade, say) would hide the button and the player for that file until the
+ * tab is reloaded.
  */
 export function info(fileId: number): Promise<Info> {
   let pending = infoCache.get(fileId);
@@ -240,8 +240,8 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
       return;
     }
     // Where this opens: the direction someone chose, or the default (the
-    // middle of Insta360 Studio's export). Asked here and not before the sphere appears, so a
-    // slow answer doesn't hold it up.
+    // middle of Insta360 Studio's export). Asked here and not before the
+    // sphere appears, so a slow answer doesn't hold it up.
     const answer = await info(fileId).catch(() => null);
     if (closed) return;
     if (answer?.view) view.look(answer.view.longitude, answer.view.latitude, answer.view.fov);

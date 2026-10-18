@@ -1,6 +1,6 @@
 """Record ``0x0200`` -- the camera's own full-size preview.
 
-Every ``.insp`` measured carries this record, and it is far larger than the
+Most ``.insp`` measured carry this record (25 OneR stills don't), and it is far larger than the
 320x160 EXIF thumbnail: 2560x1280 on an X5, 1920x960 on a OneR or X3.  What it
 *contains* depends on the camera, and the difference matters more than the size:
 
@@ -11,14 +11,11 @@ X5         NV12 (YUV 4:2:0)    2560x1280, declared      equirectangular stitch
 OneR, X3   JPEG                1920x960                 dual fisheye
 =========  ==================  =======================  =====================
 
-Measured over all 1,415 ``.insp`` files in one library: 1,319 OneR and 40 X3
-files carry a JPEG, and the corner brightness of every one of them stays below
-25, which is what a pair of fisheye circles on a black field looks like.  All 25
-X5 files carry NV12, and 24 of them have bright corners (median 189); the
-twenty-fifth is an all-black frame that says nothing either way.  So the
-encoding predicts the layout on every file measured -- but it is an observation
-about two camera generations, not something the format announces, which is why
-:attr:`Preview.layout` records how it was derived.
+The encoding predicts the layout on every file measured, but that is an
+observation about two camera generations, not something the format announces,
+which is why :attr:`Preview.layout` records how it was derived.
+``docs/formats/insta360-agent-notes.md``, "How the layout was established",
+has the measurement.
 
 The X5's stitch is the useful find.  It is the same image the camera puts in
 its EXIF thumbnail, at 64x the pixel count, already horizon-levelled -- so it
@@ -108,8 +105,7 @@ def parse(data: bytes) -> Preview:
         raise FormatError(f"preview record is {len(data)} bytes, too small for its header")
     if data[22:26] == b"\x00\x00\x00\x01":
         # A OneR or X3 video keeps a compressed keyframe here instead (keyframe.py).
-        raise ThumbnailError("this record holds a compressed video keyframe, not a picture; "
-                             "golblick render decodes it with ffmpeg")
+        raise ThumbnailError("this record holds a compressed video keyframe, not a picture; golblick render decodes it with ffmpeg")
 
     width, height = _NV12_DIMENSIONS.unpack_from(data, 16)
     pixels = data[_NV12_HEADER:]
@@ -119,8 +115,7 @@ def parse(data: bytes) -> Preview:
         # assumed.  A mismatch means the layout is not what it is read as, and a
         # buffer that decodes to garbage is worse than an error.
         raise FormatError(
-            f"preview declares {width}x{height} (NV12 needs {expected} bytes) "
-            f"but carries {len(pixels)}"
+            f"preview declares {width}x{height} (NV12 needs {expected} bytes) but carries {len(pixels)}"
         )
     return Preview("nv12", width, height, EQUIRECTANGULAR, pixels)
 

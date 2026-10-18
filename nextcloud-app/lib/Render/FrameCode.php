@@ -10,12 +10,11 @@ namespace OCA\Golblick\Render;
  * Each frame's number, drawn into the bottom rows of a stitched copy, so the
  * player can turn the sphere for the frame it is actually drawing.
  *
- * 🔴 Why it's in the pixels: during playback Firefox's frame clock
- * (requestVideoFrameCallback, currentTime) runs a frame ahead of the picture
- * a texture upload gets on 10-46% of renders, and sometimes nine ahead, and
- * its VideoFrame carries no timestamp. Steadying by that clock flickers. The
+ * Why it's in the pixels: during playback Firefox's frame clock runs ahead of
+ * the picture a texture upload gets, so steadying by that clock flickers. The
  * shader reads this code from the same texture it draws, so the two agree in
- * every browser (src/sphere.ts).
+ * every browser (src/sphere.ts). AGENT-NOTES.md, "Video spheres"
+ * (Steadying), has the measurements.
  *
  * The strip is the bottom 16 rows, one macroblock row, which a sphere shrinks
  * to a cap 2 degrees across straight below the camera; the player doesn't

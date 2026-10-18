@@ -46,10 +46,9 @@ final class RemapTables {
 	 *
 	 * Matched to the output's angular density with 15% to spare: a lens circle
 	 * of radius R spans half its field of view, so R / (fov/2) pixels a degree
-	 * against the output's width / 360. On a 10-second OneR clip at 3840 this
-	 * took the fine detail from 4.80 to 3.66 against 4.04 for golblick's own
-	 * bilinear render -- the nearest-pixel excess is aliasing, which shimmers
-	 * in motion -- at the same CPU cost.
+	 * against the output's width / 360. Any finer, and remap's nearest-pixel
+	 * sampling aliases, which shimmers in motion. AGENT-NOTES.md, "Video
+	 * spheres" (Pipeline), has the measurement.
 	 */
 	public static function lensSizeFor(Calibration $calibration, int $nativeLensSize, int $width, ?string $model,
 		bool $guards = false): int {
@@ -132,10 +131,9 @@ final class RemapTables {
 	 * Tables for evening out the lenses, frame by frame, inside ffmpeg.
 	 *
 	 * The camera leaves a video's lenses unmatched, and not by a single factor:
-	 * on an X3 clip lens 1 read 1.2 to 1.4 times lens 0 along the sky and 0.85
-	 * to 1.03 along the ground, which is glare from the sun on one lens added
-	 * to the picture, not exposure. So the difference is taken where it shows,
-	 * along the seam, and spread from there:
+	 * glare from the sun on one lens is added to the picture, so a gain would
+	 * be wrong (AGENT-NOTES.md, "Lens balance, per frame"). The difference is
+	 * taken where it shows, along the seam, and spread from there:
 	 *
 	 * - s0x, s0y, s1x, s1y remap each lens into a strip that runs once round
 	 *   the seam (STRIP_AROUND) and across the band both lenses see
@@ -150,8 +148,8 @@ final class RemapTables {
 	 * of it at the seam to none BALANCE_REACH degrees in. That is applied once,
 	 * to the blended frame: (1 - s)(a + h) + s(b - h) is the plain blend plus
 	 * (1 - 2s)h, where s is the mask's share for lens 1, so the weight here is
-	 * fade * (1 - 2s), from -1 to 1. One full-size pass instead of one per lens
-	 * took a 3840 render from 1.72 GB to 1.47 GB, and looks the same. It is a row of a ladder ffmpeg builds from the
+	 * fade * (1 - 2s), from -1 to 1: one full-size pass instead of one per lens,
+	 * which saves memory. It is a row of a ladder ffmpeg builds from the
 	 * difference (geq), row j carrying 2j / (LADDER - 1) - 1 of it; the field
 	 * is upscaled bilinearly, which smooths the rungs.
 	 */

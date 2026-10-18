@@ -14,11 +14,11 @@ use OCP\IConfig;
 /**
  * Stitched copies of Insta360 videos, one per file version and width.
  *
- * ⚠️ A plain directory in the app's data folder, not IAppData. ffmpeg writes
+ * A plain directory in the app's data folder, not IAppData. ffmpeg writes
  * the file itself, which needs a real path, and playback seeks by byte range,
  * which needs a seekable local file; a stitched copy is hundreds of megabytes,
  * too much to pass through the storage layer in either direction. So this
- * needs the data directory on local disk, which isRendering() checks (an
+ * needs the data directory on local disk, which isUsable() checks (an
  * object store as primary storage has no such directory). Nextcloud's file
  * cache doesn't know about these files, and nothing here relies on it.
  *
@@ -143,10 +143,10 @@ final class VideoStore {
 	}
 
 	/**
-	 * Marks copies stitched with the sensor crop applied to the lens geometry
-	 * (0.7, Calibration::forVideo): every earlier copy had the lenses up to
-	 * 5.3% too small, so each clip is stitched again. Until it is, the old copy
-	 * keeps playing (ready()), and the new one replaces it when it's done.
+	 * Bump to stitch every clip again after a change to the geometry. Until a
+	 * clip is remade, the old copy keeps playing (ready()). '-c' marks the
+	 * sensor crop (Calibration::forVideo); AGENT-NOTES.md, "Video spheres"
+	 * (Re-stitching after a geometry change).
 	 */
 	public const VERSION = '-c';
 
@@ -247,8 +247,8 @@ final class VideoStore {
 	public function clear(?string $keep = null): int {
 		$removed = 0;
 		foreach (glob(($this->root() ?? '/nonexistent') . '/*') ?: [] as $path) {
-			// The GPU worker's heartbeat isn't a video: deleting it made the
-			// settings page say no worker had been seen.
+			// Keep the GPU worker's heartbeat: without it the settings page
+			// says no worker has been seen.
 			if (($keep !== null && str_starts_with(basename($path), $keep . '.')) || str_ends_with($path, '.beside')
 				|| basename($path) === 'worker.json') {
 				continue;

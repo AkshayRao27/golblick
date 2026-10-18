@@ -16,8 +16,8 @@ the image, the calibration, the inertial record and the preview are left
 byte for byte as the camera wrote them, and a render of the copy matches a
 render of the original.
 
-🔴 **Then it checks its own work and refuses rather than hand back a copy that
-still leaks.** Every identifier collected from the original -- the serial,
+Then it checks its own work, and refuses rather than hand back a copy that
+still leaks.  Every identifier collected from the original -- the serial,
 each form of the date, the coordinates -- is searched for in the whole copy,
 not just where it was expected to be.  The undecoded records ``0x0900`` and
 ``0x0b00`` are left alone; neither the serial nor the coordinates were found
@@ -95,8 +95,7 @@ def _verify(data: bytearray, secrets: list[bytes], stamps: set[str]) -> None:
     """Refuse if anything collected from the original is still in the copy."""
     for secret in secrets:
         if secret and secret in data:
-            raise FormatError("the copy still contains the serial number or the location; "
-                              "refusing to write it")
+            raise FormatError("the copy still contains the serial number or the location; refusing to write it")
     for stamp in stamps:
         if len(stamp) < 8 or not stamp.strip("0"):
             continue
@@ -105,8 +104,7 @@ def _verify(data: bytearray, secrets: list[bytes], stamps: set[str]) -> None:
                  f"{day[:4]}-{day[4:6]}-{day[6:8]}"}
         for form in forms:
             if len(form) >= 8 and form.encode() in data:
-                raise FormatError(f"the copy still contains the date the photo was taken "
-                                  f"(as {len(form)} characters); refusing to write it")
+                raise FormatError(f"the copy still contains the date the photo was taken (as {len(form)} characters); refusing to write it")
     # The EXIF GPS block must now be empty: scrubbing a copy again finds no entries.
     again = scrub_jpeg(bytearray(data), 0)
     if any(item.startswith("GPS (") and item != "GPS (0 entries)" for item in again):

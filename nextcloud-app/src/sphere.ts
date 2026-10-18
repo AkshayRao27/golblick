@@ -3,9 +3,8 @@
  *
  * A drag-to-look sphere for one equirectangular image, rendered with three.js.
  *
- * Ported from the panorama viewer this project wrote for Nextcloud Memories
- * (PsPanorama.ts on the feat/panorama-viewer branch), where its geometry was
- * scored in a headless harness. Cut down to complete spheres: a .insp render
+ * A cut-down port of the panorama viewer this project wrote for Nextcloud
+ * Memories (PsPanorama.ts on the feat/panorama-viewer branch): a .insp render
  * always covers the whole sphere, so the crop handling is gone.
  *
  * This module is imported dynamically, so three.js lands in its own chunk and
@@ -38,19 +37,21 @@ import {
  */
 export type Motion = { period: number; frames: number; q: Int16Array; turn: Int16Array };
 
-/** Rows of the track texture: 4096 frames a row, under every GPU's size limit. */
+/** Rows of the track texture: 4096 frames a row. WebGL2 only promises 2048, though desktop GPUs allow 4096 or more. */
 const TRACK_WIDTH = 4096;
 
 /**
- * 🔴 The copies carry each frame's number in their bottom 16 rows
+ * The copies carry each frame's number in their bottom 16 rows
  * (lib/Render/FrameCode.php): 19 bits and a flag for a copy whose steadying is
  * already baked in (worker/steady.cl), each cell next to its complement. The
  * vertex shader reads it from the same texture the fragment shader draws, so
- * the sphere turns for the frame on screen. The browser's clock can't be
- * trusted for that: in Firefox it runs a frame ahead of the drawn picture on
- * 10-46% of renders, and steadying by it flickered. A frame whose pairs don't
- * read as complements carries no code (an older copy, someone else's MP4) and
- * isn't turned.
+ * the sphere turns for the frame on screen. A frame whose pairs don't read as
+ * complements carries no code (an older copy, someone else's MP4) and isn't
+ * turned.
+ *
+ * Never steady by the browser's clock (currentTime, requestVideoFrameCallback):
+ * Firefox runs it ahead of the drawn frame, and the sphere flickers.
+ * AGENT-NOTES.md, "Video spheres", has the measurements.
  */
 const CODE_VERTEX_HEAD = `
 uniform sampler2D uCode;
@@ -152,11 +153,10 @@ export class SphereView {
     const scene = new Scene();
     const camera = new PerspectiveCamera(this.fov, 1, 0.1, 1000);
 
-    // 🔴 MIRROR. Rendering a sphere's back faces from inside shows the texture
-    // through the surface, flipped left to right: invisible on scenery and
-    // obvious the moment a sign is in shot. Scaling x by -1 turns the sphere
-    // inside out instead, and the -90° phi start puts the middle column of the
-    // image at longitude 0, which the inversion would otherwise move.
+    // Don't render back faces from inside instead: that shows the texture
+    // mirrored, which is only obvious on text. Scaling x by -1 turns the sphere
+    // inside out, and the -90° phi start puts the middle column of the image at
+    // longitude 0, which the inversion would otherwise move.
     const geometry = new SphereGeometry(100, 64, 48, -Math.PI / 2);
     geometry.scale(-1, 1, 1);
     const material = new MeshBasicMaterial({ map: texture });
@@ -306,9 +306,9 @@ export class SphereView {
 
     /**
      * Degrees per pixel of drag at the centre of the view, so whatever is
-     * under the pointer stays under it. three's fov is the vertical one, so
-     * the focal length in pixels depends on the height alone. A constant here
-     * measured 0.34x the finger in a 400 px viewer and 0.77x at 900 px.
+     * under the pointer stays under it; a constant can't do that at every
+     * viewer size. three's fov is the vertical one, so the focal length in
+     * pixels depends on the height alone.
      */
     const degreesPerPixel = () => {
       const focal = (el.clientHeight || 1) / 2 / Math.tan((this.fov * Math.PI) / 360);
@@ -500,7 +500,6 @@ export class SphereView {
     this.invalidate?.();
   }
 
-  /** Draw once more, e.g. when a paused video has shown a new frame after a seek. */
   /**
    * Where the view looks, in the panorama's own terms, degrees: longitude from
    * the middle column, rising to the right, latitude up from the horizon, and
@@ -520,6 +519,7 @@ export class SphereView {
     this.invalidate?.();
   }
 
+  /** Draw once more, e.g. when a paused video has shown a new frame after a seek. */
   public redraw() {
     this.invalidate?.();
   }

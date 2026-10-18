@@ -41,9 +41,8 @@ def burst(path: Path) -> str | None:
     consecutive sequence numbers.  They are one press of the shutter: the frames
     differ in exposure and are taken within about a second of each other.
 
-    ⚠️ Only meaningful **within a directory**, for the same reason the module
-    docstring gives about sequence numbers.  Two shoots on different days cannot
-    collide, but the guarantee is per directory and callers should not widen it.
+    Only meaningful within a directory, for the same reason the module
+    docstring gives about sequence numbers; callers should not widen it.
     """
     match = _NAME.match(path.name)
     return match["stamp"] if match else None

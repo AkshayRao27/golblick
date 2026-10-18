@@ -50,8 +50,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
     print(f"{args.file}")
     print(f"  vendor      {vendor.NAME}")
-    print(f"  trailer     version {trailer.version}, {_human(trailer.size)} "
-          f"at offset {trailer.offset}, pad {trailer.pad}")
+    print(f"  trailer     version {trailer.version}, {_human(trailer.size)} at offset {trailer.offset}, pad {trailer.pad}")
     print(f"  records     {len(trailer.records)}")
     for record in trailer.records:
         mark = "  (unrecognised)" if record.name.startswith("unknown_") else ""
@@ -76,9 +75,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         if info["dimensions"]:
             scale = f", scale x{model.scale_for(info['dimensions'][0]):.6f}"
         reference = model.reference_frame
-        print(f"    field {field_number:<4} {model.kind:<13} "
-              f"{model.lens_count} lenses x {len(model.lenses[0])} params"
-              f", reference {reference[0]}x{reference[1]}{scale}")
+        print(f"    field {field_number:<4} {model.kind:<13} {model.lens_count} lenses x {len(model.lenses[0])} params, reference {reference[0]}x{reference[1]}{scale}")
         if args.verbose:
             for index, lens in enumerate(model.lenses):
                 print(f"        lens {index}: {' '.join(f'{value:g}' for value in lens)}")
@@ -344,8 +341,7 @@ def _levelling(render, vendor, path: str, calibration, mode: str):
         note = "asked for"
     return (
         render.body_orientation(calibration),
-        f"roll {calibration.body_roll:+.2f} degrees from the calibration "
-        f"-- the sensor mounting, not how the camera was held ({note})",
+        f"roll {calibration.body_roll:+.2f} degrees from the calibration -- the sensor mounting, not how the camera was held ({note})",
     )
 
 
@@ -440,8 +436,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         model = calibrations[number]
         reference = model.reference_frame
         label = "calibration" if index == 0 else ""
-        add(f"{label:<12} field {number} {model.kind}, {model.lens_count} lenses x "
-            f"{len(model.lenses[0])} params, reference {reference[0]}x{reference[1]}")
+        add(f"{label:<12} field {number} {model.kind}, {model.lens_count} lenses x {len(model.lenses[0])} params, reference {reference[0]}x{reference[1]}")
 
     if profile_error is not None:
         add(f"{'lens':<12} failed: {type(profile_error).__name__}: {clean(profile_error)}")
@@ -451,8 +446,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         correction = f", radial correction ({len(profile.radial)} terms)" if profile.radial else ""
         guards = (f", divided by {profile.guard_factor:g} with lens guards"
                   if profile.guard_factor else "")
-        add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees"
-            f"{guards}{correction}")
+        add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees{guards}{correction}")
 
     if is_video:
         _report_video(vendor, path, add, step)
@@ -567,8 +561,7 @@ def _sniff(path: Path) -> str:
     of zeros.  All 88 in one library walked to the exact end of the file.
     """
     if _mp4_complete(path):
-        return ("a complete MP4 with no camera data after it; "
-                "a clip recorded as two files keeps it in the other one")
+        return "a complete MP4 with no camera data after it; a clip recorded as two files keeps it in the other one"
     with path.open("rb") as handle:
         head = handle.read(3)
         handle.seek(0, 2)
@@ -625,12 +618,9 @@ def _print_report(lines: list[str], info: dict | None, recognised: bool, tested:
         "where": "Command-line tool",
     })
     if problem:
-        intro = (f"If something is wrong with this {kind}, open this link to report it. It fills in "
-                 "a GitHub issue with the report; you add what's wrong.")
+        intro = f"If something is wrong with this {kind}, open this link to report it. It fills in a GitHub issue with the report; you add what's wrong."
     else:
-        intro = ("golblick hasn't been tested with this camera. A report helps whether the result "
-                 "looks right or not: open this link, which fills in a GitHub issue with the report, "
-                 "and add how it looks.")
+        intro = "golblick hasn't been tested with this camera. A report helps whether the result looks right or not: open this link, which fills in a GitHub issue with the report, and add how it looks."
     print(f"\n{intro}\n{_ISSUE_FORM}?{query}", file=sys.stderr)
     return 0
 
@@ -642,9 +632,8 @@ class _NoStitch(GolblickError):
 def _level_to_stitch(render, vendor, path: str, image, lenses, field_of_view, start):
     """Level against the panorama the camera stitched and levelled itself, where there is one.
 
-    🔴 Preferred over the inertial record whenever it exists, because it is
-    ground truth and the record is not: an X5 that logged 13 seconds of being
-    turned over rendered upside down from the record's median.  It also makes
+    Preferred over the inertial record whenever it exists, because it is
+    ground truth and a long record's median can be badly wrong.  It also makes
     the result face the way the camera's own panorama does.  On the cameras
     measured so far only the X5 embeds a stitch.
     """
@@ -684,8 +673,7 @@ def _require_render_extra() -> None:
             missing.append(name)
     if missing:
         raise MissingDependency(
-            f"rendering needs {' and '.join(missing)}, which the 'render' extra "
-            f"installs: pip install 'golblick[render]'"
+            f"rendering needs {' and '.join(missing)}, which the 'render' extra installs: pip install 'golblick[render]'"
         )
 
 
@@ -827,9 +815,7 @@ def cmd_stabilise(args: argparse.Namespace) -> int:
 
     output = _output_path(args, ".stabilise.json")
     output.write_text(json.dumps({
-        "about": "Per video frame, the rotation (w, x, y, z) from the frame as rendered at "
-                 "`reference` (the opening's level) to the steadied view. Column convention, "
-                 "in golblick's render frame: y up, z forward.",
+        "about": "Per video frame, the rotation (w, x, y, z) from the frame as rendered at `reference` (the opening's level) to the steadied view. Column convention, in golblick's render frame: y up, z forward.",
         "direction": "locked" if args.lock else "follows the camera's turns",
         "reference": [list(row) for row in reference],
         "frame_times": [round(t, 6) for t in motion.frame_times],
@@ -862,14 +848,12 @@ def _open(args: argparse.Namespace, desktop) -> int:
         raise UnsupportedFile(f"{path}: no such file")
     _require_vendor(str(path))
     if _is_mp4(path):
-        raise UnsupportedFile(f"{path.name}: open shows photos only so far; "
-                              "render a video with 'golblick render'")
+        raise UnsupportedFile(f"{path.name}: open shows photos only so far; render a video with 'golblick render'")
     try:
         from . import viewer
     except ImportError as exc:
         raise MissingDependency(
-            "the viewer window needs PySide6, which the 'desktop' extra installs: "
-            "pip install 'golblick[desktop]'") from exc
+            "the viewer window needs PySide6, which the 'desktop' extra installs: pip install 'golblick[desktop]'") from exc
     return viewer.run(path)
 
 
@@ -945,46 +929,32 @@ def build_parser() -> argparse.ArgumentParser:
     pano = sub.add_parser(
         "render",
         help="project the lens pair into a viewable equirectangular panorama, or stitch a whole video",
-        description="Needs the 'render' extra: pip install golblick[render]. A video is stitched "
-                    "whole into a 360 MP4, steadied, which also needs ffmpeg; give -o a .jpg or .png "
-                    "to render only its opening frame.",
+        description="Needs the 'render' extra: pip install golblick[render]. A video is stitched whole into a 360 MP4, steadied, which also needs ffmpeg; give -o a .jpg or .png to render only its opening frame.",
     )
     pano.add_argument("file")
     pano.add_argument("-o", "--output", help="output path; .png writes PNG, anything else JPEG")
     pano.add_argument("-w", "--width", type=int, default=None,
-                      help="output width in pixels; height is half (default: 4096 for a photo, "
-                           "2880 for a video)")
+                      help="output width in pixels; height is half (default: 4096 for a photo, 2880 for a video)")
     pano.add_argument("-q", "--quality", type=int, default=92,
                       help="JPEG quality (default: %(default)s)")
     pano.add_argument("-f", "--field-of-view", type=float, default=None,
-                      help="full angle each lens sees, in degrees. Not carried in the file; "
-                           "defaults to the camera's measured value (194 on a OneR, 192 on an "
-                           "X3, 197.5 on an X5, less with lens guards), or 194 for a camera "
-                           "nobody has measured")
+                      help="full angle each lens sees, in degrees. Not carried in the file; defaults to the camera's measured value (194 on a OneR, 192 on an X3, 197.5 on an X5, less with lens guards), or 194 for a camera nobody has measured")
     pano.add_argument("--lens-guards", choices=("auto", "on", "off"), default="auto",
-                      help="whether clip-on lens guards were fitted, which narrows the field "
-                           "of view (X5 only so far). auto decides from how well the two lenses "
-                           "agree, and assumes none when it cannot tell (default: %(default)s)")
+                      help="whether clip-on lens guards were fitted, which narrows the field of view (X5 only so far). auto decides from how well the two lenses agree, and assumes none when it cannot tell (default: %(default)s)")
     pano.add_argument("--level", choices=("auto", "stitch", "imu", "calibration", "none"),
                       default="auto",
-                      help="auto aligns to the camera's own levelled stitch where the file "
-                           "has one (X5), else uses the inertial record, else the "
-                           "calibration; stitch, imu and calibration force one and fail "
-                           "rather than fall back (default: %(default)s)")
+                      help="auto aligns to the camera's own levelled stitch where the file has one (X5), else uses the inertial record, else the calibration; stitch, imu and calibration force one and fail rather than fall back (default: %(default)s)")
     pano.add_argument("--no-steady", action="store_true",
                       help="video: stitch without steadying, levelled at the start only")
     pano.add_argument("--lock", action="store_true",
-                      help="video: keep the direction the clip opens in instead of following "
-                           "the camera's turns, like Insta360 Studio's Direction Lock")
+                      help="video: keep the direction the clip opens in instead of following the camera's turns, like Insta360 Studio's Direction Lock")
     pano.add_argument("--jobs", type=int, default=None,
-                      help="video: processes making the per-frame tables (default: every core "
-                           "but one, fewer if memory is short)")
+                      help="video: processes making the per-frame tables (default: every core but one, fewer if memory is short)")
     pano.set_defaults(func=cmd_render)
 
     report = sub.add_parser(
         "report",
-        help="summarise a file for a GitHub issue (a problem with a photo, or an untested "
-             "camera), without its name, folder or serial number",
+        help="summarise a file for a GitHub issue (a problem with a photo, or an untested camera), without its name, folder or serial number",
     )
     report.add_argument("file")
     report.set_defaults(func=cmd_report)
@@ -1011,8 +981,7 @@ def build_parser() -> argparse.ArgumentParser:
     view = sub.add_parser(
         "open",
         help="show a photo as a sphere in a viewer window",
-        description="Shows the photo as a sphere to look around in, projected by the GPU as it's drawn. "
-                    "Needs the 'desktop' extra.",
+        description="Shows the photo as a sphere to look around in, projected by the GPU as it's drawn. Needs the 'desktop' extra.",
     )
     view.add_argument("file")
     view.set_defaults(func=cmd_open)
@@ -1020,9 +989,7 @@ def build_parser() -> argparse.ArgumentParser:
     integrate = sub.add_parser(
         "desktop",
         help="make double-clicking a .insp open it as a sphere",
-        description="Registers .insp as its own file type (a kind of JPEG, so image viewers still open it) "
-                    "and makes 'golblick open' its default application, for this user only. "
-                    "'uninstall' undoes it.",
+        description="Registers .insp as its own file type (a kind of JPEG, so image viewers still open it) and makes 'golblick open' its default application, for this user only. 'uninstall' undoes it.",
     )
     integrate.add_argument("action", choices=("install", "uninstall"))
     integrate.add_argument("--executable", help="the golblick command to run (default: this one)")

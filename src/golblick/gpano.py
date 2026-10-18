@@ -23,7 +23,8 @@ The **pose** fields are not, and that is a deliberate refusal rather than an
 omission.  ``PoseHeadingDegrees`` would state which compass direction the
 centre of the image faces; nothing in the container fixes that.  Yaw against an
 X5's own stitch is a constant 180.3 degrees, which is a frame convention and
-not a bearing, and a camera that embeds no stitch fixes the yaw not at all.
+not a bearing, and turning a render to face the camera's forward
+(``render.face``) is likewise relative to the camera, not the compass.
 ``PosePitchDegrees`` and ``PoseRollDegrees`` would assert the panorama is
 level, which is only true to the extent the levelling worked -- and
 ``body_orientation`` corrects the sensor mounting, not the camera's attitude.
@@ -91,8 +92,7 @@ def packet(
 
     if full_width < width + left or full_height < height + top:
         raise GPanoError(
-            f"crop {width}x{height} at ({left},{top}) does not fit inside "
-            f"{full_width}x{full_height}"
+            f"crop {width}x{height} at ({left},{top}) does not fit inside {full_width}x{full_height}"
         )
     if left < 0 or top < 0:
         raise GPanoError(f"crop origin ({left},{top}) is negative")
@@ -143,8 +143,7 @@ def jpeg_segment(xmp: bytes) -> bytes:
     payload = JPEG_IDENTIFIER + xmp
     if len(payload) > _MAX_SEGMENT:
         raise GPanoError(
-            f"XMP packet is {len(payload)} bytes; a JPEG segment holds {_MAX_SEGMENT}. "
-            f"Writing it would need the XMP extension mechanism, which is not implemented"
+            f"XMP packet is {len(payload)} bytes; a JPEG segment holds {_MAX_SEGMENT}. Writing it would need the XMP extension mechanism, which is not implemented"
         )
     return b"\xff\xe1" + struct.pack(">H", len(payload) + 2) + payload
 
@@ -187,7 +186,7 @@ def embed_jpeg(jpeg: bytes, xmp: bytes) -> bytes:
 def png_chunk(xmp: bytes) -> bytes:
     """Wrap an XMP packet as an uncompressed PNG ``iTXt`` chunk.
 
-    ⚠️ PNG is the lossless option, not the compatible one. GPano is specified
+    PNG is the lossless option, not the compatible one. GPano is specified
     against JPEG, and viewers that read it from a PNG are the exception rather
     than the rule -- ``exiftool`` does, many web viewers do not. Prefer JPEG
     when the output is meant to be opened by something else.

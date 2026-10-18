@@ -580,6 +580,47 @@ A wrong rotation convention drops this to about **+0.02**, so it discriminates s
 
 ⚠️ It is also not a sharpness measure: it rewards the hemispheres agreeing, and says nothing about parallax at the seam, which no calibration fixes.
 
+🔴 **It can't rank files by stitch quality.** A correlation over the band is dominated by large-scale brightness. Over a 1,432-file corpus the highest score, 0.985, is a visibly misregistered frame of sky against trees, the lowest, 0.096, is a blank white room that stitches cleanly, and a file verified against the vendor's own export sits below the median. It separates a correct projection from a wrong convention (0.75–0.90 against 0.02, one file at a time) and nothing finer.
+
+## Stitching the seam
+
+What the hand-over in `render.equirectangular`, `render.plan_seam` and `render.remap_tables` is based on. "Disagreement" is the mean grey difference between the two lenses near the seam; the Nextcloud app runs the same algorithms.
+
+### Blend weights
+
+🔴 **Cross-fade on how far each lens is from the best-placed lens, not on how far it is from its own rim.** With a 194° lens a rim taper only starts at 92°, so both lenses carry full weight across the middle of the 14° overlap. The first weighting did that, and 17.9% of every sphere came out a 50/50 average of two views separated by parallax: you could see the scene through a person standing near the seam, and the mix stayed visible for about 12° whatever the feather was set to. Narrowing the feather makes it worse, because it widens the plateau where both weights saturate. Weighted against the closest lens, objects near the seam are cut rather than made transparent, which is the trade the vendor's own stitcher makes. Overlap agreement can't see the difference, because it is blindest exactly where the lenses are averaged; `test_render` catches it by painting one lens red and the other blue. The rim taper stays as well, and only matters where a lens has no partner.
+
+### Cross-fade width
+
+`min(3°, max(1.5°, 4 output rows))`. It has to be a few pixels wide so the hand-over doesn't alias into a stair-step at small sizes (1° is 1.4 rows of a 256-row preview), and a wide blend drags back the content a routed seam went round. It also needs a minimum angle, because hiding the brightness step between the lenses is a question of angle, not pixels: a width in pixels alone came to 0.35° at 4096 wide and the seam showed as a hard line. Gradient at the seam over the gradient just outside it, nine frames: 1.16 at 0.35°, 1.11 at 0.70°, 1.01 at 1.5°, which still keeps 17% of the routing gain. Above 2° routing stops paying at all.
+
+### Routing the seam
+
+With two lenses the hand-over can follow a path instead of the bisector: parametrise it by `d = θ₀ − θ₁` against the azimuth about the lens axis, and put it where the lenses already agree, so a near subject is walked round instead of cut through. Median 25% less disagreement across nine frames, 10% to 57%.
+
+| Choice | Measured |
+|---|---|
+| Route only at 2048 wide or more | a grid built at 2048 helps all nine frames and is never worse than +7%; at 1024 one frame loses 25%, at 512 two lose up to 30%. The cost has many near-equal paths, and a thin grid picks one by noise |
+| A 256 × 48 grid | 512 × 64 scores 28% and 192 × 32 25%. The PHP port decides from a small probe render, and at 512 × 64 it saw about 0.5 samples per bin and declined |
+| Cost averaged over the cross-fade's width, not one row | otherwise the path dodges a near object and the blend drags it back; on the first frame tried that made routing look worthless (16.86 → 17.51) |
+| A closed, connected path | the azimuth wraps, and a seam that jumps is a tear. Per-column minima jump up to 62 of 64 rows between neighbours, which is what limits the gain |
+| Two passes (free start, then pinned to where it landed) | against the exact cyclic answer on five frames: 0.0% median, 3.9% worst. The exact version needs a back-pointer table per start, which the PHP port can't afford |
+
+🔴 **The decline needs a margin and a floor.** The first guard asked only whether the routed path was cheaper than the straight one, which can never fail: the search minimises over connected paths and the bisector is one of them. A featureless scene then got a seam that wandered after noise. Now the straight seam stays unless the lenses disagree by at least 2 grey levels along it and the route cuts that by 10%; `test_render` checks the decline fires.
+
+### Aiming the lenses at a parallax (video)
+
+A video gets one plan per clip, because its tables are written once. `plan_seam` first picks a parallax per azimuth, aiming both lenses along the field 53 baseline (see "Field 53 says where the two lenses sit"), then routes the cut round what still disagrees, which also moves it off a flare only one lens has. Each guard came from an artefact the disagreement score couldn't see:
+
+- Any jump between parallax levels is allowed, because distance is discontinuous at the edge of a near subject. A path limited to one level per column leaked near parallax 17° either side of one and bent the far scene there.
+- Only a minimum inside the searched range counts. A column still improving at the largest parallax has its subject in the blind zone, and the warp there bent a glove into a swirl.
+- Runs narrower than 8 columns (about 11°) are removed. Sliding one lens 9° laid its sun flare over the other lens's sun, halved the disagreement and sheared the sky into a swirl.
+- Chosen on every other frame, checked on the rest, and declined unless it clears the routing margin there. Checked on the frames it was chosen on, a plan always looks good: a clip filmed from a stand, with people walking past, passed that check and did worse than the bisector on a third of the frames it hadn't seen. On held-out frames of a clip with the holder near the seam: 19% less disagreement than the bisector, never worse on any frame.
+
+### Sampling
+
+Bilinear, because the projection lands between source pixels everywhere. Scored against a 3× render box-downsampled to the target size, the RMSE at 2048 wide falls from 5.28 (nearest-neighbour) to 3.26, 62% of what quadrupling the pixel count buys. ⚠️ Don't score this with high-frequency energy: nearest-neighbour adds high frequencies, because its jaggies are aliasing, so that metric rewards the worse sampler.
+
 ## Levelling
 
 A projection built from the calibration is correct and **arbitrarily oriented**, because the calibration fixes the lenses relative to each other, not relative to the world. Three routes put the horizon where it belongs, and they answer different questions.
@@ -595,6 +636,8 @@ Route 0 is partial and reaches everything; route 2 is the accurate one and now r
 ⚠️ Superseded: that 404 predates both the X3's measured mapping and burst borrowing. Measured over 1,438 stills, **1,432** are levelled, 1,384 of them from gravity (417 from their own record, 967 from another frame of the same shutter press) and 48 from an on-device stitch. The 6 that are not carry no trailer.
 
 🔴 **The 965 files with no inertial record cannot be levelled, and that is a property of the files rather than a gap in this reader.** Insta360's own Studio, given the same files, produces an export that agrees with route 0 alone to **0.8°** (p90 0.9°, n=7), so it is not levelling them either. Nothing further is recoverable from a still that carries no `0x0300`.
+
+⚠️ Superseded: those files can be levelled from another frame of the same shutter press. See [Borrowing the record from the same shutter press](#borrowing-the-record-from-the-same-shutter-press).
 
 ### Route 0 — the sensor mounting angle, from the calibration alone
 
@@ -667,6 +710,14 @@ up_render = (+a_z, −a_x, +a_y)          # Insta360 X5, video
 
 It is the still map turned 180° about the vertical, and the yaw that fits each video to its stitch is 0° (within 4°) on all 44, where X5 stills need 180°: the same half turn, seen in the heading. Which of the two (the inertial frame, or which stream holds which calibrated lens) the half turn belongs to is not established; lens agreement cannot tell, because swapping the lenses is a rotation and it is blind to rotations. The window was then varied: the first 1,000 to 3,000 samples score 3.4–3.7° median, 25 to 300 score 4.3–6.8°, so a window of that size is also the best of those tried for a video's opening frame. OneR and X3 videos keep their still maps, which level frame 0 to within 1.0–3.4° of Insta360 Studio's export on five clips. `imu.is_video` decides by content (`ftyp` at byte 4).
 
+### Borrowing the record from the same shutter press
+
+965 of 1,438 stills in one library carry no inertial record, all OneR. Every one of them sits in a burst or HDR bracket where another frame carries one, and the record is identical between those frames, not merely similar: on the 13 capture instants that carry three records each, the gravity vectors agree to 0.00° (max 0.00°) over 36 frames. The camera takes one reading per shutter press and writes it to some frames and not others.
+
+So `imu.gravity_up_nearby` borrows the bytes from a sibling with the same timestamp in the same directory, sorted so two runs pick the same donor. Scored against Studio's exports on 291 frames that carry no record: 1.09° median, p90 1.94°, 98% within 5°, against 10.43° and 52.99° for the mounting angle alone.
+
+⚠️ This contradicts the 🔴 paragraph under [Levelling](#levelling), which found Studio's exports of files with no record agreeing with the mounting angle alone (n=7). The 291-frame comparison is the later and larger one; the two were not reconciled.
+
 ### Measuring the mapping without a levelled reference
 
 Only the X5 embeds a stitch, so for every other camera there is nothing to score a candidate mapping against. What there is instead is *a lot of files*: over hundreds of handheld shots the camera is upright **on average**, so the signed permutation that carries the population's median reading to vertical is the mapping.
@@ -706,6 +757,8 @@ Measured over 358 stills, rendered through this library and compared to the expo
 | 20-byte | 61.5° | **1.0°** | 2.4° | 100% |
 
 Both encodings pick the same map independently, over **every** OneR still in the library that carries an inertial record: 379 files, not a sample.
+
+The code's comment on this map recorded a second set of figures for the same comparison (old map, this map, p90, within 5°): 56-byte 9.6°, 1.16°, 3.4°, 92% (285 files); 20-byte 42.9°, 1.06°, 2.4°, 100% (94 files). Which run each table came from is not recorded; they agree on the map.
 
 The **X5 is the control**, twice over. Its map was measured directly against its own stitch long before any of this, and running the same search against Studio returns that same map, with the runner-up 4.5° away: the search changes a map only where the map is wrong.
 

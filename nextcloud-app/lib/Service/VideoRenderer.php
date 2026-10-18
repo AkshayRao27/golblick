@@ -68,9 +68,9 @@ final class VideoRenderer {
 	private const GUARD_PROBE_SIZE = 1440;
 
 	/**
-	 * Frames, and the lens size, the seam plan is chosen and checked on. In
-	 * the library 720 chose the same plans as 1440 on three clips; eight
-	 * frames gives four to choose on and four to check against. About 5 s.
+	 * Frames, and the lens size, the seam plan is chosen and checked on: four
+	 * frames to choose on and four to check against. 720 chose the same plans
+	 * as 1440 in the library.
 	 */
 	private const SEAM_PROBE_FRAMES = 8;
 	private const SEAM_PROBE_SIZE = 720;
@@ -148,13 +148,9 @@ final class VideoRenderer {
 			}
 		}
 
-		// 🔴 Memory, not speed, sets these. With ffmpeg's defaults (threads from
-		// the host's core count) a render peaked at 4 GB and was killed on a
-		// 3 GB container, and a production AIO box has 4 GB for everything.
-		// One decoder thread per lens, sliced x264 threads and no lookahead:
-		// 0.94 GB at 2880 wide and 1.47 GB at 3840, measured on a OneR clip, of
-		// which the lens balance is 0.2 GB; the rest is the frame size itself,
-		// and fewer threads didn't move it.
+		// Memory, not speed, sets the thread counts: with ffmpeg's defaults a
+		// render peaked at 4 GB, and an AIO host may have 4 GB for everything.
+		// Measurements in AGENT-NOTES.md, "Video spheres" (Pipeline).
 		$command = [$ffmpeg, '-nostdin', '-v', 'error', '-y'];
 		foreach ($inputs as $input) {
 			array_push($command, '-threads', '1', '-i', $input);
@@ -203,24 +199,19 @@ final class VideoRenderer {
 	 * The filters that even the lenses out, frame by frame: from the lens
 	 * streams [s0] and [s1], a [correction] to add to the blended frame,
 	 * centred on 128 (blend's grain modes); RemapTables::writeBalance has the
-	 * reasoning and the tables.
-	 *
-	 * Measured on four clips: on an X3 clip whose sun glare put lens 1 up to
-	 * 40 levels above lens 0 along the sky, the step at the seam all but went;
-	 * an X5's 5 to 7% barely needed it.
+	 * reasoning and the tables, AGENT-NOTES.md ("Lens balance, per frame") the
+	 * measurements.
 	 *
 	 * - The difference, lens 1 minus lens 0, along the seam strip, with any
 	 *   pixel near white in either lens counted as no difference: where glare
-	 *   has washed a lens out there is nothing to match, and chasing it put a
-	 *   white haze over the trees next to a blown sky.
+	 *   has washed a lens out there is nothing to match.
 	 * - Averaged across the strip, then blurred round the circle, about ten
 	 *   degrees, twice. The strip is tiled three wide first so the blur wraps.
 	 *   avgblur, not gblur: gblur returns black on an image one pixel high.
 	 * - Averaged over nine frames, so a person walking past the seam moves it
-	 *   slowly: on a clip with people and a hand close to the lens it moved
-	 *   under a level a frame at the 99th percentile.
-	 * - Half to each lens, at most 20 levels: a glare offset needed 15 to 20,
-	 *   and anything far bigger is a washed-out lens, not an offset.
+	 *   slowly.
+	 * - Half to each lens, at most 20 levels: a glare offset needs up to about
+	 *   20, and anything far bigger is a washed-out lens, not an offset.
 	 * - Laid out as a ladder of weights from -1 to 1 (geq; scale can't
 	 *   interpolate between two rows) and spread over the frame through fx and
 	 *   fy, at a quarter of the output size and upscaled.
@@ -359,21 +350,15 @@ final class VideoRenderer {
 	}
 
 	/**
-	 * Delete a replaced copy's versions: they're older renders, worth nothing.
+	 * Delete a replaced copy's versions: they're older renders, worth nothing,
+	 * and with the default retention they stay until versions reach their
+	 * space limit. Don't write past the versions app instead: AGENT-NOTES.md,
+	 * "Video spheres" (Copies next to the clips), says why.
 	 *
-	 * 🔴 Without this the versions app keeps every previous render, and with
-	 * Nextcloud's default retention the last one can stay until versions run
-	 * into their space limit: three re-renders on the dev instance left 400 MB
-	 * of versions beside 145 MB of copies. Writing past the versions app
-	 * (through the storage) was tried first and is worse: its records still
-	 * name the replaced render as a version, with nothing behind it, and the
-	 * preview and Memories never hear of the change. So the copy is written
-	 * normally and its versions deleted through the version manager, which
-	 * has a backend for home folders and one for group folders. Deleting
-	 * checks the current user's permissions and this runs from cron, so it
-	 * acts as the user the job opened the clip as, for the length of the
-	 * call. The version manager belongs to the versions app, not the public
-	 * API; without that app there are no versions to drop.
+	 * Deleting checks the current user's permissions and this runs from cron,
+	 * so it acts as the user the job opened the clip as, for the length of the
+	 * call. IVersionManager belongs to the versions app, not the public API;
+	 * without that app there are no versions to drop.
 	 */
 	private function dropVersions(File $node, ?IUser $user): void {
 		if ($user === null || !interface_exists(IVersionManager::class)) {
