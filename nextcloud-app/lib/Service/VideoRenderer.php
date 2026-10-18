@@ -522,9 +522,10 @@ final class VideoRenderer {
 		[$bare] = LensProfile::for($model, true);
 		[$guarded] = LensProfile::for($model, true, true);
 		$ratios = [];
-		foreach ([0.2, 0.5, 0.8] as $share) {
+		$keyframes = $this->decoder->keyframeTimes($inputs[$lenses[0][0]], $lenses[0][1]);
+		foreach (self::probeTimes([0.2 * $duration, 0.5 * $duration, 0.8 * $duration], $keyframes) as $at) {
 			try {
-				[$lens0, $lens1] = $this->decoder->lensFrames($inputs, $lenses, $share * $duration, self::GUARD_PROBE_SIZE);
+				[$lens0, $lens1] = $this->decoder->lensFrames($inputs, $lenses, $at, self::GUARD_PROBE_SIZE);
 			} catch (FormatError $e) {
 				continue;
 			}
@@ -561,8 +562,12 @@ final class VideoRenderer {
 			return [null, 'bisector'];
 		}
 		$frames = [];
+		$wanted = [];
 		for ($k = 0; $k < self::SEAM_PROBE_FRAMES; ++$k) {
-			$at = $duration * (0.03 + 0.94 * $k / (self::SEAM_PROBE_FRAMES - 1));
+			$wanted[] = $duration * (0.03 + 0.94 * $k / (self::SEAM_PROBE_FRAMES - 1));
+		}
+		$keyframes = $this->decoder->keyframeTimes($inputs[$lenses[0][0]], $lenses[0][1]);
+		foreach (self::probeTimes($wanted, $keyframes) as $at) {
 			try {
 				$frames[] = $this->decoder->lensFrames($inputs, $lenses, $at, self::SEAM_PROBE_SIZE);
 			} catch (FormatError $e) {
@@ -576,6 +581,39 @@ final class VideoRenderer {
 		}
 
 		return [$plan, $plan === null ? 'bisector' : ($plan->parallax !== null ? 'aimed and routed' : 'routed')];
+	}
+
+	/**
+	 * $wanted moved to the nearest keyframe, where that's a frame not already
+	 * taken: video.probe_times() in the library, which has the measurements.
+	 * Planning wants frames spread through the clip, not exact moments, and an
+	 * X5 keyframes every 2 seconds, so an exact moment can mean decoding 60
+	 * full-size frames first. A moment whose nearest keyframe is taken keeps
+	 * its own time.
+	 *
+	 * @param list<float> $wanted
+	 * @param list<float> $keyframes
+	 * @return list<float>
+	 */
+	public static function probeTimes(array $wanted, array $keyframes): array {
+		$taken = [];
+		$out = [];
+		foreach ($wanted as $at) {
+			$nearest = null;
+			foreach ($keyframes as $k) {
+				if ($nearest === null || abs($k - $at) < abs($nearest - $at)) {
+					$nearest = $k;
+				}
+			}
+			if ($nearest !== null && !\in_array($nearest, $taken, true)) {
+				$taken[] = $nearest;
+				$out[] = $nearest;
+			} else {
+				$out[] = $at;
+			}
+		}
+
+		return $out;
 	}
 
 	/** @return array{Calibration, ?string, array, ?array} the last is lens 1's offset from lens 0, if stated */

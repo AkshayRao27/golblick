@@ -104,6 +104,33 @@ final class VideoDecoder {
 	}
 
 	/**
+	 * When the stream has a keyframe, in seconds, from the packet index:
+	 * nothing is decoded. Empty when ffprobe is missing or can't say.
+	 *
+	 * @return list<float>
+	 */
+	public function keyframeTimes(string $path, int $stream): array {
+		$binary = $this->binary();
+		$ffprobe = $binary === null ? null : \dirname($binary) . '/ffprobe';
+		if ($ffprobe === null || !is_executable($ffprobe)) {
+			return [];
+		}
+		$out = [];
+		exec(implode(' ', array_map('escapeshellarg', [$ffprobe, '-v', 'error', '-select_streams', "v:$stream",
+			'-show_entries', 'packet=pts_time,flags', '-of', 'csv=p=0', $path])), $out, $code);
+		$times = [];
+		foreach ($out as $line) {
+			[$stamp, $flags] = array_pad(explode(',', $line, 2), 2, '');
+			if (str_contains($flags, 'K') && is_numeric($stamp)) {
+				$times[] = (float)$stamp;
+			}
+		}
+		sort($times);
+
+		return $times;
+	}
+
+	/**
 	 * One frame of each lens, $at seconds in, scaled to $size square: for
 	 * scoring the lens geometry (VideoRenderer::lensGuards), not for display.
 	 *
@@ -124,7 +151,7 @@ final class VideoDecoder {
 				$output = $this->temporaryFile('.png');
 				$temporary[] = $output;
 				$this->run([$binary, '-v', 'error', '-nostdin', '-y', '-threads', '1',
-					'-ss', \sprintf('%.3f', $at), '-i', $inputs[$input], '-map', "0:v:$stream",
+					'-ss', \sprintf('%.6F', $at), '-i', $inputs[$input], '-map', "0:v:$stream",
 					'-frames:v', '1', '-vf', "scale=$size:$size", '-f', 'image2', '-c:v', 'png', $output]);
 				$image = @imagecreatefrompng($output);
 				if ($image === false) {

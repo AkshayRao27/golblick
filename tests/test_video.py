@@ -189,3 +189,13 @@ def test_a_whole_clip_stitches_to_the_scene_its_lenses_recorded(tmp_path):
     # And a mirror of the scene doesn't pass: the test can tell.
     mirrored = numpy.abs(got - _pattern(rays * numpy.array([-1.0, 1.0, 1.0])))[keep]
     assert mirrored.mean() > 4 * error.mean()
+
+
+def test_planning_frames_move_to_keyframes_but_stay_distinct():
+    keyframes = [0.0, 2.0, 4.0, 6.0]
+
+    assert video.probe_times([0.3, 2.4, 5.1], keyframes) == [0.0, 2.0, 6.0]
+    # Two moments nearest the same keyframe: the second keeps its own time.
+    assert video.probe_times([1.9, 2.1, 6.5], keyframes) == [2.0, 2.1, 6.0]
+    # No index to go by: the moments as asked.
+    assert video.probe_times([1.0, 3.0], []) == [1.0, 3.0]

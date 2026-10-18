@@ -133,6 +133,49 @@ def _probe(ffprobe: str, file: Path) -> dict:
             "duration": float(info.get("format", {}).get("duration") or 0), "created": created}
 
 
+def keyframe_times(clip: Clip) -> list[float]:
+    """When lens 0 has a keyframe, in seconds, from the packet index: nothing is decoded."""
+    _, ffprobe = binaries()
+    file, index = clip.lenses[0]
+    result = subprocess.run(
+        [ffprobe, "-v", "error", "-select_streams", f"v:{index}", "-show_entries", "packet=pts_time,flags",
+         "-of", "csv=p=0", str(file)], capture_output=True, text=True)
+    times = []
+    for line in result.stdout.splitlines():
+        stamp, _, flags = line.partition(",")
+        if "K" in flags:
+            try:
+                times.append(float(stamp))
+            except ValueError:
+                continue
+    return sorted(times)
+
+
+def probe_times(wanted: list[float], keyframes: list[float]) -> list[float]:
+    """``wanted`` moved to the nearest keyframe, where that's a frame not already taken.
+
+    Planning wants frames spread through the clip, not at exact moments, and
+    seeking to a moment means decoding forward from the keyframe before it: an
+    X5 keyframes every 2 seconds, so up to 60 full-size frames for each one
+    asked for, and 60 of an X5 clip's 62 seconds of planning went on that. At
+    a keyframe it is one frame.  Both lenses are read at the same moment
+    either way: the cameras measured keyframe their two streams together, and
+    a seek to a moment is exact even if a stream didn't.  A moment whose
+    nearest keyframe is already taken keeps its own time, so a short clip
+    with few keyframes still gets as many different frames as were asked for.
+    """
+    taken: set[float] = set()
+    out = []
+    for at in wanted:
+        nearest = min(keyframes, key=lambda k: abs(k - at), default=None)
+        if nearest is not None and nearest not in taken:
+            taken.add(nearest)
+            out.append(nearest)
+        else:
+            out.append(at)
+    return out
+
+
 def lens_frames(clip: Clip, at: float, size: int):
     """The lens pair at ``at`` seconds, ``size`` square each, side by side as in a still."""
     numpy = render._numpy()
@@ -140,7 +183,9 @@ def lens_frames(clip: Clip, at: float, size: int):
     halves = []
     for file, index in clip.lenses:
         result = subprocess.run(
-            [ffmpeg, "-v", "error", "-nostdin", "-ss", f"{at:.3f}", "-i", str(file),
+            # One decoder thread: with several, the decoder reads frames ahead
+            # before handing over the first, which tripled the time for one.
+            [ffmpeg, "-v", "error", "-nostdin", "-threads", "1", "-ss", f"{at:.6f}", "-i", str(file),
              "-map", f"0:v:{index}", "-frames:v", "1", "-vf", f"scale={size}:{size}",
              "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
             capture_output=True)
@@ -169,6 +214,13 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
     """Decide the geometry, the seam and the steadying, from the file and a few of its frames."""
     numpy = render._numpy()
     notes = []
+    cached: list[list[float]] = []
+
+    def keyframes() -> list[float]:
+        # Read once, and only if a frame is needed at all.
+        if not cached:
+            cached.append(keyframe_times(clip))
+        return cached[0]
     calibrations = vendor.describe(path)["calibrations"]
     calibration = calibrations.get(5)
     if calibration is None:
@@ -190,9 +242,9 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
             notes.append(f"lens guards    on (--lens-guards on), {guarded:.1f} degrees")
         elif guarded is not None and guards == "auto" and clip.duration > 0:
             images = []
-            for share in GUARD_AT:
+            for at in probe_times([share * clip.duration for share in GUARD_AT], keyframes()):
                 try:
-                    images.append(lens_frames(clip, share * clip.duration, GUARD_SIZE))
+                    images.append(lens_frames(clip, at, GUARD_SIZE))
                 except FormatError:
                     continue
             probe = render.lenses_from_calibration(calibration, 2 * GUARD_SIZE, radial)
@@ -213,8 +265,8 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
     seam, how = None, "bisector"
     if clip.duration > 0:
         images = []
-        for k in range(SEAM_FRAMES):
-            at = clip.duration * (0.03 + 0.94 * k / (SEAM_FRAMES - 1))
+        wanted = [clip.duration * (0.03 + 0.94 * k / (SEAM_FRAMES - 1)) for k in range(SEAM_FRAMES)]
+        for at in probe_times(wanted, keyframes()):
             try:
                 images.append(lens_frames(clip, at, SEAM_SIZE))
             except FormatError:
