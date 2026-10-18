@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import imaging, triage
 from .errors import FormatError, GolblickError, MissingDependency, ThumbnailError, UnsupportedFile
-from .vendors import VENDORS, detect
+from .vendors import VENDORS, detect, lead_file
 
 
 def _human(size: float) -> str:
@@ -826,9 +826,9 @@ def cmd_stabilise(args: argparse.Namespace) -> int:
 
 
 def cmd_open(args: argparse.Namespace) -> int:
-    """Show a photo as a sphere in golblick's viewer window.
+    """Show a photo or play a clip as a sphere in golblick's viewer window.
 
-    What a double-click on a .insp runs once ``golblick desktop install`` has
+    What a double-click on a .insp or .insv runs once ``golblick desktop install`` has
     made it the default (:mod:`golblick.desktop`).  Started from the desktop
     it has no terminal, so a failure is also shown as a notification.
     """
@@ -846,6 +846,8 @@ def _open(args: argparse.Namespace, desktop) -> int:
     path = Path(args.file)
     if not path.is_file():
         raise UnsupportedFile(f"{path}: no such file")
+    if detect(path) is None:
+        path = lead_file(path) or path
     _require_vendor(str(path))
     try:
         from . import viewer
@@ -869,7 +871,7 @@ def _notify(summary: str, body: str) -> None:
 
 
 def cmd_desktop(args: argparse.Namespace) -> int:
-    """Make a double-click on a .insp open it as a sphere, or undo that."""
+    """Make a double-click on a .insp or .insv open it as a sphere, or undo that."""
     from . import desktop
 
     if args.action == "install":
@@ -882,7 +884,7 @@ def cmd_desktop(args: argparse.Namespace) -> int:
             raise GolblickError("can't tell where the golblick command is; pass --executable")
         for line in desktop.install(executable):
             print(line)
-        print(f"Double-clicking a .insp now opens it with: {executable} open")
+        print(f"Double-clicking a .insp or .insv now opens it with: {executable} open")
     else:
         for line in desktop.uninstall():
             print(line)
@@ -978,16 +980,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     view = sub.add_parser(
         "open",
-        help="show a photo as a sphere in a viewer window",
-        description="Shows the photo as a sphere to look around in, projected by the GPU as it's drawn. Needs the 'desktop' extra.",
+        help="show a photo or play a video as a sphere in a viewer window",
+        description="Shows the photo or plays the video as a sphere to look around in, projected by the GPU as it's drawn. A video also needs ffmpeg; on a OneR or X3 either of the clip's two files will do. Needs the 'desktop' extra.",
     )
     view.add_argument("file")
     view.set_defaults(func=cmd_open)
 
     integrate = sub.add_parser(
         "desktop",
-        help="make double-clicking a .insp open it as a sphere",
-        description="Registers .insp as its own file type (a kind of JPEG, so image viewers still open it) and makes 'golblick open' its default application, for this user only. 'uninstall' undoes it.",
+        help="make double-clicking a .insp or .insv open it as a sphere",
+        description="Registers .insp and .insv as file types of their own (kinds of JPEG and MP4, so other image viewers and video players still open them) and makes 'golblick open' their default application, for this user only. 'uninstall' undoes it.",
     )
     integrate.add_argument("action", choices=("install", "uninstall"))
     integrate.add_argument("--executable", help="the golblick command to run (default: this one)")

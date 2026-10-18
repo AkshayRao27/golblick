@@ -121,3 +121,17 @@ def lens_streams(path: str | Path) -> list[tuple[Path, int]]:
     if not partner.is_file():
         raise FormatError(f"{path}: the second lens file, {partner.name}, is not next to it")
     return [(path, 0), (partner, 0)]
+
+
+def lead_file(path: str | Path) -> Path | None:
+    """The ``_00_`` file of a OneR or X3 clip, given its ``_10_`` one; None for any other name.
+
+    The ``_10_`` file holds the second lens and nothing else, no record to
+    recognise it by, so a double-click on it has to be sent to its partner.
+    """
+    path = Path(path)
+    match = re.match(r"^(.+_\d{8}_\d{6})_10_(\d+\.insv)$", path.name, re.IGNORECASE)
+    if match is None:
+        return None
+    lead = path.with_name(f"{match[1]}_00_{match[2]}")
+    return lead if lead.is_file() else None

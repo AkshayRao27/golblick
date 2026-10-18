@@ -17,6 +17,7 @@ Qt-free; needs ffmpeg.
 
 from __future__ import annotations
 
+import functools
 import queue
 import subprocess
 import threading
@@ -45,14 +46,21 @@ class Frame:
                 view[2 * luma + lens * chroma:2 * luma + (lens + 1) * chroma])
 
 
+@functools.cache
 def hardware() -> bool:
-    """Whether ffmpeg here offers CUDA decoding (NVDEC)."""
+    """Whether ffmpeg here can decode on an NVIDIA graphics card (NVDEC).
+
+    Opens the device rather than reading ``-hwaccels``, which lists what
+    ffmpeg was built with whether or not there is a card to use it.
+    """
     ffmpeg, _ = binaries()
     try:
-        listed = subprocess.run([ffmpeg, "-hide_banner", "-hwaccels"], capture_output=True, text=True, timeout=10)
+        probe = subprocess.run([ffmpeg, "-v", "error", "-nostdin", "-init_hw_device", "cuda", "-f", "lavfi",
+                                "-i", "nullsrc=s=16x16", "-frames:v", "1", "-f", "null", "-"],
+                               capture_output=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return "cuda" in listed.stdout.split()
+    return probe.returncode == 0
 
 
 def command(clip: Clip, size: int, start: int, gpu: bool) -> list[str]:

@@ -73,6 +73,12 @@ def test_the_end_of_the_clip_is_a_none(clip):
         decoder.close()
 
 
+def test_ffmpeg_built_with_cuda_but_without_a_card_decodes_on_the_processor(monkeypatch):
+    """Most packaged ffmpeg builds list cuda whether or not there is a card."""
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    assert playback.hardware.__wrapped__() is False
+
+
 def test_the_gpu_command_scales_on_the_gpu_and_stacks_lens_0_on_top(clip):
     command = playback.command(clip, 1440, 30, gpu=True)
     graph = command[command.index("-filter_complex") + 1]

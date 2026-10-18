@@ -162,7 +162,7 @@ The geometry fields are written, including the cropped-area fields: a partial pa
 
 The pose fields are deliberately left out. `PoseHeadingDegrees` would state which compass direction the centre faces, and nothing in the file fixes that. `PosePitchDegrees` and `PoseRollDegrees` would assert the panorama is level, which is only as true as the levelling. A viewer that finds no pose fields assumes an unknown heading and a level horizon, which is the honest claim; a written `0.0` would look exactly like a measured one.
 
-## Look around in a photo
+## Look around in a photo or video
 
 `open` shows a photo as a sphere in golblick's own viewer window: drag to look around (let go while moving and it carries on turning), scroll or `+` and `-` to zoom, double-click or `F` for full screen, `Esc` to leave it. A bar of buttons along the bottom does the same by touch or click, and pinching zooms on a touchscreen. It needs the `desktop` extra.
 
@@ -174,13 +174,15 @@ Nothing is rendered first: the graphics card projects the two lenses as it draws
 
 **Open facing this way**, in the bar's **⋮** menu, makes the current view the one the photo opens with, and **Reset point of view** goes back to the default, the middle of the panorama. The bar and its menu are the same as in the Nextcloud app's sphere view. The views are kept in `~/.local/share/golblick/views.json`, by file name and size, never in the photo.
 
-To open photos by double-clicking them, run this once:
+`open` plays a video the same way, straight from the `.insv` with nothing stitched first, steadied as it plays. It needs ffmpeg. Space or the play button on the bar plays and pauses, Shift with the left or right arrow skips 5 seconds, and Home goes back to the start. On a OneR or X3 either of the clip's two files will do, as long as both are in the same folder. For now it plays without sound and keeps the seam between the lenses straight, and it's smooth only on an NVIDIA graphics card, which decodes the video; elsewhere ffmpeg decodes it on the processor, which may not keep up.
+
+To open photos and videos by double-clicking them, run this once:
 
 ```sh
 golblick desktop install
 ```
 
-It gives `.insp` files a type of their own, as a kind of JPEG so your other image viewers still offer to open them, and makes `golblick open` the default for it. Everything goes in your own `~/.local/share`, and `golblick desktop uninstall` removes it. Files are recognised by their `.insp` extension; `open` checks the content and refuses anything that isn't an Insta360 photo. Videos don't open this way yet.
+It gives `.insp` and `.insv` files types of their own, as kinds of JPEG and MP4 so your other image viewers and video players still offer to open them, and makes `golblick open` the default for both. Everything goes in your own `~/.local/share`, and `golblick desktop uninstall` removes it. Files are recognised by their extension; `open` checks the content and refuses anything that isn't an Insta360 photo or video. `.lrv` files are left as ordinary MP4s. If you ran `desktop install` before videos were added, run it again.
 
 ## Stitch a video
 

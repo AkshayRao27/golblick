@@ -1,13 +1,13 @@
-"""Opening 360 photos from a Linux desktop: the file association.
+"""Opening 360 photos and videos from a Linux desktop: the file association.
 
-``golblick open`` shows a photo in golblick's own viewer window
-(:mod:`golblick.viewer`, the ``desktop`` extra).
+``golblick open`` shows a photo or plays a clip in golblick's own viewer
+window (:mod:`golblick.viewer`, the ``desktop`` extra).
 
-``golblick desktop install`` registers ``.insp`` as its own type, a subtype of
-JPEG so every image viewer still opens it, and makes ``golblick open`` its
-default application, so a double-click in the file manager shows the sphere.
-Everything goes in the user's own data directory and is undone by
-``golblick desktop uninstall``.
+``golblick desktop install`` registers ``.insp`` and ``.insv`` as types of
+their own, subtypes of JPEG and MP4 so every image viewer and video player
+still opens them, and makes ``golblick open`` their default application, so
+a double-click in the file manager shows the sphere.  Everything goes in the
+user's own data directory and is undone by ``golblick desktop uninstall``.
 
 Standard library only: the rendering itself is :mod:`golblick.render`'s.
 """
@@ -19,24 +19,32 @@ import shutil
 import subprocess
 from pathlib import Path
 
-#: The type a ``.insp`` gets on the desktop.  A subtype of JPEG: an Insta360
-#: photo is a JPEG of the lens pair with a trailer after it, and every image
-#: viewer that offers to open a JPEG should still offer to open one.
-MIME_TYPE = "image/x-insta360-insp"
+#: The types ``.insp`` and ``.insv`` get on the desktop.  Subtypes of JPEG and
+#: MP4: an Insta360 file is one of those with a trailer after it, and every
+#: viewer or player that offers to open the plain kind should still offer to
+#: open this one.
+PHOTO_TYPE = "image/x-insta360-insp"
+VIDEO_TYPE = "video/x-insta360-insv"
+MIME_TYPES = (PHOTO_TYPE, VIDEO_TYPE)
 DESKTOP_FILE = "golblick-open.desktop"
 MIME_PACKAGE = "golblick.xml"
 
 #: Matched by name only.  shared-mime-info's magic can only look at fixed
 #: offsets from the start of a file, and what makes a file Insta360's is the
-#: trailer at its end; the start is an ordinary JPEG.  So the extension
+#: trailer at its end; the start is an ordinary JPEG or MP4.  So the extension
 #: decides here, and ``golblick open`` checks the content and refuses a file
-#: that isn't one.
+#: that isn't one.  ``.lrv`` proxies stay plain MP4s.
 MIME_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
-  <mime-type type="{MIME_TYPE}">
+  <mime-type type="{PHOTO_TYPE}">
     <comment>Insta360 360° photo</comment>
     <sub-class-of type="image/jpeg"/>
     <glob pattern="*.insp" weight="60"/>
+  </mime-type>
+  <mime-type type="{VIDEO_TYPE}">
+    <comment>Insta360 360° video</comment>
+    <sub-class-of type="video/mp4"/>
+    <glob pattern="*.insv" weight="60"/>
   </mime-type>
 </mime-info>
 """
@@ -47,7 +55,7 @@ def data_home() -> Path:
 
 
 def install(executable: str, home: Path | None = None) -> list[str]:
-    """Register ``.insp`` and make ``executable open`` its default application.
+    """Register ``.insp`` and ``.insv`` and make ``executable open`` their default application.
 
     Returns what was done, a line each, for the CLI to print.  Refreshing the
     desktop's caches is best effort: each tool is optional, and a desktop
@@ -66,8 +74,8 @@ def install(executable: str, home: Path | None = None) -> list[str]:
     done.append(f"wrote {entry}")
 
     done += _refresh(home)
-    if _run(["xdg-mime", "default", DESKTOP_FILE, MIME_TYPE]):
-        done.append(f"made it the default for {MIME_TYPE}")
+    if _run(["xdg-mime", "default", DESKTOP_FILE, *MIME_TYPES]):
+        done.append(f"made it the default for {', '.join(MIME_TYPES)}")
     return done
 
 
@@ -90,9 +98,9 @@ def _desktop_entry(executable: str) -> str:
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Name=golblick 360° viewer\n"
-        "Comment=Look around in an Insta360 photo\n"
+        "Comment=Look around in an Insta360 photo or video\n"
         f"Exec={command}\n"
-        f"MimeType={MIME_TYPE};\n"
+        f"MimeType={';'.join(MIME_TYPES)};\n"
         "Icon=image-x-generic\n"
         "Terminal=false\n"
         "NoDisplay=true\n"

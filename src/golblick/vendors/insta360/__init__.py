@@ -10,7 +10,7 @@ from pathlib import Path
 from . import calibration as _calibration
 from . import metadata as _metadata
 from .imu import Motion, gravity_up, gravity_up_nearby, motion
-from .keyframe import Keyframes, lens_streams
+from .keyframe import Keyframes, lead_file, lens_streams
 from .keyframe import extract as extract_keyframes
 from .lens import LensProfile, lens_profile
 from .naming import EXTENSIONS, classify
@@ -59,6 +59,7 @@ __all__ = [
     "gravity_up",
     "gravity_up_nearby",
     "lens_profile",
+    "lead_file",
     "lens_streams",
     "matches",
     "motion",

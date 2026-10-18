@@ -19,20 +19,23 @@ def home(tmp_path, monkeypatch):
     return tmp_path, ran
 
 
-def test_install_registers_insp_as_a_kind_of_jpeg_and_opens_it_with_golblick(home):
+def test_install_registers_insp_and_insv_as_kinds_of_jpeg_and_mp4_and_opens_them_with_golblick(home):
     tmp, ran = home
 
     done = desktop.install("/opt/my tools/golblick")
 
     mime = (tmp / "data/mime/packages/golblick.xml").read_text()
-    assert '<mime-type type="image/x-insta360-insp">' in mime
-    assert '<sub-class-of type="image/jpeg"/>' in mime
-    assert '<glob pattern="*.insp"' in mime
+    photo = mime[mime.index('<mime-type type="image/x-insta360-insp">'):]
+    photo = photo[:photo.index("</mime-type>")]
+    assert '<sub-class-of type="image/jpeg"/>' in photo and '<glob pattern="*.insp"' in photo
+    clip = mime[mime.index('<mime-type type="video/x-insta360-insv">'):]
+    clip = clip[:clip.index("</mime-type>")]
+    assert '<sub-class-of type="video/mp4"/>' in clip and '<glob pattern="*.insv"' in clip
     entry = (tmp / "data/applications/golblick-open.desktop").read_text()
     # A path with a space has to be quoted for the Exec key.
     assert 'Exec="/opt/my tools/golblick" open %f' in entry
-    assert "MimeType=image/x-insta360-insp;" in entry
-    assert ["xdg-mime", "default", "golblick-open.desktop", "image/x-insta360-insp"] in ran
+    assert "MimeType=image/x-insta360-insp;video/x-insta360-insv;\n" in entry
+    assert ["xdg-mime", "default", "golblick-open.desktop", "image/x-insta360-insp", "video/x-insta360-insv"] in ran
     assert any("default" in line for line in done)
 
 
@@ -46,10 +49,25 @@ def test_uninstall_removes_both_files(home):
     assert not (tmp / "data/applications/golblick-open.desktop").exists()
 
 
-def test_the_mime_type_does_not_claim_plain_jpegs():
-    """Only the .insp extension, and no magic that would match every JPEG."""
+def test_the_mime_types_do_not_claim_plain_jpegs_or_mp4s():
+    """Only the .insp and .insv extensions, and no magic that would match every JPEG or MP4."""
     assert "<magic" not in desktop.MIME_XML
-    assert "*.jpg" not in desktop.MIME_XML and "*.jpeg" not in desktop.MIME_XML
+    globs = [line.split('"')[1] for line in desktop.MIME_XML.splitlines() if "<glob" in line]
+    assert globs == ["*.insp", "*.insv"]
+
+
+def test_the_second_lens_file_of_a_clip_leads_to_the_first(tmp_path):
+    """A OneR or X3 _10_ file has no record of its own; a double-click on it opens the clip."""
+    from golblick.vendors import lead_file
+
+    second = tmp_path / "VID_20240516_105342_10_022.insv"
+    second.write_bytes(b"x")
+    assert lead_file(second) is None   # its partner isn't there
+    first = tmp_path / "VID_20240516_105342_00_022.insv"
+    first.write_bytes(b"x")
+    assert lead_file(second) == first
+    assert lead_file(first) is None
+    assert lead_file(tmp_path / "IMG_20240516_105342_10_022.insp") is None
 
 
 def test_desktop_install_from_the_cli_takes_the_given_command(home, capsys):

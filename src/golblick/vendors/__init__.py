@@ -67,6 +67,14 @@ organised per vendor behind a small contract.  A vendor module provides:
     both) and the ``streams``.  The library carries no video decoder, so this
     hands over bytes for something else to decode; the CLI uses ffmpeg.
 
+``lens_streams(path) -> [(file, stream), (file, stream)]``
+    Optional.  Where a video's two lenses are: which file, and which video
+    stream in it.  Must raise rather than return one lens.
+``lead_file(path) -> Path | None``
+    Optional.  For a video recorded one lens per file, the file the vendor
+    recognises, given one it doesn't; None when ``path`` is not such a file.
+    Like ``gravity_up_nearby`` it reads the directory.
+
 ``shareable(path) -> (bytes, cleared)``
     Optional.  A copy of the file that is safe to send to someone else: no
     location, no dates, no serial number, everything else unchanged.  Must
@@ -99,3 +107,13 @@ def detect(path: str | Path):
 def owned_extensions() -> frozenset[str]:
     """Every extension claimed by a registered vendor."""
     return frozenset().union(*(vendor.EXTENSIONS for vendor in VENDORS))
+
+
+def lead_file(path: str | Path) -> Path | None:
+    """The file a vendor recognises for the clip ``path`` is part of, or None."""
+    for vendor in VENDORS:
+        lead = getattr(vendor, "lead_file", None)
+        found = lead(path) if lead is not None else None
+        if found is not None:
+            return found
+    return None
