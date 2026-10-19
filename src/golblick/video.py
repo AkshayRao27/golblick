@@ -224,24 +224,25 @@ class Plan:
     shutter: list | None = None   # per frame, stabilise.shutter's turns, or None
 
 
-def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool = False,
-         field_of_view: float | None = None, guards: str = "auto") -> Plan:
-    """Decide the geometry, the seam and the steadying, from the file and a few of its frames."""
-    notes = []
-    cached: list[list[float]] = []
+def decide(vendor, path, clip: Clip, calibration, field_of_view: float | None = None, guards: str = "auto",
+           keyframes=None):
+    """What a few of the clip's frames decide: the field of view (lens guards or not) and the seam.
 
-    def keyframes() -> list[float]:
-        # Read once, and only if a frame is needed at all.
-        if not cached:
-            cached.append(keyframe_times(clip))
-        return cached[0]
-    info = vendor.describe(path)
-    calibrations = info["calibrations"]
-    calibration = calibrations.get(5)
-    if calibration is None:
-        raise UnsupportedFile(f"{path}: no equidistant calibration, so the lens geometry is unknown")
-    calibration, cropped = video_calibration(calibration, info.get("sensor_crop"))
-    notes.append(cropped)
+    Returns ``(field_of_view, seam, notes)``: degrees, a ``render.SeamPlan`` or
+    None for the bisector, and a line on each decision.  Shared by the stitch
+    and the desktop player, which runs it in the background while the clip
+    plays.  ``keyframes`` is a function returning the clip's keyframe times,
+    read only if a frame is needed.
+    """
+    notes = []
+    if keyframes is None:
+        cached: list[list[float]] = []
+
+        def keyframes() -> list[float]:
+            if not cached:
+                cached.append(keyframe_times(clip))
+            return cached[0]
+    calibrations = vendor.describe(path)["calibrations"]
     reader = getattr(vendor, "lens_profile", None)
     profile = reader(path) if reader is not None else None
     radial = profile.radial if profile is not None else ()
@@ -273,10 +274,6 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
         guarded_note = ", less for lens guards" if field_of_view != profile.field_of_view_for() else ""
         notes.append(f"field of view  {field_of_view:.1f} degrees (the camera's measured value{guarded_note})")
 
-    native = render.lenses_from_calibration(calibration, 2 * clip.size, radial)
-    lens_size = render.lens_size_for(native, clip.size, width, field_of_view)
-    lenses = render.lenses_from_calibration(calibration, 2 * lens_size, radial)
-
     seam, how = None, "bisector"
     if clip.duration > 0:
         images = []
@@ -295,6 +292,36 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
         except (ValueError, FormatError) as exc:
             how = f"bisector (the seam plan failed: {exc})"
     notes.append(f"seam           {how}")
+    return field_of_view, seam, notes
+
+
+def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool = False,
+         field_of_view: float | None = None, guards: str = "auto") -> Plan:
+    """Decide the geometry, the seam and the steadying, from the file and a few of its frames."""
+    notes = []
+    cached: list[list[float]] = []
+
+    def keyframes() -> list[float]:
+        # Read once, and only if a frame is needed at all.
+        if not cached:
+            cached.append(keyframe_times(clip))
+        return cached[0]
+    info = vendor.describe(path)
+    calibrations = info["calibrations"]
+    calibration = calibrations.get(5)
+    if calibration is None:
+        raise UnsupportedFile(f"{path}: no equidistant calibration, so the lens geometry is unknown")
+    calibration, cropped = video_calibration(calibration, info.get("sensor_crop"))
+    notes.append(cropped)
+    field_of_view, seam, decided = decide(vendor, path, clip, calibration, field_of_view, guards, keyframes)
+    notes.extend(decided)
+    reader = getattr(vendor, "lens_profile", None)
+    profile = reader(path) if reader is not None else None
+    radial = profile.radial if profile is not None else ()
+
+    native = render.lenses_from_calibration(calibration, 2 * clip.size, radial)
+    lens_size = render.lens_size_for(native, clip.size, width, field_of_view)
+    lenses = render.lenses_from_calibration(calibration, 2 * lens_size, radial)
 
     faced, turns, turned = orient(vendor, path, calibration, clip.frames, steady, lock)
     notes.extend(turned)

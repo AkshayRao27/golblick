@@ -169,3 +169,22 @@ def test_the_end_still_arrives_when_the_player_is_slow(clip):
         assert got[-1] is None
     finally:
         decoder.close()
+
+
+def test_a_card_that_fails_on_the_clip_hands_it_to_the_cpu(clip, monkeypatch):
+    """Before its first frame: the same frames, from the CPU, and the card's error kept to say why."""
+    real = playback.command
+
+    def card_fails(clip, size, start, gpu):
+        if gpu:
+            return [playback.binaries()[0], "-v", "error", "-nostdin", "-init_hw_device", "nosuchdevice", "-f", "null", "-"]
+        return real(clip, size, start, gpu)
+
+    monkeypatch.setattr(playback, "command", card_fails)
+    decoder = playback.Decoder(clip, SIZE, 5, gpu=True)
+    try:
+        first = decoder.next(timeout=30)
+    finally:
+        decoder.close()
+    assert first is not None and first.index == 5
+    assert decoder.gpu is False and decoder.fell_back and decoder.error is None

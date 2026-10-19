@@ -25,6 +25,7 @@ import math
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QSize, Qt, QTimer, Signal
@@ -82,10 +83,15 @@ uniform float radial[64];
 uniform int radialCount;
 uniform float seam[256];
 uniform int routed;
+uniform int aimed;                          // 1: a video's seam aims the lenses at a parallax
+uniform float parallax[256];                // degrees per column round the lens axis
+uniform vec3 baseline;                      // lens 0 to lens 1, camera frame
 uniform int shutterCount;                   // 0: no rolling shutter to undo
 uniform vec4 shutter[5];                    // the frame's turns across its readout, (x, y, z, w)
 varying vec2 ndc;
 const float PI = 3.14159265358979;
+const float DEPTH_INNER = 4.0;                // render._DEPTH_INNER
+const float DEPTH_OUTER = 12.0;               // render._DEPTH_OUTER
 
 float corrected(float theta) {
     if (radialCount < 2) return theta;
@@ -115,6 +121,21 @@ vec3 project(vec3 ray, vec3 r0, vec3 r1, vec3 r2, vec2 centre, float radius, flo
 
 vec3 turn(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 
+// render._aimed: lens 0 looks half the parallax along the baseline (side
+// +0.5), lens 1 half against it (-0.5), tapered off away from the seam
+// (render._depth_taper, DEPTH_INNER to DEPTH_OUTER degrees of d).
+vec3 aim(vec3 ray, float side) {
+    if (aimed == 0) return ray;
+    float dz = 2.0 * acos(clamp(ray.z, -1.0, 1.0)) - PI;
+    float position = mod((atan(ray.y, ray.x) + PI) / (2.0 * PI) * 256.0, 256.0);
+    float low = floor(position);
+    int lo = int(low);
+    int hi = lo == 255 ? 0 : lo + 1;
+    float taper = clamp((radians(DEPTH_OUTER) - abs(dz)) / radians(DEPTH_OUTER - DEPTH_INNER), 0.0, 1.0);
+    float p = radians(mix(parallax[lo], parallax[hi], position - low)) * taper;
+    return normalize(ray + side * p * baseline);
+}
+
 // render._project_read: the ray turned by the camera's turn to the moment
 // its row was read, between the two nearest, projected again; twice.
 vec3 projectRead(vec3 ray, vec3 r0, vec3 r1, vec3 r2, vec2 centre, float radius, float spin, float left) {
@@ -137,8 +158,8 @@ void main() {
     d = vec3(d.x * cos(yaw) + d.z * sin(yaw), d.y, -d.x * sin(yaw) + d.z * cos(yaw));
     vec3 ray = vec3(dot(world0, d), dot(world1, d), dot(world2, d));
 
-    vec3 a = projectRead(ray, m00, m01, m02, centres.xy, radii.x, 0.0, 0.0);
-    vec3 b = projectRead(ray, m10, m11, m12, centres.zw, radii.y, spin1, cell.x);
+    vec3 a = projectRead(aim(ray, 0.5), m00, m01, m02, centres.xy, radii.x, 0.0, 0.0);
+    vec3 b = projectRead(aim(ray, -0.5), m10, m11, m12, centres.zw, radii.y, spin1, cell.x);
     float va = a.z <= thetaMax ? 1.0 : 0.0;
     float vb = b.z <= thetaMax ? 1.0 : 0.0;
     float ta = va > 0.0 ? a.z : thetaMax + feather;
@@ -325,6 +346,11 @@ class SphereView(QOpenGLWidget):
             for k, value in enumerate(scene.seam):
                 program.setUniformValue1f(uniform(f"seam[{k}]"), value)
         program.setUniformValue1i(uniform("routed"), 1 if scene.seam is not None else 0)
+        if scene.parallax is not None:
+            for k, value in enumerate(scene.parallax):
+                program.setUniformValue1f(uniform(f"parallax[{k}]"), value)
+            program.setUniformValue(uniform("baseline"), *scene.baseline)
+        program.setUniformValue1i(uniform("aimed"), 1 if scene.parallax is not None else 0)
         turns = self._shutter() or ()
         for k, (w, x, y, z) in enumerate(turns):
             program.setUniformValue(uniform(f"shutter[{k}]"), x, y, z, w)
@@ -529,9 +555,14 @@ class VideoView(SphereView):
     seeking = Signal(int)        # a seek was asked for, to this frame
     sound_changed = Signal()     # muted or the volume changed
     playing_changed = Signal(bool)   # started or stopped, by a request or at the end
+    notice = Signal(str)         # something the viewer should be told once, such as decoding on the CPU
 
     #: How far the picture may drift from the sound before it's put back in step, in seconds.
     DRIFT = 0.05
+
+    #: How far the picture may fall behind the clock, in seconds, before decoding starts again
+    #: further on: a decoder slower than the clip skips frames instead of drifting away from the sound.
+    BEHIND = 0.5
 
     def __init__(self, longitude: float = 0.0, latitude: float = 0.0, fov: float = 75.0):
         super().__init__(longitude, latitude, fov)
@@ -549,6 +580,13 @@ class VideoView(SphereView):
         self._pending: int | None = None              # a seek asked for while another was starting
         self._frame: playback.Frame | None = None   # waiting to be uploaded
         self._shown = 0                               # index of the frame on screen
+        self._held: playback.Frame | None = None      # a catch-up's first frame, early for the clock
+        self._gpu: bool | None = None                 # False once the card has failed on this clip
+        self._startup = 0.5                           # how long decoding last took to start, seconds
+        self._restarted = 0.0                         # when it last started, by time.monotonic()
+        self._timing = False                          # its first frame hasn't come yet
+        self._skipping_said = False
+        self._keyframes: tuple[float, float] | None = None   # playback.keyframe_spacing, once read
         self.playing = False
         self._clock = QElapsedTimer()
         self._running = False                         # the clock is counting
@@ -558,8 +596,17 @@ class VideoView(SphereView):
         self._tick.setInterval(4)
         self._tick.timeout.connect(self._advance)
 
+    def refine(self, video: scenes.VideoScene) -> None:
+        """The same clip with what its frames decided (``scene.refine_video``), without stopping it."""
+        if self.video is None or video.clip is not self.video.clip:
+            return
+        self.video = video
+        self.show_scene(video.scene)
+
     def show_video(self, video: scenes.VideoScene) -> None:
         self.video = video
+        self._keyframes = None
+        threading.Thread(target=self._read_keyframes, args=(video.clip,), daemon=True).start()
         low, gain = _RANGES.get(video.clip.colour_range, _RANGES["pc"])
         self._colour = (low, gain, _MATRICES.get(video.clip.colour_space, _MATRICES["bt709"]))
         self.show_scene(video.scene)
@@ -647,7 +694,10 @@ class VideoView(SphereView):
             return
         self._target = frame
         self._stop_decoding()
-        self._decoder = playback.Decoder(self.video.clip, self.video.size, frame)
+        self._held = None
+        self._restarted = time.monotonic()
+        self._timing = True
+        self._decoder = playback.Decoder(self.video.clip, self.video.size, frame, self._gpu)
         if self.video.clip.audio:
             try:
                 self._speaker = _Speaker(self.video.clip, frame, 0.0 if self.muted else self.volume)
@@ -692,9 +742,17 @@ class VideoView(SphereView):
             due = self._shown + 1 if self._waiting else self._shown   # a seek's first frame, playing or not
         latest = None
         while self._shown < due:
-            try:
-                frame = decoder.next(timeout=0)
-            except queue.Empty:
+            if self._held is not None:
+                frame, self._held = self._held, None
+            else:
+                try:
+                    frame = decoder.next(timeout=0)
+                except queue.Empty:
+                    break
+                if self._timing:
+                    self._startup, self._timing = time.monotonic() - self._restarted, False
+            if frame is not None and frame.index > due and not self._waiting:
+                self._held = frame   # a catch-up started ahead: wait for the clock
                 break
             if frame is None:
                 self._tick.stop()
@@ -706,6 +764,9 @@ class VideoView(SphereView):
             # Behind the clock, frames are skipped rather than shown late.
             latest, self._shown = frame, frame.index
         if latest is not None:
+            if decoder.fell_back and self._gpu is None:
+                self._gpu = False
+                self.notice.emit("Decoding on the CPU: the graphics card couldn't decode this clip")
             if self._waiting:
                 self._waiting = False
                 if self._pending is not None:
@@ -721,6 +782,37 @@ class VideoView(SphereView):
             self.position.emit(latest.index)
         if not self.playing and self._shown >= due:
             self._tick.stop()
+        elif (now is not None and self._held is None and not self._timing
+              and due - self._shown > self.BEHIND * self.rate):
+            self._catch_up(due)
+
+    def _read_keyframes(self, clip) -> None:
+        spacing = playback.keyframe_spacing(clip)
+        if self.video is not None and self.video.clip is clip:
+            self._keyframes = spacing
+
+    def _catch_up(self, due: int) -> None:
+        """Decoding has fallen behind the clock: start it again far enough ahead to be there in time.
+
+        The sound plays on untouched; only the picture skips.  Far enough is
+        what the last start took, and a little more; the one before has to
+        have started, or every tick would start another.
+        """
+        target = due + int(round((1.25 * self._startup + 0.2) * self.rate))
+        if self._keyframes is not None:
+            # On to the next keyframe, at or just after it: started there, decoding needn't go back for one.
+            first, spacing = self._keyframes
+            at = first + math.ceil(max(0.0, target / self.rate - first) / spacing) * spacing
+            target = math.ceil(at * self.rate - 1e-6)
+        if target >= self.frames - 1:
+            return
+        if not self._skipping_said:
+            self._skipping_said = True
+            self.notice.emit("This clip decodes slower than it plays here, so frames are skipped to keep up with the sound")
+        self._stop_decoding()
+        self._restarted = time.monotonic()
+        self._timing = True
+        self._decoder = playback.Decoder(self.video.clip, self.video.size, target, self._gpu)
 
     def _stop_decoding(self) -> None:
         if self._decoder is not None:
@@ -857,6 +949,7 @@ class _Loaded(QObject):
     scene = Signal(object, object)
     refined = Signal(object)
     video = Signal(object)
+    refined_video = Signal(object)
     failed = Signal(str)
 
 
@@ -1330,14 +1423,22 @@ def open_window(path: str | Path) -> SphereView:
             say("Space plays and pauses · Shift+arrows skip 5 s · M mutes · drag to look around")
 
         loaded.video.connect(playable)
+        loaded.refined_video.connect(view.refine)
         view.ended.connect(lambda error: say(f"Couldn't play this clip: {error}", None) if error else None)
+        view.notice.connect(lambda text: say(text, 6.0))
 
     def work() -> None:
         if is_video:
             try:
-                loaded.video.emit(scenes.video_scene(path))
+                quick = scenes.video_scene(path)
+                loaded.video.emit(quick)
             except Exception as exc:  # shown in the window; there may be no terminal
                 loaded.failed.emit(str(exc))
+                return
+            try:
+                loaded.refined_video.emit(scenes.refine_video(path, quick))
+            except Exception:  # noqa: BLE001 - the clip plays on with the bisector seam
+                pass
             return
         try:
             quick = scenes.photo_scene(path)

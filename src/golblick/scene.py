@@ -60,6 +60,10 @@ class Scene:
     #: render._seam_columns offsets, or None for the bisector.
     seam: tuple[float, ...] | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
+    #: A video's seam aim (render.SeamPlan.parallax, degrees per column), or None.
+    parallax: tuple[float, ...] | None = None
+    #: The unit vector from lens 0 to lens 1 the aim pushes along, camera frame.
+    baseline: tuple[float, float, float] | None = None
 
 
 def photo_scene(path: str | Path) -> Scene:
@@ -239,6 +243,33 @@ def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
                       None if turns is None else tuple(tuple(float(v) for v in q) for q in turns),
                       None if headings is None else tuple(float(h) for h in headings),
                       None if read is None else tuple(read))
+
+
+def refine_video(path: str | Path, video: VideoScene) -> VideoScene:
+    """The slow part for a clip, for a background thread while it plays: lens guards and the seam.
+
+    The same decision the stitch makes (``video.decide``), from a few frames
+    decoded on their own, so the player and a stitched copy hand over between
+    the lenses in the same place.
+    """
+    import numpy
+
+    from . import video as videos
+    from .vendors import detect
+
+    path = str(path)
+    vendor = detect(path)
+    info = vendor.describe(path)
+    calibration, _ = videos.video_calibration(info["calibrations"][5], info.get("sensor_crop"))
+    field_of_view, seam, notes = videos.decide(vendor, path, video.clip, calibration)
+    scene = replace(
+        video.scene, theta_max=float(numpy.deg2rad(field_of_view / 2)),
+        seam=None if seam is None or seam.offset is None else tuple(float(v) for v in seam.offset),
+        parallax=None if seam is None or seam.parallax is None else tuple(float(v) for v in seam.parallax),
+        baseline=None if seam is None or seam.parallax is None else tuple(float(v) for v in seam.direction),
+        notes=(*video.scene.notes, *notes),
+    )
+    return replace(video, scene=scene)
 
 
 def _shader_lens(lens, index: int, render) -> Lens:

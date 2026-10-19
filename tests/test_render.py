@@ -908,3 +908,16 @@ def test_each_row_takes_the_turn_of_the_moment_it_was_read():
     mixed = rays[i] @ turn.T * share + rays[i] * (1 - share)
     ui, vi, _ = render._project((mixed / numpy.linalg.norm(mixed))[None], lens, 0, theta_max)
     assert (u[i], v[i]) == pytest.approx((ui[0], vi[0]), abs=0.05)
+
+
+def test_the_player_s_shader_tapers_the_seam_aim_as_the_renderer_does():
+    """viewer.py states render's aim taper in its GLSL; a change to one has to reach the other."""
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "src/golblick/viewer.py").read_text()
+    inner = re.search(r"const float DEPTH_INNER = ([\d.]+);", source)
+    outer = re.search(r"const float DEPTH_OUTER = ([\d.]+);", source)
+    assert inner and outer
+    assert float(inner.group(1)) == render._DEPTH_INNER and float(outer.group(1)) == render._DEPTH_OUTER
+
