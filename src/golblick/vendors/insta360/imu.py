@@ -274,6 +274,12 @@ _CLOCK = {20: 1e-6, 56: 1e-3}
 #: X3 clip).
 _FRAME_ENTRY = struct.Struct("<qd")
 
+#: How late the 56-byte form's frame log stamps a frame, in seconds, beyond
+#: half its exposure: the picture matches the gyroscope at the stamp less half
+#: the exposure less this.  Fitted against the picture on 17 clips; the 20-byte
+#: form needs nothing (format notes, "Frame stamps in the 56-byte form come late").
+_STAMPED_LATE = {56: 0.0186}
+
 
 @dataclass(frozen=True)
 class Motion:
@@ -327,10 +333,13 @@ def motion(path) -> Motion:
     is an axial vector, so where that map is a reflection (determinant -1:
     every map measured so far) it changes sign.  Angular velocity is in radians per second.
 
-    Frame 0 was captured at metadata field 24, a timecode on the same clock,
-    and the frame log's entries from the one nearest it on are the frames.
-    Format notes, "The gyroscope shares the accelerometer's axes" and "When
-    each frame was captured".
+    Frame 0 is the frame log's entry nearest metadata field 24, a timecode on
+    the same clock, and the entries from it on are the frames.  The 20-byte
+    form's frames were captured at field 24's time and the log's spacing; the
+    56-byte form's, half an exposure and a little more before each stamp
+    (:data:`_STAMPED_LATE`).  Format notes, "The gyroscope shares the
+    accelerometer's axes", "When each frame was captured" and "Frame stamps in
+    the 56-byte form come late".
 
     Raises :class:`FormatError` for a still, an unmeasured camera, a missing
     or unreadable record, and a first frame that falls outside the inertial
@@ -375,7 +384,8 @@ def motion(path) -> Motion:
     log = trailer.get(FRAMES)
     if log is None or len(log.data) < 2 * _FRAME_ENTRY.size or len(log.data) % _FRAME_ENTRY.size:
         raise FormatError(f"{path}: no readable frame log (0x0400)")
-    stamps = [entry[0] for entry in _FRAME_ENTRY.iter_unpack(log.data)]
+    entries = list(_FRAME_ENTRY.iter_unpack(log.data))
+    stamps = [entry[0] for entry in entries]
     if any(b <= a for a, b in zip(stamps, stamps[1:], strict=False)):
         raise FormatError(f"{path}: the frame log's timecodes do not rise")
     nearest = min(range(len(stamps)), key=lambda i: abs(stamps[i] - first))
@@ -383,8 +393,14 @@ def motion(path) -> Motion:
     spacing = steps[len(steps) // 2]
     if abs(stamps[nearest] - first) > spacing / 2:
         raise FormatError(f"{path}: the first frame's time is not in the frame log")
-    shift = first - stamps[nearest]
-    frame_times = array("d", ((stamp + shift - start) * unit for stamp in stamps[nearest:]))
+    late = _STAMPED_LATE.get(stride)
+    if late is None:
+        shift = first - stamps[nearest]
+        frame_times = array("d", ((stamp + shift - start) * unit for stamp in stamps[nearest:]))
+    else:
+        if any(not 0.0 <= exposure < 1.0 for _, exposure in entries[nearest:]):
+            raise FormatError(f"{path}: the frame log has an exposure that isn't a fraction of a second")
+        frame_times = array("d", ((stamp - start) * unit - exposure / 2 - late for stamp, exposure in entries[nearest:]))
 
     sign = -1.0 if _determinant(axes) < 0 else 1.0
     count = len(timecodes)

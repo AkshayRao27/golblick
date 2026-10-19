@@ -33,8 +33,8 @@ use Psr\Log\LoggerInterface;
  * under 100 MB for a half-hour clip, a fraction of a second for a short one.
  */
 final class MotionStore {
-	/** Bump when the algorithm changes, so tracks made by the old one are not served. */
-	private const VERSION = 2;
+	/** Bump when the algorithm changes, so tracks made by the old one are not served; and motionUrl's v in src/overlay.ts with it. */
+	private const VERSION = 3;
 
 	public function __construct(
 		private IAppData $appData,

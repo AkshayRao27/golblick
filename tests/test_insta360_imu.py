@@ -4,7 +4,9 @@ Fixtures are synthesised, as everywhere else in this suite.  The values are
 chosen so that a wrong stride cannot accidentally produce a valid-looking read.
 """
 
+import re
 import struct
+from pathlib import Path
 
 import pytest
 from conftest import write_file
@@ -355,6 +357,34 @@ def test_motion_puts_samples_and_frames_on_one_clock_in_seconds(tmp_path):
     assert len(motion.frame_times) == 27
 
 
+def oner_clip(tmp_path, *, first_frame):
+    """One second of the 56-byte form at 500 Hz on a millisecond clock, and a
+    25 fps frame log from 1,000 ms whose exposures alternate, 10 ms and 2 ms."""
+    level = (0.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+    samples = b"".join(doubles(1000 + 2 * i, level) for i in range(500))
+    log = b"".join(struct.pack("<qd", 1000 + 40 * i, 0.010 if i % 2 == 0 else 0.002) for i in range(25))
+    records = [(METADATA, video_metadata("Insta360 OneR", first_frame)), (IMU, samples), (0x0400, log)]
+    return write_file(tmp_path / "VID_20200710_181901_00_001.insv", records,
+                      leading=b"\x00\x00\x00\x18ftypisom")
+
+
+def test_the_56_byte_form_times_each_frame_before_its_stamp(tmp_path):
+    """Half the frame's own exposure and _STAMPED_LATE before it; field 24 only picks frame 0."""
+    motion = imu.motion(oner_clip(tmp_path, first_frame=1000 + 3 * 40 - 7))
+
+    late = imu._STAMPED_LATE[56]
+    assert len(motion.frame_times) == 22
+    assert motion.frame_times[0] == pytest.approx(0.120 - 0.002 / 2 - late)
+    assert motion.frame_times[1] == pytest.approx(0.160 - 0.010 / 2 - late)
+
+
+def test_the_php_port_has_the_same_lateness():
+    php = (Path(__file__).parents[1] / "nextcloud-app/lib/Insta360/Imu.php").read_text()
+    match = re.search(r"STAMPED_LATE = \[56 => ([\d.]+)\]", php)
+    assert match, "STAMPED_LATE missing from Imu.php"
+    assert float(match.group(1)) == imu._STAMPED_LATE[56]
+
+
 def test_motion_turns_the_gyroscope_with_the_gravity_axes_and_flips_it_for_a_reflection(tmp_path):
     """The X5's map is a reflection, and an angular velocity is an axial vector."""
     motion = imu.motion(x5_clip(tmp_path, first_frame=1_000_000, gyro=(0.1, 0.0, 0.0)))
@@ -386,3 +416,12 @@ def test_motion_refuses_a_first_frame_outside_the_record(tmp_path):
 def test_motion_refuses_a_first_frame_the_log_does_not_hold(tmp_path):
     with pytest.raises(FormatError, match="not in the frame log"):
         imu.motion(x5_clip(tmp_path, first_frame=1_500_000, log_start=1_000_000 - 30 * 33_367))
+
+
+def test_the_player_asks_for_the_current_steadying_track():
+    """The browser keeps a track for a day, so its address carries MotionStore's version."""
+    app = Path(__file__).parents[1] / "nextcloud-app"
+    store = re.search(r"const VERSION = (\d+);", (app / "lib/Service/MotionStore.php").read_text())
+    url = re.search(r"&v=(\d+)`", (app / "src/overlay.ts").read_text())
+    assert store and url, "MotionStore::VERSION or motionUrl's v is missing"
+    assert store.group(1) == url.group(1)

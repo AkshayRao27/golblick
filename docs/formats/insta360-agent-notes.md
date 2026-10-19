@@ -517,7 +517,7 @@ So no new constants: the measured gravity maps carry over. The one twist is that
 
 - Metadata field 24 is frame 0's timecode on the record's clock. Against Studio, frame 0 fitted within 4 ms of it on an X5 clip and 7 ms on a OneR clip, by cross-correlating the size of the rotation per frame (which needs no axis map).
 - Record `0x0400` is the frame log: 16-byte entries, an `int64` timecode on the same clock and a `float64` that reads as the exposure time in seconds (1/1,144 s on a bright X3 clip). It holds 7 to 35 more entries than the video has frames; one clip that continues a split 30-minute recording holds about 600 more, starting 16.7 s before its record.
-- On every X3 and X5 clip, field 24 equals one of the log's entries exactly, and the entries from there on are the frames. On a OneR it sits 6 to 11 ms after an entry. golblick takes frame *k*'s time as field 24 plus the log's spacing from that entry on, and refuses when field 24 is outside the record or more than half a frame from any entry.
+- On every X3 and X5 clip, field 24 equals one of the log's entries exactly, and the entries from there on are the frames. On a OneR it sits 6 to 11 ms after an entry. golblick takes frame *k*'s time as field 24 plus the log's spacing from that entry on, and refuses when field 24 is outside the record or more than half a frame from any entry. ⚠️ That holds for the 20-byte form only; the 56-byte form's stamps come late, [below](#frame-stamps-in-the-56-byte-form-come-late).
 - A shift from field 24 was tried on the cleanest clip: 0 ms scored best, with ±10 ms within 0.1° and ±20 ms clearly worse.
 
 ### The method
@@ -545,7 +545,46 @@ Per frame: the tilt between the two steadied horizons, and the yaw shake left (y
 
 ⚠️ Correction (2026-10-19): every steadied copy `golblick render` made until then turned each frame from the fourth on by the next frame's turn. The stitch times every stream by its frame number with `setpts=N*den/num/TB`, which ffmpeg works out in floating point and truncates: at 30000/1001, frame 3 came out as 3002 on a lens stream (time base 1/30000) and as 2 on the tables (1001/30000), and the filters that pair their inputs by time stayed one frame apart from there on. It showed as the opposite of steadying: on a walking OneR clip, frames with more than 0.5° of jerk went from 16.7% unsteadied to 24.1% steadied, and to 7.6% once fixed (`round()` in the expression). The Nextcloud worker's copies were not affected: they keep the files' own timestamps, and a frame-brightness comparison against the source lined them up at offset 0.
 
-How it was found, which is also how to check the timing: the yaw the unsteadied picture shows from frame to frame, correlated with the gyroscope's at a range of offsets, peaks where the record and the picture agree. Through the shipped stitch the peak sat 32 to 55 ms early on every clip with motion, all three cameras, which looked like a timing rule and was a frame of the stitch. Through the player's decoder, whose labels match a plain decode frame for frame, it sits within 3.4 ms of 0 on X3, X5 and 2023 OneR clips and 3 to 15 ms early on 2020 OneR clips (6 clips; correlation at 0 already 0.91 to 0.97). That last residual is under half a frame and varies by clip, so it is recorded, not corrected.
+How it was found, which is also how to check the timing: the yaw the unsteadied picture shows from frame to frame, correlated with the gyroscope's at a range of offsets, peaks where the record and the picture agree. Through the shipped stitch the peak sat 32 to 55 ms early on every clip with motion, all three cameras, which looked like a timing rule and was a frame of the stitch. Through the player's decoder, whose labels match a plain decode frame for frame, it sits within 3.4 ms of 0 on X3, X5 and 2023 OneR clips and 3 to 15 ms early on 2020 OneR clips (6 clips; correlation at 0 already 0.91 to 0.97). That last residual is under half a frame and varies by clip, so it is recorded, not corrected. ⚠️ Correction (2026-10-19, later the same day): on fast turns it was the visible jerk on those clips, and it follows the record's form and the exposure, so it is now corrected; [next section](#frame-stamps-in-the-56-byte-form-come-late).
+
+### Frame stamps in the 56-byte form come late
+
+The 56-byte form (here, OneR clips from 2020 and 2021) stamps each frame later than the picture shows it, by more the longer the exposure. Measured as in the section above, through the player's decoder, over the first 10 to 12 s of 60 clips, keeping those whose correlation peaks at 0.94 or more:
+
+| Form | Clips | Where the picture matches the gyroscope |
+|---|---|---|
+| 20-byte (OneR from 2023, X3, X5) | 23 | within ±5 ms of the frame's time, whatever the exposure (a 1/50 s exposure: −0.5 ms) |
+| 56-byte, exposure 1/1,000 s or shorter | 10 | +0.3 to −13.3 ms, median −8.2 ms |
+| 56-byte, 1/195 s | 1 | −3.8 ms |
+| 56-byte, 1/120 s | 2 | −10.2, −12.3 ms |
+| 56-byte, 1/60 s | 2 | −15.9, −18.4 ms |
+| 56-byte, 1/30 s | 2 | −21.8, −35.6 ms |
+
+It holds within a clip: the three thirds of each stretch agree to a few milliseconds, and on two clips of 3.5 minutes, stretches a minute apart stay within 6 ms of each other with no trend, so it isn't one clock running slow against the other.
+
+Candidate rules, each with one constant, scored leaving one clip out at a time (error against the clip's own peak; 17 clips, one of them measured earlier):
+
+| Frame seen at | Median error | Worst |
+|---|---|---|
+| field 24 and the log's spacing (before) | 10.2 ms | 35.6 ms |
+| the same, less a constant | 4.1 ms | 25.6 ms |
+| the same, less half the exposure and 7.8 ms | 2.0 ms | 11.2 ms |
+| **the log entry's own time, less half its exposure and 18.6 ms** | **1.7 ms** | **8.2 ms** |
+| either, less the whole exposure and a constant | 4.0 ms | 17.2 ms |
+
+golblick uses the fourth: field 24 still picks frame 0, but each frame's time comes from its own log entry and exposure (`imu._STAMPED_LATE`, `Imu::STAMPED_LATE` in the app). Half the exposure is what a stamp at the end of the exposure would need. The 18.6 ms is not explained. The difference between the third and fourth rows rests on the three 25 fps clips, because field 24 sits 7 ms before its entry at 25 fps and 11 ms before it at 29.97 fps.
+
+What it does to the player, scored as the turn left from frame to frame in the locked view (rms change of the yaw / vertical step, degrees; the clip's own peak offset for comparison):
+
+| Clip, exposure | Before | With the rule | At the clip's own peak |
+|---|---|---|---|
+| walking, 1/2,000 s, 3 s with turns up to 363°/s | 0.67 / 0.28 | 0.30 / 0.18 | 0.48 / 0.13 |
+| walking, 1/3,000 s, 2.5 s | 1.24 / 0.12 | 0.59 / 0.04 | 0.16 / 0.08 |
+| 1/60 s, 8 s | 0.18 / 0.17 | 0.03 / 0.03 | 0.04 / 0.03 |
+| 1/30 s, 8 s | 1.21 / 0.65 | 0.13 / 0.12 | 0.10 / 0.07 |
+| the clip it fits worst (peak +0.3 ms), 8 s | 0.26 / 0.21 | 0.32 / 0.07 | as before |
+
+⚠️ The scatter of a few milliseconds between clips, and within one, is not explained, and on a fast turn that is still visible: the second clip would be nearly four times steadier at its own peak. Measuring each clip's offset from its picture would get that, at the cost of decoding a stretch of it before steadying; it isn't done.
 
 ⚠️ What this doesn't do: correct rolling shutter. The sensor reads a frame line by line, so fast motion leaves a wobble within the frame that a rotation per frame cannot remove. Whether Studio corrects it was not checked.
 

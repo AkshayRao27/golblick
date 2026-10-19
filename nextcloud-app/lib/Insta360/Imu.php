@@ -85,6 +85,12 @@ final class Imu {
 	public const CLOCK = [20 => 1e-6, 56 => 1e-3];
 
 	/**
+	 * How late the 56-byte form's frame log stamps a frame, in seconds, beyond
+	 * half its exposure, as imu.py's _STAMPED_LATE (a test keeps the two equal).
+	 */
+	public const STAMPED_LATE = [56 => 0.0186];
+
+	/**
 	 * The map that turns the gyroscope's readings into the render's frame, in
 	 * radians per second: the gravity map, negated where it is a reflection,
 	 * because an angular velocity is an axial vector. docs/formats/insta360-agent-notes.md,
@@ -130,10 +136,12 @@ final class Imu {
 
 	/**
 	 * When each video frame was captured, in seconds from the record's first
-	 * sample, as imu.py's motion() works it out (docs/formats/insta360-agent-notes.md, "When each frame was captured"). Frame 0
-	 * is metadata field 24, which must fall inside the record and on (or
-	 * within half a frame of) an entry of the frame log, 0x0400; the frames
-	 * after it follow at the log's spacing.
+	 * sample, as imu.py's motion() works it out (docs/formats/insta360-agent-notes.md, "When each frame was captured"
+	 * and "Frame stamps in the 56-byte form come late"). Frame 0 is the entry
+	 * of the frame log, 0x0400, nearest metadata field 24, which must fall
+	 * inside the record and within half a frame of it. The 20-byte form's
+	 * frames were captured at field 24's time and the log's spacing; the
+	 * 56-byte form's, half an exposure and STAMPED_LATE before each stamp.
 	 *
 	 * @return list<float>
 	 */
@@ -148,8 +156,10 @@ final class Imu {
 			throw new FormatError('no readable frame log (0x0400)');
 		}
 		$stamps = [];
+		$exposures = [];
 		for ($at = 0; $at < \strlen($log); $at += 16) {
 			$stamps[] = unpack('P', $log, $at)[1];
+			$exposures[] = unpack('e', $log, $at + 8)[1];
 		}
 		$steps = [];
 		for ($i = 1; $i < \count($stamps); ++$i) {
@@ -171,9 +181,17 @@ final class Imu {
 		}
 		$shift = $first - $stamps[$nearest];
 		$unit = self::CLOCK[$stride];
+		$late = self::STAMPED_LATE[$stride] ?? null;
 		$out = [];
 		for ($i = $nearest; $i < \count($stamps); ++$i) {
-			$out[] = ($stamps[$i] + $shift - $start) * $unit;
+			if ($late === null) {
+				$out[] = ($stamps[$i] + $shift - $start) * $unit;
+				continue;
+			}
+			if (!($exposures[$i] >= 0.0 && $exposures[$i] < 1.0)) {
+				throw new FormatError("the frame log has an exposure that isn't a fraction of a second");
+			}
+			$out[] = ($stamps[$i] - $start) * $unit - $exposures[$i] / 2 - $late;
 		}
 
 		return $out;
