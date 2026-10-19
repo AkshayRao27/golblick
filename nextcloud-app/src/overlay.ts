@@ -208,6 +208,8 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
   let view: SphereView | null = null;
   let closed = false;
   let player: HTMLVideoElement | null = null;
+  let navigation: HTMLElement | null = null;
+  let wake = () => {};
 
   // Capture phase, so the viewer underneath never sees these keys: Escape
   // would close it as well, and the arrows would page to another photo.
@@ -220,6 +222,7 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
     if (e.key === ' ' && player) {
       if (player.paused) void player.play();
       else player.pause();
+      wake();
     }
     if (['Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
       e.stopImmediatePropagation();
@@ -264,7 +267,8 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
     const answer = await info(fileId).catch(() => null);
     if (closed) return;
     if (answer?.view) view.look(answer.view.longitude, answer.view.latitude, answer.view.fov);
-    overlay.append(navigationBar(fileId, answer, view, () => player, status, overlay, isVideo));
+    navigation = navigationBar(fileId, answer, view, () => player, status, overlay, isVideo);
+    overlay.append(navigation);
     // Keep the controls above the canvas.
     overlay.append(close, status);
   } catch {
@@ -290,6 +294,7 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
       view?.attachVideo(player);
       status.remove();
       overlay.append(controls);
+      wake = autoHide(overlay, player, [navigation, controls, close].filter((part): part is HTMLElement => part !== null));
       // The click that opened this counts as permission to play with sound in
       // most browsers; where it doesn't, start muted and let the button unmute.
       player.play().catch(() => {
@@ -427,6 +432,109 @@ function navigationBar(fileId: number, answer: Info | null, view: SphereView,
   return bar;
 }
 
+/**
+ * Fades a playing video's controls and the pointer out when nobody is reaching
+ * for them, and returns what brings them back.
+ *
+ * Moving the pointer into the bottom of the picture, where the controls are,
+ * brings them back. Moving it anywhere else doesn't: that is usually a hand on
+ * its way to drag the view around, and it would bring them back before every
+ * drag. A click or tap without a drag shows or hides them, which is all a
+ * touchscreen has. They stay while the video is paused, the pointer is on
+ * them, or their menu or a slider is in use. The desktop viewer does the same
+ * (_AutoHide in src/golblick/viewer.py in the library).
+ */
+function autoHide(overlay: HTMLElement, video: HTMLVideoElement, parts: HTMLElement[]): () => void {
+  const IDLE = 3000; // ms without reaching for them before they fade
+  const CLICK = 6; // pixels a press may move and still be a click
+  const REACH = 160; // pixels from the bottom edge, at least, where moving brings them back
+  if (!document.getElementById('golblick-idle')) {
+    // Over the canvas's own grab cursor, which is set on the element.
+    const style = document.createElement('style');
+    style.id = 'golblick-idle';
+    style.textContent = '.golblick-idle, .golblick-idle * { cursor: none !important; }';
+    document.head.append(style);
+  }
+  let shown = true;
+  let timer: number | undefined;
+  let press: { x: number; y: number } | null = null;
+  let pointer: { x: number; y: number } | null = null;
+  let holding = false; // a press on the controls: a slider being dragged, say
+  const over = new Set<HTMLElement>();
+  for (const part of parts) {
+    part.style.transition = 'opacity .2s';
+    part.addEventListener('pointerenter', () => over.add(part));
+    part.addEventListener('pointerleave', () => over.delete(part));
+    part.addEventListener('pointerdown', () => { holding = true; });
+  }
+  const busy = () => holding || over.size > 0 || overlay.querySelector('[role="menu"]:not([hidden])') !== null;
+  const idle = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(expire, IDLE);
+  };
+  const show = () => {
+    if (!shown) {
+      shown = true;
+      for (const part of parts) {
+        part.style.opacity = '';
+        part.style.pointerEvents = '';
+      }
+    }
+    overlay.classList.remove('golblick-idle');
+    idle();
+  };
+  const hide = () => {
+    if (shown) {
+      shown = false;
+      for (const part of parts) {
+        part.style.opacity = '0';
+        // Faded, they don't catch clicks meant for the picture.
+        part.style.pointerEvents = 'none';
+        over.delete(part);
+      }
+    }
+    // Not mid-drag: the pointer is what's being dragged.
+    if (press === null) overlay.classList.add('golblick-idle');
+    window.clearTimeout(timer);
+  };
+  function expire() {
+    if (!overlay.isConnected || video.paused || video.ended) return;
+    if (busy()) idle();
+    else hide();
+  }
+
+  // Captured: the sphere keeps its presses from bubbling. A press on the controls is theirs.
+  overlay.addEventListener('pointerdown', (e) => {
+    if (!parts.some((part) => part.contains(e.target as Node))) press = { x: e.clientX, y: e.clientY };
+  }, true);
+  overlay.addEventListener('pointerup', (e) => {
+    holding = false;
+    if (press === null) return;
+    const moved = Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y);
+    press = null;
+    if (moved <= CLICK) {
+      if (shown) hide();
+      else show();
+    } else if (!video.paused) {
+      idle(); // the pointer, back after the drag, fades again
+    }
+  });
+  overlay.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse' || e.buttons !== 0) return;
+    // A browser may also send moves when what's under a still pointer changes.
+    const still = pointer !== null && Math.abs(e.clientX - pointer.x) + Math.abs(e.clientY - pointer.y) < 2;
+    pointer = { x: e.clientX, y: e.clientY };
+    if (still) return;
+    if (e.clientY > overlay.clientHeight - Math.max(REACH, overlay.clientHeight / 4)) show();
+  });
+  overlay.addEventListener('pointerleave', expire);
+  video.addEventListener('play', idle);
+  video.addEventListener('pause', show);
+  video.addEventListener('ended', show);
+  if (!video.paused) idle();
+  return show;
+}
+
 /** A light highlight under the pointer, as the desktop viewer's buttons have. */
 function hover(b: HTMLElement, colour = 'rgba(255,255,255,.12)') {
   b.addEventListener('pointerenter', () => { b.style.background = colour; });
@@ -451,16 +559,17 @@ function openingMenu(fileId: number, current: OpeningView, view: SphereView,
   const menu = document.createElement('div');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
-  menu.style.cssText = 'position:absolute;right:0;bottom:52px;min-width:260px;padding:4px 0;border-radius:10px;'
-    + 'background:rgba(20,20,20,.95);color:#fff;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.5);';
+  // The bar's own look, as the desktop viewer's menu has: translucent black, round corners.
+  menu.style.cssText = 'position:absolute;right:0;bottom:52px;min-width:260px;padding:6px;border-radius:16px;'
+    + 'background:rgba(0,0,0,.55);color:#fff;font-size:14px;';
   const item = (icon: string, label: string) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('role', 'menuitem');
     b.innerHTML = `${svgIcon(icon, 20)}<span>${label}</span>`;
-    b.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:0;background:transparent;'
-      + 'color:inherit;font:inherit;text-align:left;cursor:pointer;';
-    hover(b, 'rgba(255,255,255,.08)');
+    b.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:0;border-radius:10px;'
+      + 'background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;';
+    hover(b);
     return b;
   };
   const here = item(mdiImageFilterCenterFocus, 'Open facing this way');

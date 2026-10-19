@@ -500,6 +500,7 @@ class VideoView(SphereView):
     ended = Signal(str)          # at the end of the clip; the decoder's error, if it failed
     seeking = Signal(int)        # a seek was asked for, to this frame
     sound_changed = Signal()     # muted or the volume changed
+    playing_changed = Signal(bool)   # started or stopped, by a request or at the end
 
     #: How far the picture may drift from the sound before it's put back in step, in seconds.
     DRIFT = 0.05
@@ -551,6 +552,7 @@ class VideoView(SphereView):
         if self._shown >= self.frames - 1:
             self.seek(0)
         self.playing = True
+        self.playing_changed.emit(True)
         if self._speaker is not None:
             if self._speaker.begun:
                 self._speaker.resume()
@@ -561,6 +563,7 @@ class VideoView(SphereView):
     def pause(self) -> None:
         self.playing = False
         self._running = False
+        self.playing_changed.emit(False)
         if self._speaker is not None:
             self._speaker.pause()
 
@@ -669,6 +672,7 @@ class VideoView(SphereView):
                 self._tick.stop()
                 self.playing = False
                 self._running = False
+                self.playing_changed.emit(False)
                 self.ended.emit(decoder.error or "")
                 break
             # Behind the clock, frames are skipped rather than shown late.
@@ -831,18 +835,20 @@ def _icon(name: str, colour: str = "white") -> QIcon:
 
     from .icons import PATHS
 
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-           f'<path fill="{colour}" d="{PATHS[name]}"/></svg>')
-    renderer = QSvgRenderer(QByteArray(svg.encode()))
     icon = QIcon()
-    for scale in (1, 2, 3):
-        pixmap = QPixmap(24 * scale, 24 * scale)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        renderer.render(painter)
-        painter.end()
-        pixmap.setDevicePixelRatio(scale)
-        icon.addPixmap(pixmap)
+    # Greyed out the way the Nextcloud app greys a button, at 40%, not in the style's own way.
+    for mode, opacity in ((QIcon.Mode.Normal, 1.0), (QIcon.Mode.Disabled, 0.4)):
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+               f'<path fill="{colour}" fill-opacity="{opacity}" d="{PATHS[name]}"/></svg>')
+        renderer = QSvgRenderer(QByteArray(svg.encode()))
+        for scale in (1, 2, 3):
+            pixmap = QPixmap(24 * scale, 24 * scale)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            renderer.render(painter)
+            painter.end()
+            pixmap.setDevicePixelRatio(scale)
+            icon.addPixmap(pixmap, mode)
     return icon
 
 
@@ -917,10 +923,19 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
 
     more = _button("more", "More", bar)
     menu = QMenu(more)
-    # The menu follows the desktop's theme, so its icons take the theme's text colour.
-    ink = QApplication.palette().windowText().color().name()
-    here = menu.addAction(_icon("open_here", ink), "Open facing this way")
-    reset = menu.addAction(_icon("open_default", ink), "Reset point of view")
+    # Styled as the bar it opens from, not in the desktop's theme: translucent
+    # black with round corners, as the Nextcloud app's menu is.
+    menu.setWindowFlags(menu.windowFlags() | Qt.WindowType.FramelessWindowHint
+                        | Qt.WindowType.NoDropShadowWindowHint)
+    menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    menu.setStyleSheet(
+        "QMenu { background: rgba(0, 0, 0, 150); border-radius: 16px; padding: 6px; color: white; }"
+        "QMenu::item { padding: 9px 16px 9px 8px; border-radius: 10px; background: transparent; }"
+        "QMenu::item:selected { background: rgba(255, 255, 255, 30); }"
+        "QMenu::item:disabled { color: rgba(255, 255, 255, 102); }"
+        "QMenu::icon { padding-left: 10px; }")
+    here = menu.addAction(_icon("open_here"), "Open facing this way")
+    reset = menu.addAction(_icon("open_default"), "Reset point of view")
     reset.setEnabled(load_view(path) is not None)
 
     def show_menu() -> None:
@@ -1039,7 +1054,7 @@ def _video_controls(view: VideoView) -> QWidget:
     play.clicked.connect(lambda: (view.toggle(), playing_changed()))
     view.position.connect(moved)
     view.seeking.connect(moved)
-    view.ended.connect(playing_changed)
+    view.playing_changed.connect(playing_changed)
     seek.sliderPressed.connect(lambda: view.seek(seek.value()))
     seek.sliderMoved.connect(view.seek)
     mute.clicked.connect(lambda: view.mute())
@@ -1091,7 +1106,7 @@ class _Follow(QObject):
 
     def __init__(self, view: QWidget, bar: QWidget):
         super().__init__(view)
-        self._view, self._bar = view, bar
+        self._view, self.bar = view, bar
         self._player: QWidget | None = None
         view.installEventFilter(self)
         self.place()
@@ -1102,7 +1117,7 @@ class _Follow(QObject):
         self.place()
 
     def place(self) -> None:
-        view, bar, player = self._view, self._bar, self._player
+        view, bar, player = self._view, self.bar, self._player
         bottom = 16
         if player is not None:
             player.setGeometry(12, view.height() - player.sizeHint().height() - 12, view.width() - 24,
@@ -1113,6 +1128,126 @@ class _Follow(QObject):
     def eventFilter(self, watched, event) -> bool:
         if event.type() == QEvent.Type.Resize:
             self.place()
+        return False
+
+
+class _AutoHide(QObject):
+    """Fades a playing clip's controls and the pointer out when nobody is reaching for them.
+
+    Moving the pointer into the bottom of the picture, where the controls are,
+    brings them back.  Moving it anywhere else doesn't: that is usually a hand
+    on its way to drag the view around, and it would bring them back before
+    every drag.  A click or tap without a drag shows or hides them, which is
+    all a touchscreen has.  They stay while the clip is paused, the pointer is
+    on them, or their menu or a slider is in use.  The Nextcloud app's player
+    does the same (autoHide in nextcloud-app/src/overlay.ts).
+    """
+
+    IDLE = 3000      # ms without reaching for them before they fade
+    CLICK = 6        # pixels a press may move and still be a click
+    REACH = 160      # pixels from the bottom edge, at least, where moving brings them back
+
+    def __init__(self, view: VideoView, bars: list[QWidget]):
+        from PySide6.QtCore import QPropertyAnimation
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+
+        super().__init__(view)
+        self._view, self._bars = view, bars
+        self.shown = True
+        self._pressed = None
+        self._pointer = None
+        self._idle = QTimer(self)
+        self._idle.setSingleShot(True)
+        self._idle.setInterval(self.IDLE)
+        self._idle.timeout.connect(self._expire)
+        self._fades = []
+        for bar in bars:
+            effect = QGraphicsOpacityEffect(bar)
+            effect.setOpacity(1.0)
+            bar.setGraphicsEffect(effect)
+            fade = QPropertyAnimation(effect, b"opacity", self)
+            fade.setDuration(200)
+            # Hidden once faded, so it doesn't catch clicks meant for the picture.
+            fade.finished.connect(lambda bar=bar, effect=effect: effect.opacity() == 0 and bar.hide())
+            self._fades.append(fade)
+        view.setMouseTracking(True)
+        view.installEventFilter(self)
+        view.playing_changed.connect(lambda on: self._idle.start() if on else self.show())
+        if view.playing:
+            self._idle.start()
+
+    def show(self) -> None:
+        if not self.shown:
+            self.shown = True
+            for bar, fade in zip(self._bars, self._fades, strict=True):
+                bar.show()
+                self._fade(fade, 1.0)
+        self._view.setCursor(Qt.CursorShape.OpenHandCursor)
+        self._idle.start()
+
+    def hide(self) -> None:
+        if self.shown:
+            self.shown = False
+            for fade in self._fades:
+                self._fade(fade, 0.0)
+        # Not mid-drag: the pointer is what's being dragged.
+        if QApplication.mouseButtons() == Qt.MouseButton.NoButton:
+            self._view.setCursor(Qt.CursorShape.BlankCursor)
+        self._idle.stop()
+
+    @staticmethod
+    def _fade(fade, to: float) -> None:
+        fade.stop()
+        fade.setStartValue(fade.targetObject().opacity())
+        fade.setEndValue(to)
+        fade.start()
+
+    def _busy(self) -> bool:
+        from PySide6.QtWidgets import QSlider
+
+        if QApplication.activePopupWidget() is not None:
+            return True
+        return any(bar.underMouse() or any(s.isSliderDown() for s in bar.findChildren(QSlider))
+                   for bar in self._bars)
+
+    def _expire(self) -> None:
+        if not self._view.playing:
+            return
+        if self._busy():
+            self._idle.start()
+        else:
+            self.hide()
+
+    def eventFilter(self, watched, event) -> bool:
+        kind = event.type()
+        if kind == QEvent.Type.MouseButtonPress:
+            self._pressed = event.position()
+        elif kind == QEvent.Type.MouseButtonRelease and self._pressed is not None:
+            moved = (event.position() - self._pressed).manhattanLength()
+            self._pressed = None
+            if moved <= self.CLICK:
+                self.hide() if self.shown else self.show()
+            elif self._view.playing:
+                self._idle.start()   # the pointer, back after the drag, fades again
+        elif kind == QEvent.Type.MouseMove and event.buttons() == Qt.MouseButton.NoButton:
+            # Qt also sends moves when what's under a still pointer changes;
+            # only the pointer itself moving counts.
+            where = event.globalPosition()
+            still = self._pointer is not None and (where - self._pointer).manhattanLength() < 2
+            self._pointer = where
+            if still:
+                return False
+            if event.position().y() > self._view.height() - max(self.REACH, self._view.height() / 4):
+                self.show()
+        elif kind == QEvent.Type.Leave:
+            self._expire()
+        elif kind == QEvent.Type.KeyPress:
+            shift = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+            key = event.key()
+            # What the time or the sound answers; turning the view doesn't need them.
+            if key in (Qt.Key.Key_Space, Qt.Key.Key_Home, Qt.Key.Key_M) or (
+                    shift and key in (Qt.Key.Key_Left, Qt.Key.Key_Right)):
+                self.show()
         return False
 
 
@@ -1154,8 +1289,14 @@ def open_window(path: str | Path) -> SphereView:
     what = "clip" if is_video else "photo"
     loaded.failed.connect(lambda message: say(f"Couldn't show this {what}: {message}", None))
     if is_video:
-        loaded.video.connect(lambda video: (view.show_video(video), follow.add_player(_video_controls(view)),
-                                            say("Space plays and pauses · Shift+arrows skip 5 s · M mutes · drag to look around")))
+        def playable(video: scenes.VideoScene) -> None:
+            view.show_video(video)
+            player = _video_controls(view)
+            follow.add_player(player)
+            _AutoHide(view, [follow.bar, player])
+            say("Space plays and pauses · Shift+arrows skip 5 s · M mutes · drag to look around")
+
+        loaded.video.connect(playable)
         view.ended.connect(lambda error: say(f"Couldn't play this clip: {error}", None) if error else None)
 
     def work() -> None:
