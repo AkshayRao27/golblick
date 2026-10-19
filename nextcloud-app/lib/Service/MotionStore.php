@@ -34,7 +34,7 @@ use Psr\Log\LoggerInterface;
  */
 final class MotionStore {
 	/** Bump when the algorithm changes, so tracks made by the old one are not served; and motionUrl's v in src/overlay.ts with it. */
-	private const VERSION = 3;
+	private const VERSION = 4;
 
 	public function __construct(
 		private IAppData $appData,
@@ -94,31 +94,64 @@ final class MotionStore {
 		return $track;
 	}
 
+	/**
+	 * How the camera turned while each frame of $clip was read, for the GPU
+	 * stitch to undo its rolling shutter (Stabilise::shutterFor), in the frame
+	 * of tables made with $orientation. Not cached: a clip is stitched once.
+	 * Null when the camera's readout isn't known, or the record can't be read.
+	 */
+	public function shutter(File $clip, array $orientation): ?string {
+		try {
+			$read = $this->read($clip);
+			if ($read === null) {
+				return null;
+			}
+			[$fields, $model, $record, $stride, $frames] = $read;
+			$turns = Stabilise::shutter($record, $stride, Imu::motionAxes($model), $frames, Imu::readout($fields, $model, $frames));
+		} catch (FormatError|\InvalidArgumentException $e) {
+			$this->logger->debug('golblick: rolling shutter left in for ' . $clip->getName() . ': ' . $e->getMessage());
+
+			return null;
+		}
+
+		return $turns === null ? null : Stabilise::shutterFor($turns, $orientation);
+	}
+
+	/** @return array{array, string, string, int, list<float>}|null fields, model, record, stride, frame times */
+	private function read(File $clip): ?array {
+		$handle = $clip->fopen('r');
+		if ($handle === false) {
+			return null;
+		}
+		try {
+			$trailer = Trailer::read($handle, [Trailer::METADATA, Trailer::IMU, Trailer::FRAMES]);
+		} finally {
+			fclose($handle);
+		}
+		$metadata = $trailer->get(Trailer::METADATA);
+		$record = $trailer->get(Trailer::IMU);
+		$log = $trailer->get(Trailer::FRAMES);
+		if ($metadata === null || $record === null || $log === null) {
+			return null;
+		}
+		$fields = Protobuf::fields($metadata);
+		$model = Protobuf::firstText($fields, Protobuf::MODEL);
+		$first = $fields[Protobuf::FIRST_FRAME][0] ?? null;
+		if ($model === null || !\is_int($first)) {
+			return null;
+		}
+		$stride = Imu::stride($record);
+
+		return [$fields, $model, $record, $stride, Imu::frameTimes($record, $stride, $log, $first)];
+	}
+
 	private function compute(File $clip): ?array {
 		try {
-			$handle = $clip->fopen('r');
-			if ($handle === false) {
+			$read = $this->read($clip);
+			if ($read === null) {
 				return null;
 			}
-			try {
-				$trailer = Trailer::read($handle, [Trailer::METADATA, Trailer::IMU, Trailer::FRAMES]);
-			} finally {
-				fclose($handle);
-			}
-			$metadata = $trailer->get(Trailer::METADATA);
-			$record = $trailer->get(Trailer::IMU);
-			$log = $trailer->get(Trailer::FRAMES);
-			if ($metadata === null || $record === null || $log === null) {
-				return null;
-			}
-			$fields = Protobuf::fields($metadata);
-			$model = Protobuf::firstText($fields, Protobuf::MODEL);
-			$first = $fields[Protobuf::FIRST_FRAME][0] ?? null;
-			if ($model === null || !\is_int($first)) {
-				return null;
-			}
-			$stride = Imu::stride($record);
-			$frames = Imu::frameTimes($record, $stride, $log, $first);
+			[, $model, $record, $stride, $frames] = $read;
 			// The orientation VideoRenderer::geometry renders the copy with.
 			$reference = Orientation::level(Imu::gravityUp($record, $model, Imu::OPENING_SAMPLES, true));
 			$track = Stabilise::track($record, $stride, Imu::motionAxes($model), $frames, $reference);

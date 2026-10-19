@@ -16,7 +16,8 @@
 //
 // #defines from the job: WIDTH (output width), MARK (1 to set the frame
 // code's baked bit: the copy is steadied and the player mustn't steady it
-// again).
+// again), SAMPLES (how many turns across each frame's readout the shutter
+// input holds; 0, no such input and the rolling shutter is left in).
 
 __constant sampler_t pick = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 __constant sampler_t smooth = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_LINEAR;
@@ -38,6 +39,53 @@ float2 table(__read_only image2d_t t, float2 uv) {
     return read_imagef(t, wrap, uv).xy * 65535.0f;
 }
 
+// Quaternion k of a track (w, x, y, z): plane 0 as steady.cl reads it, plane 1 as two pixels a frame.
+float4 stored(__read_only image2d_t t, int k, bool chroma) {
+    int2 rows = get_image_dim(t);
+    float4 q;
+    if (!chroma) {
+        k = min(k, rows.x * (rows.y / 8) - 1);
+        int col = k % rows.x, row = 4 * (k / rows.x);
+        q = (float4)(read_imagef(t, pick, (int2)(col, row)).x, read_imagef(t, pick, (int2)(col, row + 1)).x,
+                     read_imagef(t, pick, (int2)(col, row + 2)).x, read_imagef(t, pick, (int2)(col, row + 3)).x);
+    } else {
+        k = min(k, rows.x * (rows.y / 2) - 1);
+        int col = k % rows.x, row = 2 * (k / rows.x);
+        float2 a = read_imagef(t, pick, (int2)(col, row)).xy, b = read_imagef(t, pick, (int2)(col, row + 1)).xy;
+        q = (float4)(a.x, a.y, b.x, b.y);
+    }
+    return q * 2.0f - 1.0f;
+}
+
+// golblick's equirectangular convention (render._rays), as texture coordinates.
+float2 around(float3 s) {
+    return (float2)((atan2(s.x, s.z) + 3.141592654f) / 6.283185307f,
+                    (1.570796327f - asin(clamp(s.y, -1.0f, 1.0f))) / 3.141592654f);
+}
+
+// Where each lens sees a direction, in full-size lens pixels, from this pass's tables.
+float2 lens0_at(float2 uv, bool chroma, __read_only image2d_t ta, __read_only image2d_t tb) {
+    return chroma ? table(ta, uv) : (float2)(table(ta, uv).x, table(tb, uv).x);
+}
+
+float2 lens1_at(float2 uv, bool chroma, __read_only image2d_t tb, __read_only image2d_t tc, __read_only image2d_t td) {
+    return chroma ? table(tb, uv) : (float2)(table(tc, uv).x, table(td, uv).x);
+}
+
+#if SAMPLES > 1
+// render._project_read: a lens row was read (row / height) of the way through
+// the frame, so the direction is turned by the camera's turn to that moment,
+// between the two nearest of the frame's SAMPLES (in the tables' frame,
+// Stabilise::shutterFor).
+float3 when_read(float3 s, float row, __read_only image2d_t shutter, unsigned int index, bool chroma) {
+    float at = clamp(row, 0.0f, 1.0f) * (SAMPLES - 1);
+    int j = min((int)floor(at), SAMPLES - 2);
+    int k = SAMPLES * (int)index + j;
+    float3 mixed = mix(turn(stored(shutter, k, chroma), s), turn(stored(shutter, k + 1, chroma), s), at - j);
+    return normalize(mixed);
+}
+#endif
+
 float2 entry(__read_only image2d_t t, int2 p) {
     return read_imagef(t, pick, p).xy * 65535.0f;
 }
@@ -54,7 +102,11 @@ __kernel void stitch(__write_only image2d_t dst, unsigned int index,
                      __read_only image2d_t ta, __read_only image2d_t tb, __read_only image2d_t tc,
                      __read_only image2d_t td, __read_only image2d_t te,
                      __read_only image2d_t fa, __read_only image2d_t fb,
-                     __read_only image2d_t ladder, __read_only image2d_t track) {
+                     __read_only image2d_t ladder, __read_only image2d_t track
+#if SAMPLES > 1
+                     , __read_only image2d_t shutter
+#endif
+                     ) {
     int2 p = (int2)(get_global_id(0), get_global_id(1));
     int2 size = get_image_dim(dst);
     bool chroma = size.x < WIDTH;
@@ -70,40 +122,26 @@ __kernel void stitch(__write_only image2d_t dst, unsigned int index,
         return;
     }
 
-    // The frame's quaternion: plane 0 as steady.cl reads it, plane 1 as two pixels a frame.
-    int2 rows = get_image_dim(track);
-    float4 q;
-    if (!chroma) {
-        int k = min((int)index, rows.x * (rows.y / 8) - 1);
-        int col = k % rows.x, row = 4 * (k / rows.x);
-        q = (float4)(read_imagef(track, pick, (int2)(col, row)).x, read_imagef(track, pick, (int2)(col, row + 1)).x,
-                     read_imagef(track, pick, (int2)(col, row + 2)).x, read_imagef(track, pick, (int2)(col, row + 3)).x);
-    } else {
-        int k = min((int)index, rows.x * (rows.y / 2) - 1);
-        int col = k % rows.x, row = 2 * (k / rows.x);
-        float2 a = read_imagef(track, pick, (int2)(col, row)).xy, b = read_imagef(track, pick, (int2)(col, row + 1)).xy;
-        q = (float4)(a.x, a.y, b.x, b.y);
-    }
-    q = q * 2.0f - 1.0f;
+    // The frame's steadying; the player turns the sphere by q, so the picture is sampled by the inverse.
+    float4 q = stored(track, (int)index, chroma);
     q.yzw = -q.yzw;
 
     float lon = (p.x + 0.5f) / size.x * 6.283185307f - 3.141592654f;
     float lat = 1.570796327f - (p.y + 0.5f) / size.y * 3.141592654f;
     float3 s = turn(q, (float3)(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon)));
-    float2 uv = (float2)((atan2(s.x, s.z) + 3.141592654f) / 6.283185307f,
-                         (1.570796327f - asin(clamp(s.y, -1.0f, 1.0f))) / 3.141592654f);
+    float2 uv = around(s);
 
-    float2 at0, at1;
-    float share;
-    if (!chroma) {
-        at0 = (float2)(table(ta, uv).x, table(tb, uv).x);
-        at1 = (float2)(table(tc, uv).x, table(td, uv).x);
-        share = table(te, uv).x / 65535.0f;
-    } else {
-        at0 = table(ta, uv);
-        at1 = table(tb, uv);
-        share = table(tc, uv).x / 65535.0f;
+    float2 at0 = lens0_at(uv, chroma, ta, tb);
+    float2 at1 = lens1_at(uv, chroma, tb, tc, td);
+    float share = (chroma ? table(tc, uv).x : table(te, uv).x) / 65535.0f;
+#if SAMPLES > 1
+    // Twice, because the turn moves the row a direction lands on.
+    float height = get_image_dim(lens0).y / scale;
+    for (int n = 0; n < 2; n++) {
+        at0 = lens0_at(around(when_read(s, at0.y / height, shutter, index, chroma)), chroma, ta, tb);
+        at1 = lens1_at(around(when_read(s, at1.y / height, shutter, index, chroma)), chroma, tb, tc, td);
     }
+#endif
     float2 v;
     if (share <= 0.0f) {
         v = lens(lens0, at0 + 0.5f, scale);

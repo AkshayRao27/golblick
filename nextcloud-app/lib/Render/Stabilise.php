@@ -27,6 +27,7 @@ final class Stabilise {
 	public const FOLLOW = 2.0;
 	public const STILL = 0.1;
 	public const BIN = 0.01;
+	public const SHUTTER_SAMPLES = 5;
 
 	/**
 	 * Per frame, the rotation from a frame rendered at $reference to the
@@ -104,12 +105,18 @@ final class Stabilise {
 		for ($i = 0; $i < $count; ++$i) {
 			[$timecode, $ax, $ay, $az, $gx, $gy, $gz] = Imu::entryAt($record, $stride, $i * $stride);
 			$t = ($timecode - $start) * $unit;
+			$wx = $sign * ($a0 * $gx + $a1 * $gy + $a2 * $gz);
+			$wy = $sign * ($b0 * $gx + $b1 * $gy + $b2 * $gz);
+			$wz = $sign * ($c0 * $gx + $c1 * $gy + $c2 * $gz);
+			// A frame between two samples gets the attitude at its own time,
+			// as stabilise.py's _attitudes, not the next sample's.
+			while ($k < $frameCount && $frames[$k] <= $t) {
+				$atFrames[] = $i > 0 ? self::turned([$q0, $q1, $q2, $q3], $wx, $wy, $wz, $frames[$k] - $previous) : [$q0, $q1, $q2, $q3];
+				++$k;
+			}
 			if ($i > 0) {
 				$dt = $t - $previous;
 				if ($dt > 0) {
-					$wx = $sign * ($a0 * $gx + $a1 * $gy + $a2 * $gz);
-					$wy = $sign * ($b0 * $gx + $b1 * $gy + $b2 * $gz);
-					$wz = $sign * ($c0 * $gx + $c1 * $gy + $c2 * $gz);
 					$rate = sqrt($wx * $wx + $wy * $wy + $wz * $wz);
 					if ($rate > 0) {
 						$half = $rate * $dt / 2.0;
@@ -133,10 +140,6 @@ final class Stabilise {
 				}
 			}
 			$previous = $t;
-			while ($k < $frameCount && $frames[$k] <= $t) {
-				$atFrames[] = [$q0, $q1, $q2, $q3];
-				++$k;
-			}
 			$g = sqrt($ax * $ax + $ay * $ay + $az * $az);
 			if (abs($g - 1.0) < self::STILL) {
 				$ux = ($a0 * $ax + $a1 * $ay + $a2 * $az) / $g;
@@ -172,6 +175,125 @@ final class Stabilise {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Per frame, how the camera turned while the frame was being read, as
+	 * stabilise.py's shutter(): $samples unit quaternions (w, x, y, z) at even
+	 * steps from half $readout (seconds) before the frame's time to half after,
+	 * each taking a ray as the camera saw it at the frame's time to the same ray
+	 * at that moment. From the gyroscope alone, the rate held over each sample.
+	 *
+	 * Packed as little-endian doubles, frame after frame, $samples quaternions
+	 * each: a half-hour clip has some 270,000 of them, too many for PHP arrays.
+	 * Null when $readout is 0.
+	 *
+	 * @param array<int, array<int, float>> $axes Imu::motionAxes
+	 * @param list<float> $frameTimes Imu::frameTimes
+	 */
+	public static function shutter(string $record, int $stride, array $axes, array $frameTimes, float $readout,
+		int $samples = self::SHUTTER_SAMPLES): ?string {
+		if ($readout <= 0.0 || $samples < 2 || $frameTimes === []) {
+			return null;
+		}
+		$offsets = [];
+		for ($j = 0; $j < $samples; ++$j) {
+			$offsets[] = $readout * ($j / ($samples - 1) - 0.5);
+		}
+		// Every moment wanted, and every frame's own time, in time order.
+		$times = [];
+		$slots = [];
+		foreach ($frameTimes as $k => $time) {
+			$times[] = $time;
+			$slots[] = -1 - $k;
+			foreach ($offsets as $j => $offset) {
+				$times[] = $time + $offset;
+				$slots[] = $k * $samples + $j;
+			}
+		}
+		array_multisort($times, SORT_NUMERIC, $slots);
+
+		$length = \strlen($record);
+		$count = intdiv($length, $stride);
+		$unit = Imu::CLOCK[$stride];
+		$sign = Imu::handedness($axes);
+		[[$a0, $a1, $a2], [$b0, $b1, $b2], [$c0, $c1, $c2]] = $axes;
+		$start = Imu::entryAt($record, $stride, 0)[0];
+		// A frame's last moment comes after every earlier frame's, so frames
+		// finish in order and each is packed and dropped as soon as it does.
+		$pending = [];
+		$centre = [];
+		$out = '';
+		$q = [1.0, 0.0, 0.0, 0.0];
+		$wanted = \count($times);
+		$n = 0;
+		$previous = 0.0;
+		for ($i = 0; $i <= $count && $n < $wanted; ++$i) {
+			if ($i < $count) {
+				[$timecode, , , , $gx, $gy, $gz] = Imu::entryAt($record, $stride, $i * $stride);
+				$t = ($timecode - $start) * $unit;
+				$wx = $sign * ($a0 * $gx + $a1 * $gy + $a2 * $gz);
+				$wy = $sign * ($b0 * $gx + $b1 * $gy + $b2 * $gz);
+				$wz = $sign * ($c0 * $gx + $c1 * $gy + $c2 * $gz);
+			} else {
+				$t = INF;
+			}
+			while ($n < $wanted && $times[$n] <= $t) {
+				$here = $i === 0 || $i === $count ? $q : self::turned($q, $wx, $wy, $wz, $times[$n] - $previous);
+				$slot = $slots[$n];
+				++$n;
+				if ($slot < 0) {
+					$centre[-1 - $slot] = $here;
+					continue;
+				}
+				$k = intdiv($slot, $samples);
+				$pending[$k][$slot % $samples] = $here;
+				if (\count($pending[$k]) === $samples) {
+					// ray then = R(q_then)^T R(q_frame) ray: the quaternion conj(q_then) q_frame.
+					for ($j = 0; $j < $samples; ++$j) {
+						$then = $pending[$k][$j];
+						$out .= pack('e4', ...self::normalise(self::multiply([$then[0], -$then[1], -$then[2], -$then[3]], $centre[$k])));
+					}
+					unset($pending[$k], $centre[$k]);
+				}
+			}
+			if ($i > 0 && $i < $count) {
+				$q = self::turned($q, $wx, $wy, $wz, $t - $previous);
+			}
+			$previous = $t;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * shutter()'s turns as the GPU stitch takes them (worker/stitch.cl): each
+	 * expressed in the frame the tables are made for, O D O^T with O the
+	 * orientation the clip is rendered with, as 16-bit (c + 1) / 2 in
+	 * (w, x, y, z) order, packed little-endian like BakeQueue::quaternions.
+	 */
+	public static function shutterFor(string $packed, array $orientation): string {
+		$o = self::quaternion($orientation);
+		$back = [$o[0], -$o[1], -$o[2], -$o[3]];
+		$out = '';
+		for ($at = 0; $at + 32 <= \strlen($packed); $at += 32) {
+			$turn = self::normalise(self::multiply(self::multiply($o, array_values(unpack('e4', $packed, $at))), $back));
+			$out .= pack('v4', ...array_map(static fn (float $c): int => (int)round(($c + 1) / 2 * 65535), $turn));
+		}
+
+		return $out;
+	}
+
+	/** $q turned by the body rate ($wx, $wy, $wz) held for $dt seconds, as stabilise.py's _turned. */
+	private static function turned(array $q, float $wx, float $wy, float $wz, float $dt): array {
+		$rate = sqrt($wx * $wx + $wy * $wy + $wz * $wz);
+		if ($rate == 0.0 || $dt <= 0.0) {
+			return $q;
+		}
+		$half = $rate * $dt / 2.0;
+		$s = sin($half) / $rate;
+
+		return self::normalise(self::multiply($q, [cos($half), $wx * $s, $wy * $s, $wz * $s]));
 	}
 
 	/** stabilise.py's _smooth with presummed values: weighted and normalised, three boxes. */

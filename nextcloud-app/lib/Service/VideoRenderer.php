@@ -138,7 +138,8 @@ final class VideoRenderer {
 		if ($gpu && $this->stitch->canStitch($inputs)) {
 			$track = $this->settings->flag('video_bake') ? $this->motion->track($file) : null;
 			try {
-				$this->stitch->start($name, $tables, $inputs, $lensSize, $width, $bitrate, $probe, $track);
+				$this->stitch->start($name, $tables, $inputs, $lensSize, $width, $bitrate, $probe, $track,
+					$this->motion->shutter($file, $orientation));
 				VideoStore::removeDirectory($tables);
 
 				return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards,

@@ -91,6 +91,39 @@ final class Imu {
 	public const STAMPED_LATE = [56 => 0.0186];
 
 	/**
+	 * Models whose rolling shutter has been measured, as imu.py's _READS_DOWN:
+	 * each lens image is read down its rows, both lenses alike, over metadata
+	 * field 25's time. Others get no correction until it is measured.
+	 */
+	public const READS_DOWN = ['Insta360 OneR'];
+
+	/**
+	 * How long the sensor took to read each frame, in seconds, as imu.py's
+	 * Motion.readout: field 25 for a measured model, if it is shorter than a
+	 * frame; 0, don't correct, otherwise.
+	 *
+	 * @param array<int, list<string|int>> $fields Protobuf::fields of the metadata record
+	 * @param list<float> $frameTimes self::frameTimes
+	 */
+	public static function readout(array $fields, string $model, array $frameTimes): float {
+		$value = $fields[Protobuf::READOUT][0] ?? null;
+		if (!\in_array($model, self::READS_DOWN, true) || !\is_string($value) || \strlen($value) !== 8
+			|| \count($frameTimes) < 2) {
+			return 0.0;
+		}
+		$ms = unpack('e', $value)[1];
+		$steps = [];
+		for ($i = 1; $i < \count($frameTimes); ++$i) {
+			$steps[] = $frameTimes[$i] - $frameTimes[$i - 1];
+		}
+		sort($steps);
+		// A frame is read within its own period; anything else isn't a readout time.
+		$spacing = $steps[intdiv(\count($steps), 2)];
+
+		return is_finite($ms) && $ms > 0.0 && $ms < 1000.0 * $spacing ? $ms / 1000.0 : 0.0;
+	}
+
+	/**
 	 * The map that turns the gyroscope's readings into the render's frame, in
 	 * radians per second: the gravity map, negated where it is a reflection,
 	 * because an angular velocity is an axial vector. docs/formats/insta360-agent-notes.md,

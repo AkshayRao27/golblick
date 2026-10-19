@@ -24,7 +24,7 @@
 # worker is there and what it can do.
 
 set -u
-VERSION=2
+VERSION=3
 JOBS=${1:?usage: golblick-worker.sh JOBS_DIR [DATA_DIR]}
 DATA=${2:-/data}
 KERNEL="$(cd "$(dirname "$0")" && pwd)/steady.cl"
@@ -134,7 +134,7 @@ finish() {  # finish DIR CODE: hand the result back to the app
 # `strip` instead of the full size: it only ever reads a 720-pixel band.
 stitch() {
 	local dir=$1
-	local width lens strip around ladder bitrate mark matrix range rate created duration track field
+	local width lens strip around ladder bitrate mark matrix range rate created duration track field shutter samples
 	width=$(value "$dir/job" width); lens=$(value "$dir/job" lens); strip=$(value "$dir/job" strip)
 	around=$(value "$dir/job" around); ladder=$(value "$dir/job" ladder); bitrate=$(value "$dir/job" bitrate)
 	mark=$(text "$dir/job" mark '[01]')
@@ -145,6 +145,9 @@ stitch() {
 	duration=$(text "$dir/job" duration '[0-9][0-9.]*')
 	track=$(text "$dir/job" track '[0-9][0-9]*x[0-9][0-9]*')
 	field=$(text "$dir/job" field '[0-9][0-9]*x[0-9][0-9]*')
+	# Optional: each frame's turns across its readout, to undo rolling shutter.
+	shutter=$(text "$dir/job" shutter '[0-9][0-9]*x[0-9][0-9]*'); samples=$(value "$dir/job" samples)
+	[ -n "$shutter" ] && [ -n "$samples" ] && [ -r "$dir/shutter.p016" ] || shutter=
 	local inputs=()
 	while IFS= read -r path; do
 		# Only files under the data directory, named the way the app names them.
@@ -158,7 +161,7 @@ stitch() {
 		return
 	fi
 	touch "$dir/running"
-	printf '#define WIDTH %d\n#define MARK %d\n' "$width" "$mark" | cat - "$STITCH_KERNEL" > "$dir/stitch.cl"
+	printf '#define WIDTH %d\n#define MARK %d\n#define SAMPLES %d\n' "$width" "$mark" "${shutter:+$samples}" | cat - "$STITCH_KERNEL" > "$dir/stitch.cl"
 
 	local full=full; [ "$range" = tv ] && full=limited
 	# ffmpeg negotiates colour range and space across a filter's inputs and
@@ -174,8 +177,10 @@ stitch() {
 	fi
 	local n=${#inputs[@]} t size f
 	declare -A at
-	for t in ta tb tc td te fa fb track; do
-		case $t in fa|fb) size=$field ;; track) size=$track ;; *) size="${width}x$((width / 2))" ;; esac
+	local static=(ta tb tc td te fa fb track)
+	[ -n "$shutter" ] && static+=(shutter)
+	for t in "${static[@]}"; do
+		case $t in fa|fb) size=$field ;; track) size=$track ;; shutter) size=$shutter ;; *) size="${width}x$((width / 2))" ;; esac
 		args+=(-threads 1 -f rawvideo -pixel_format p016le -video_size "$size" -i "$dir/$t.p016"); at[$t]=$n; n=$((n + 1))
 	done
 	for t in s0x s0y s1x s1y; do
@@ -196,8 +201,10 @@ stitch() {
 	f+="[d0][d1][d2]hstack=inputs=3,avgblur=sizeX=12:sizeY=0,avgblur=sizeX=12:sizeY=0,crop=$around:1:$around:0,tmix=frames=9,"
 	f+="scale=$around:$ladder:flags=neighbor,geq=r=$(rung r):g=$(rung g):b=$(rung b),"
 	f+="scale=out_color_matrix=$matrix:out_range=$full,format=nv12,$tag,hwupload[ladder];"
-	for t in ta tb tc td te fa fb track; do f+="[${at[$t]}:v]$tag,hwupload[$t];"; done
-	f+="[l0][l1][ta][tb][tc][td][te][fa][fb][ladder][track]program_opencl=source=$dir/stitch.cl:kernel=stitch:inputs=11:size=${width}x$((width / 2)),"
+	local kernel="[l0][l1][ta][tb][tc][td][te][fa][fb][ladder][track]"
+	[ -n "$shutter" ] && kernel+="[shutter]"
+	for t in "${static[@]}"; do f+="[${at[$t]}:v]$tag,hwupload[$t];"; done
+	f+="${kernel}program_opencl=source=$dir/stitch.cl:kernel=stitch:inputs=$((${#static[@]} + 3)):size=${width}x$((width / 2)),"
 	f+="hwdownload,format=nv12,settb=AVTB,setpts=N*${rate#*/}/${rate%/*}/TB[out]"
 
 	local meta=()

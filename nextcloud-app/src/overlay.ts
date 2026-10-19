@@ -73,7 +73,7 @@ const videoUrl = (fileId: number, etag: string) => generateUrl(config.share
 
 // v is MotionStore::VERSION: the browser keeps a track for a day, and a new one has a new address.
 const motionUrl = (fileId: number, etag: string) => generateUrl(config.share
-  ? `/apps/golblick/s/${config.share}/motion/${fileId}` : `/apps/golblick/motion/${fileId}`) + `?etag=${encodeURIComponent(etag)}&v=3`;
+  ? `/apps/golblick/s/${config.share}/motion/${fileId}` : `/apps/golblick/motion/${fileId}`) + `?etag=${encodeURIComponent(etag)}&v=4`;
 
 /** The steadying track for a video, or null where the server has none (lib/Service/MotionStore). */
 async function loadMotion(fileId: number, etag: string): Promise<Motion | null> {

@@ -60,19 +60,32 @@ final class GpuTables {
 	 * P016's second plane is half as tall), and plane 1 the same quaternions as
 	 * two pixels a frame, (w, x) above (y, z), half as many frames a row.
 	 *
-	 * @param list<array{int, int, int, int}> $frames each frame's quaternion as BakeQueue::quaternions() gives it
+	 * The rolling-shutter track (Stabilise::shutterFor) goes the same way, a
+	 * frame's turns one after another as if each were a frame.
+	 *
+	 * @param list<array{int, int, int, int}>|string $frames each frame's quaternion as BakeQueue::quaternions()
+	 *        gives it, or the same packed as little-endian uint16
 	 * @return string the size, as WxH
 	 */
-	public static function writeTrack(array $frames, int $columns, string $path): string {
-		$rows = max(1, intdiv(\count($frames) + $columns - 1, $columns));
+	public static function writeTrack(array|string $frames, int $columns, string $path): string {
 		$identity = [65535, 32768, 32768, 32768];
+		// Read from the packed string as needed: a clip's shutter track has a
+		// quarter of a million entries, too many to hold as PHP arrays.
+		if (\is_string($frames)) {
+			$count = intdiv(\strlen($frames), 8);
+			$at = static fn (int $i): array => $i < $count ? array_values(unpack('v4', $frames, 8 * $i)) : $identity;
+		} else {
+			$count = \count($frames);
+			$at = static fn (int $i): array => $frames[$i] ?? $identity;
+		}
+		$rows = max(1, intdiv($count + $columns - 1, $columns));
 		$handle = self::create($path);
 		try {
 			for ($block = 0; $block < $rows; $block++) {
 				for ($c = 0; $c < 4; $c++) {
 					$row = [];
 					for ($col = 0; $col < $columns; $col++) {
-						$row[] = ($frames[$block * $columns + $col] ?? $identity)[$c];
+						$row[] = $at($block * $columns + $col)[$c];
 					}
 					fwrite($handle, pack('v*', ...$row));
 				}
@@ -83,7 +96,7 @@ final class GpuTables {
 				foreach ([[0, 1], [2, 3]] as [$a, $b]) {
 					$row = [];
 					for ($col = 0; $col < $half; $col++) {
-						$quat = $frames[$pair * $half + $col] ?? $identity;
+						$quat = $at($pair * $half + $col);
 						$row[] = $quat[$a];
 						$row[] = $quat[$b];
 					}

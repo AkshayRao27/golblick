@@ -9,6 +9,7 @@ namespace OCA\Golblick\Service;
 use OCA\Golblick\Insta360\FormatError;
 use OCA\Golblick\Render\GpuTables;
 use OCA\Golblick\Render\RemapTables;
+use OCA\Golblick\Render\Stabilise;
 use OCP\IConfig;
 
 /**
@@ -55,10 +56,12 @@ final class StitchQueue {
 	 * @param list<string> $inputs local paths, as VideoRenderer reads them
 	 * @param array{rate: string, matrix: string, range: string, duration: float, created: ?string} $probe
 	 * @param array|null $track the steadying track to bake in (MotionStore::track), or null for none
+	 * @param string|null $shutter each frame's turns across its readout (MotionStore::shutter), or null to
+	 *        leave the rolling shutter in. Optional for the worker: one that predates it ignores it
 	 * @throws FormatError with nothing left behind
 	 */
 	public function start(string $name, string $tables, array $inputs, int $lensSize, int $width, int $bitrate,
-		array $probe, ?array $track): void {
+		array $probe, ?array $track, ?string $shutter = null): void {
 		// Written beside and renamed into place, so the worker never sees a
 		// job half written, or rewritten under it: a table that changes while
 		// the worker reads it puts a band across every frame of the copy.
@@ -88,6 +91,10 @@ final class StitchQueue {
 				'track' => $trackSize,
 				'field' => $sizes['fa'],
 			] + ($probe['created'] === null ? [] : ['created' => $probe['created']]);
+			if ($shutter !== null) {
+				$job['shutter'] = GpuTables::writeTrack($shutter, BakeQueue::COLUMNS, "$dir/shutter.p016");
+				$job['samples'] = Stabilise::SHUTTER_SAMPLES;
+			}
 			$text = '';
 			foreach ($job as $key => $value) {
 				$text .= "$key=$value\n";

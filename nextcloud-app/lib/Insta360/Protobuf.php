@@ -23,6 +23,8 @@ final class Protobuf {
 	public const CALIBRATION_EQUIDISTANT = 5;
 	/** In a video, frame 0's timecode on the inertial clock. */
 	public const FIRST_FRAME = 24;
+	/** In a video, how long the sensor takes to read a frame, top row to bottom, in ms (a double). */
+	public const READOUT = 25;
 	/** In a video, the part of each lens's sensor the frame keeps. */
 	public const SENSOR_CROP = 27;
 	public const CALIBRATION_POLY = 53;

@@ -412,6 +412,16 @@ def test_the_php_port_has_the_same_lateness():
     assert float(match.group(1)) == imu._STAMPED_LATE[56]
 
 
+def test_the_php_port_corrects_the_same_cameras_with_as_many_turns():
+    app = Path(__file__).parents[1] / "nextcloud-app/lib"
+    reads = re.search(r"READS_DOWN = \[([^\]]*)\]", (app / "Insta360/Imu.php").read_text())
+    samples = re.search(r"SHUTTER_SAMPLES = (\d+);", (app / "Render/Stabilise.php").read_text())
+    assert reads and samples, "READS_DOWN or SHUTTER_SAMPLES missing from the PHP port"
+    assert set(re.findall(r"'([^']+)'", reads.group(1))) == imu._READS_DOWN
+    from golblick import stabilise
+    assert int(samples.group(1)) == stabilise.SHUTTER_SAMPLES
+
+
 def test_motion_turns_the_gyroscope_with_the_gravity_axes_and_flips_it_for_a_reflection(tmp_path):
     """The X5's map is a reflection, and an angular velocity is an axial vector."""
     motion = imu.motion(x5_clip(tmp_path, first_frame=1_000_000, gyro=(0.1, 0.0, 0.0)))
