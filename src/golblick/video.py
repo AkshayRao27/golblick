@@ -221,6 +221,7 @@ class Plan:
     orientation: object      # 3x3, levels the opening
     turns: list | None       # per frame, the steadying quaternion (w, x, y, z), or None
     notes: list[str]         # one line each on what was decided and why
+    shutter: list | None = None   # per frame, stabilise.shutter's turns, or None
 
 
 def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool = False,
@@ -297,9 +298,11 @@ def plan(vendor, path, clip: Clip, width: int, steady: bool = True, lock: bool =
 
     faced, turns, turned = orient(vendor, path, calibration, clip.frames, steady, lock)
     notes.extend(turned)
+    read, line = shutter(vendor, path)
+    notes.append(line)
 
     return Plan(lenses, lens_size, width, field_of_view, seam, faced,
-                turns, notes)
+                turns, notes, read)
 
 
 def orient(vendor, path, calibration, frames: int, steady: bool = True, lock: bool = False):
@@ -364,6 +367,29 @@ def steadying(vendor, path, level, heading):
     return stabilise.turned(follow, heading), headings
 
 
+def shutter(vendor, path):
+    """A clip's turns across each frame's readout, for undoing rolling shutter, and a note.
+
+    Returns ``(turns, note)``: ``stabilise.shutter``'s quaternions per frame,
+    or None where the camera's readout isn't known.
+    """
+    try:
+        motion = vendor.motion(path)
+    except (GolblickError, ValueError, AttributeError) as exc:
+        return None, f"shutter        rolling shutter left in: {exc}"
+    turns = stabilise.shutter(motion)
+    if turns is None:
+        return None, "shutter        rolling shutter left in: no readout time for this camera"
+    return turns, f"shutter        rolling shutter undone, {1000 * motion.readout:.1f} ms readout"
+
+
+def frame_shutter(plan: Plan, k: int):
+    """Frame ``k``'s turns across its readout as 3x3 matrices, as the renderer takes them, or None."""
+    if not plan.shutter:
+        return None
+    return [quaternion_matrix(q) for q in plan.shutter[min(k, len(plan.shutter) - 1)]]
+
+
 def frame_orientation(plan: Plan, k: int):
     """The orientation frame ``k`` is rendered with: its steadying turn after the levelling."""
     if not plan.turns:
@@ -392,9 +418,9 @@ def _start_worker(plan: Plan) -> None:
     _WORKER = plan
 
 
-def _tables(orientation) -> bytes:
-    """One frame's tables, stacked into one 16-bit picture: see :func:`layout`."""
-    return frame_tables(_WORKER, orientation)
+def _tables(k: int) -> bytes:
+    """Frame ``k``'s tables, stacked into one 16-bit picture: see :func:`layout`."""
+    return frame_tables(_WORKER, frame_orientation(_WORKER, k), frame_shutter(_WORKER, k))
 
 
 def layout(width: int) -> tuple[int, int, int, int]:
@@ -409,7 +435,7 @@ def layout(width: int) -> tuple[int, int, int, int]:
     return width, 5 * (width // 2) + field_height, field_width, field_height
 
 
-def frame_tables(plan: Plan, orientation) -> bytes:
+def frame_tables(plan: Plan, orientation, shutter=None) -> bytes:
     numpy = render._numpy()
     width, height = plan.width, plan.width // 2
     last = plan.lens_size - 1
@@ -418,7 +444,7 @@ def frame_tables(plan: Plan, orientation) -> bytes:
     for top in range(0, height, BAND):
         rows = slice(top, min(height, top + BAND))
         maps, share = render.remap_tables(plan.lenses, (width, height), plan.field_of_view, orientation,
-                                          plan.lens_size, plan.seam, rows=rows)
+                                          plan.lens_size, plan.seam, rows=rows, shutter=shutter)
         for index, (x, y, valid) in enumerate(maps):
             planes[2 * index][rows] = numpy.where(valid, numpy.clip(numpy.rint(x), 0, last), 0)
             planes[2 * index + 1][rows] = numpy.where(valid, numpy.clip(numpy.rint(y), 0, last), 0)
@@ -593,8 +619,8 @@ def _available_memory() -> float:
 
 def _feed(encoder, decided: Plan, frames: int, jobs: int) -> None:
     """Write every frame's tables to ffmpeg in order, with a few in hand, and report progress."""
-    if not decided.turns:
-        # Unsteadied, every frame has the same tables.
+    if not decided.turns and not decided.shutter:
+        # Unsteadied and with no rolling shutter to undo, every frame has the same tables.
         tables = frame_tables(decided, decided.orientation)
         try:
             for _ in range(frames):
@@ -612,7 +638,7 @@ def _feed(encoder, decided: Plan, frames: int, jobs: int) -> None:
         submitted = 0
         for written in range(frames):
             while submitted < frames and len(pending) < 2 * jobs:
-                pending.append(pool.apply_async(_tables, (frame_orientation(decided, submitted),)))
+                pending.append(pool.apply_async(_tables, (submitted,)))
                 submitted += 1
             try:
                 encoder.stdin.write(pending.popleft().get())

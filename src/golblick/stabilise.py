@@ -52,6 +52,10 @@ STILL = 0.1
 #: Readings are averaged in bins of this many seconds before smoothing.
 BIN = 0.01
 
+#: Orientations per frame across the readout, for :func:`shutter`.  A
+#: renderer interpolates between them linearly.
+SHUTTER_SAMPLES = 5
+
 
 def track(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLLOW, lock: bool = False):
     """Per video frame, the rotation from a frame rendered at ``reference`` to the steadied view.
@@ -125,6 +129,73 @@ def steady(motion, reference, up_window: float = UP_WINDOW, follow: float = FOLL
     return rotations, [heading - smooth[0] for heading in smooth]
 
 
+def shutter(motion, samples: int = SHUTTER_SAMPLES):
+    """Per video frame, how the camera turned while the frame was being read, for undoing rolling shutter.
+
+    Returns, per frame time, ``samples`` unit quaternions ``(w, x, y, z)`` at
+    even steps from half the readout before the frame's time to half after.
+    Each takes a ray in the camera's frame as the camera pointed at the
+    frame's time to the same ray as it pointed at that moment, so the middle
+    one is the identity.  A renderer turns each ray by the one for the moment
+    its row was read (``Motion.readout``), projects it again, and samples
+    there.  Returns None when the readout is 0.
+
+    The turn comes from the gyroscope alone, rate held over each sample as
+    :func:`_attitudes` holds it.  Levelling moves over seconds, not within a
+    frame, so it is left out; and the turn is the same with or without
+    steadying, so an unsteadied view is corrected too.
+    """
+    readout = getattr(motion, "readout", 0.0)
+    if not readout or samples < 2:
+        return None
+    t = motion.sample_times
+    w = motion.angular_velocity
+    frames = motion.frame_times
+    offsets = [readout * (j / (samples - 1) - 0.5) for j in range(samples)]
+    wanted = sorted((time + offset, k, j) for k, time in enumerate(frames) for j, offset in enumerate(offsets))
+    centres = sorted((time, k) for k, time in enumerate(frames))
+
+    # The attitude at every wanted moment and at every frame's time, in one
+    # pass: the rate w[i] holds over (t[i-1], t[i]], so within a step the
+    # attitude is the step's start turned by w[i] for the time since.
+    at = [[None] * samples for _ in frames]
+    centre = [None] * len(frames)
+    q = (1.0, 0.0, 0.0, 0.0)
+    a = c = 0
+    count = len(t)
+    for i in range(count + 1):
+        end = t[i] if i < count else math.inf
+        while a < len(wanted) or c < len(centres):
+            nxt_a = wanted[a][0] if a < len(wanted) else math.inf
+            nxt_c = centres[c][0] if c < len(centres) else math.inf
+            moment = min(nxt_a, nxt_c)
+            if moment > end:
+                break
+            here = q if i == 0 or i == count else _turned(q, w, i, moment - t[i - 1])
+            if nxt_a <= nxt_c:
+                at[wanted[a][1]][wanted[a][2]] = here
+                a += 1
+            else:
+                centre[centres[c][1]] = here
+                c += 1
+        if 0 < i < count:
+            q = _turned(q, w, i, t[i] - t[i - 1])
+    # ray then = R(q_then)^T R(q_frame) ray: the quaternion conj(q_then) q_frame.
+    return [tuple(_normalise(_multiply((p[0], -p[1], -p[2], -p[3]), centre[k])) for p in row)
+            for k, row in enumerate(at)]
+
+
+def _turned(q, w, i, dt):
+    """``q`` turned by the body rate ``w[i]`` held for ``dt`` seconds."""
+    wx, wy, wz = w[3 * i], w[3 * i + 1], w[3 * i + 2]
+    rate = math.sqrt(wx * wx + wy * wy + wz * wz)
+    if rate == 0 or dt <= 0:
+        return q
+    half = rate * dt / 2.0
+    s = math.sin(half) / rate
+    return _normalise(_multiply(q, (math.cos(half), wx * s, wy * s, wz * s)))
+
+
 def _yaw(angle):
     """A turn about the vertical (+y) by ``angle`` radians, as a quaternion."""
     return (math.cos(angle / 2.0), 0.0, math.sin(angle / 2.0), 0.0)
@@ -162,6 +233,12 @@ def _attitudes(motion, up_window):
     at_frames = []
     k = 0
     for i in range(count):
+        # A frame between two samples gets the attitude at its own time, the
+        # rate held since the last sample, not the next sample's: at 500 Hz
+        # that is up to 2 ms, which on a fast turn is a visible jerk.
+        while k < len(frames) and frames[k] <= t[i]:
+            at_frames.append(_turned((q0, q1, q2, q3), w, i, frames[k] - t[i - 1]) if i else (q0, q1, q2, q3))
+            k += 1
         if i:
             dt = t[i] - t[i - 1]
             if dt > 0:
@@ -177,9 +254,6 @@ def _attitudes(motion, up_window):
                                       q0 * d3 + q1 * d2 - q2 * d1 + q3 * d0)
                     n = math.sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3)
                     q0, q1, q2, q3 = q0 / n, q1 / n, q2 / n, q3 / n
-        while k < len(frames) and frames[k] <= t[i]:
-            at_frames.append((q0, q1, q2, q3))
-            k += 1
         if abs(gravity[i] - 1.0) < STILL:
             ux, uy, uz = up[3 * i], up[3 * i + 1], up[3 * i + 2]
             # The reading, turned into the integrated frame: R(q) @ u.

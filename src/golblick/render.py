@@ -161,6 +161,37 @@ def _project(rays, lens: Lens, index: int, theta_max: float):
     return lens.centre_x + r * numpy.cos(phi), lens.centre_y - r * numpy.sin(phi), theta
 
 
+def _project_read(rays, lens: Lens, index: int, theta_max: float, shutter=None, rows: float = 0.0):
+    """:func:`_project`, for a frame whose rows were read one after another.
+
+    ``shutter`` is the frame's turns across its readout, from
+    ``stabilise.shutter`` as 3x3 matrices (column convention), and ``rows``
+    the lens image's height in the lens geometry's pixels.  A ray landing in
+    row ``v`` was seen ``v / rows`` of the way through the readout, so it is
+    turned by the camera's turn to that moment, between the two nearest, and
+    projected again; twice, because the turn moves the row it lands on.
+    """
+    projected = _project(rays, lens, index, theta_max)
+    if shutter is None:
+        return projected
+    numpy = _numpy()
+    turns = numpy.asarray(shutter, numpy.float64)
+    steps = len(turns) - 1
+    for _ in range(2):
+        at = numpy.clip(projected[1] / rows, 0.0, 1.0) * steps
+        low = numpy.minimum(numpy.floor(at), steps - 1)
+        share = (at - low)[..., None]
+        turned = numpy.empty_like(rays)
+        for j in range(steps):
+            here = low == j
+            ray = rays[here]
+            # Rows are vectors, so ``ray @ M.T`` is ``M @ ray``.
+            mixed = ray @ turns[j].T * (1.0 - share[here]) + ray @ turns[j + 1].T * share[here]
+            turned[here] = mixed / numpy.linalg.norm(mixed, axis=-1, keepdims=True)
+        projected = _project(turned, lens, index, theta_max)
+    return projected
+
+
 def _sample(image, u, v, valid):
     """Bilinear, because the projection lands between source pixels everywhere.
 
@@ -663,7 +694,7 @@ def plan_seam(images, lenses, field_of_view, direction):
 
 
 def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
-                    orientation=None):
+                    orientation=None, shutter=None):
     """Project a dual-fisheye ``image`` into an equirectangular frame.
 
     ``field_of_view`` is the full angle each lens sees, in degrees; it is not
@@ -676,6 +707,9 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     relative to each other and not relative to the world.  Recover the rotation
     with :func:`fit_orientation`, or from the gravity vector in the IMU record
     (:func:`level`).
+
+    ``shutter``, for a video frame, undoes its rolling shutter: the frame's
+    turns across its readout, as :func:`_project_read` takes them.
     """
     numpy = _numpy()
     width, height = size
@@ -697,7 +731,7 @@ def equirectangular(image, lenses, size, field_of_view, feather_degrees=None,
     thetas = []
     hemispheres = []
     for index, lens in enumerate(lenses):
-        u, v, theta = _project(rays, lens, index, theta_max)
+        u, v, theta = _project_read(rays, lens, index, theta_max, shutter, image.shape[0])
         valid = theta <= theta_max
         pixels = _sample(image, u, v, valid)
         sampled.append((pixels, valid))
@@ -787,7 +821,7 @@ def seam_columns(image, lenses, field_of_view: float, orientation=None, width: i
 
 
 def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, plan=None,
-                 feather_height=None, rows=None):
+                 feather_height=None, rows=None, shutter=None):
     """Where each output pixel comes from, for a video renderer that remaps every frame.
 
     A video is the same projection applied to every frame, so it is computed
@@ -807,7 +841,8 @@ def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, 
     size hands over where the full-size one does.  ``rows``, a slice, gives
     only those rows of the tables, the same values as the whole: every pixel
     depends on its own direction alone, and a band small enough to stay in
-    the processor's cache is several times faster per pixel.
+    the processor's cache is several times faster per pixel.  ``shutter``
+    undoes the frame's rolling shutter, as in :func:`equirectangular`.
     """
     numpy = _numpy()
     width, height = size
@@ -830,7 +865,7 @@ def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, 
     maps, thetas = [], []
     for index, lens in enumerate(lenses):
         looking = rays if aimed is None else _aimed(rays, d, aimed, plan.direction, index)
-        u, v, theta = _project(looking, lens, index, theta_max)
+        u, v, theta = _project_read(looking, lens, index, theta_max, shutter, lens_size)
         valid = theta <= theta_max
         maps.append((u - index * lens_size, v, valid))
         thetas.append(numpy.where(valid, theta, theta_max + feather))

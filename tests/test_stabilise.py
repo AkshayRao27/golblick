@@ -204,3 +204,55 @@ def test_locking_a_turned_track_is_turning_a_locked_one():
     other = stabilise.turned(stabilise.locked(track, headings), 2.1)
     for a, b in zip(one, other, strict=True):
         assert a == pytest.approx(b, abs=1e-12) or a == pytest.approx(tuple(-v for v in b), abs=1e-12)
+
+
+def test_the_shutter_turns_are_the_camera_s_own_turn_across_the_readout():
+    """Each turn takes a ray as the camera saw it at the frame's time to the same ray at that moment."""
+    motion = camera()
+    motion.readout = 0.03
+    turns = stabilise.shutter(motion)
+
+    assert len(turns) == len(motion.frame_times)
+    v = (0.3, -0.5, 0.81)
+    for k in (0, 57, 140):
+        t = motion.frame_times[k]
+        assert len(turns[k]) == stabilise.SHUTTER_SAMPLES
+        for j, turn in enumerate(turns[k]):
+            moment = t + 0.03 * (j / (stabilise.SHUTTER_SAMPLES - 1) - 0.5)
+            # A world direction d is seen as R(q)^T d; so then = R(q_then)^T R(q_now) now.
+            expected = rotate(multiply(conjugate(attitude(moment)), attitude(t)), v)
+            assert rotate(turn, v) == pytest.approx(expected, abs=2e-4)
+        middle = turns[k][stabilise.SHUTTER_SAMPLES // 2]
+        assert rotate(middle, v) == pytest.approx(v, abs=1e-9)
+
+
+def test_the_shutter_turns_between_samples_not_at_them():
+    """A moment between two gyro samples gets the turn so far, not the next sample's."""
+    motion = camera()
+    motion.readout = 0.0005                   # half a sample apart at 1 kHz
+    turns = stabilise.shutter(motion, samples=2)
+    t = motion.frame_times[30]
+    expected = rotate(multiply(conjugate(attitude(t - 0.00025)), attitude(t)), (0.0, 0.0, 1.0))
+    got = rotate(turns[30][0], (0.0, 0.0, 1.0))
+    # Holding a sample would give no turn or a whole sample's; this is a quarter of one, to 5%.
+    assert abs(expected[0]) > 1e-4
+    assert got == pytest.approx(expected, abs=0.05 * abs(expected[0]))
+
+
+def test_no_readout_no_shutter():
+    motion = camera()
+    assert stabilise.shutter(motion) is None
+    motion.readout = 0.0
+    assert stabilise.shutter(motion) is None
+
+
+def test_a_frame_between_two_samples_gets_the_attitude_at_its_own_time():
+    """Not the next sample's: at 500 Hz that would put a frame up to 2 ms late."""
+    motion = camera()
+    t = motion.sample_times[3000] + 0.00025
+    motion.frame_times = array("d", (t, t + 0.0005))
+    first, second = stabilise._attitudes(motion, stabilise.UP_WINDOW)
+    got = rotate(multiply(conjugate(first), second), (0.0, 0.0, 1.0))
+    expected = rotate(multiply(conjugate(attitude(t)), attitude(t + 0.0005)), (0.0, 0.0, 1.0))
+    assert abs(expected[0]) > 1e-4
+    assert got == pytest.approx(expected, abs=0.05 * abs(expected[0]))

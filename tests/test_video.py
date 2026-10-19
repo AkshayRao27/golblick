@@ -1,5 +1,6 @@
 """Stitching a whole video: the per-frame tables, checked without ffmpeg, and the 360 tag with it."""
 
+import dataclasses
 import re
 import shutil
 import subprocess
@@ -70,6 +71,20 @@ def test_a_frame_beyond_the_motion_record_keeps_the_last_turn():
 
     assert numpy.allclose(video.frame_orientation(plan, 5), video.frame_orientation(plan, 1))
     assert numpy.allclose(video.frame_orientation(_plan(lenses, None, numpy.eye(3)), 5), numpy.eye(3))
+
+
+def test_a_frame_s_rolling_shutter_reaches_its_own_tables():
+    """Frame k's tables use frame k's turns across the readout; a frame with none matches the plain tables."""
+    _, lenses = synthetic_pair(size=SIZE)
+    still = (1.0, 0.0, 0.0, 0.0)
+    turned = stabilise._quaternion(render.rotation(3.0, 0.0, 0.0))
+    plan = _plan(lenses, None, numpy.eye(3))
+    plain = video.frame_tables(plan, plan.orientation)
+    read = dataclasses.replace(plan, shutter=[(still,) * 5, (turned,) + (still,) * 4])
+
+    assert video.frame_tables(read, read.orientation, video.frame_shutter(read, 0)) == plain
+    assert video.frame_tables(read, read.orientation, video.frame_shutter(read, 1)) != plain
+    assert numpy.allclose(video.frame_shutter(read, 9), video.frame_shutter(read, 1))
 
 
 def test_tables_made_in_bands_are_the_tables_made_whole(monkeypatch):

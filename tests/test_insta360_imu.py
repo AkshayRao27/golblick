@@ -322,9 +322,11 @@ def test_an_x5_video_has_its_own_axes(tmp_path):
     assert up_still[0] == pytest.approx(-up_video[0]) and up_still[2] == pytest.approx(-up_video[2])
 
 
-def video_metadata(model, first_frame=None):
-    """Model string, plus field 24 (frame 0's timecode) when given."""
+def video_metadata(model, first_frame=None, readout=None):
+    """Model string, plus field 24 (frame 0's timecode) and field 25 (the readout, ms) when given."""
     out = model_record(model)
+    if readout is not None:
+        out += b"\xc9\x01" + struct.pack("<d", readout)
     if first_frame is not None:
         value, varint = first_frame, b""
         while True:
@@ -357,13 +359,13 @@ def test_motion_puts_samples_and_frames_on_one_clock_in_seconds(tmp_path):
     assert len(motion.frame_times) == 27
 
 
-def oner_clip(tmp_path, *, first_frame):
+def oner_clip(tmp_path, *, first_frame, readout=None, model="Insta360 OneR"):
     """One second of the 56-byte form at 500 Hz on a millisecond clock, and a
     25 fps frame log from 1,000 ms whose exposures alternate, 10 ms and 2 ms."""
     level = (0.0, -1.0, 0.0, 0.0, 0.0, 0.0)
     samples = b"".join(doubles(1000 + 2 * i, level) for i in range(500))
     log = b"".join(struct.pack("<qd", 1000 + 40 * i, 0.010 if i % 2 == 0 else 0.002) for i in range(25))
-    records = [(METADATA, video_metadata("Insta360 OneR", first_frame)), (IMU, samples), (0x0400, log)]
+    records = [(METADATA, video_metadata(model, first_frame, readout)), (IMU, samples), (0x0400, log)]
     return write_file(tmp_path / "VID_20200710_181901_00_001.insv", records,
                       leading=b"\x00\x00\x00\x18ftypisom")
 
@@ -376,6 +378,31 @@ def test_the_56_byte_form_times_each_frame_before_its_stamp(tmp_path):
     assert len(motion.frame_times) == 22
     assert motion.frame_times[0] == pytest.approx(0.120 - 0.002 / 2 - late)
     assert motion.frame_times[1] == pytest.approx(0.160 - 0.010 / 2 - late)
+
+
+def test_the_readout_comes_from_field_25_in_seconds(tmp_path):
+    motion = imu.motion(oner_clip(tmp_path, first_frame=1000 + 3 * 40 - 7, readout=35.223))
+
+    assert motion.readout == pytest.approx(0.035223)
+
+
+def test_no_readout_without_field_25(tmp_path):
+    assert imu.motion(oner_clip(tmp_path, first_frame=1000 + 3 * 40 - 7)).readout == 0.0
+
+
+def test_a_readout_longer_than_a_frame_is_not_taken(tmp_path):
+    """At 25 fps a frame is read within 40 ms; anything longer isn't a readout time."""
+    assert imu.motion(oner_clip(tmp_path, first_frame=1000 + 3 * 40 - 7, readout=45.0)).readout == 0.0
+
+
+def test_a_camera_whose_readout_direction_is_unmeasured_is_not_corrected(tmp_path):
+    """The file gives the time, not which way the sensor reads, so only measured models get one."""
+    samples = b"".join(biased(1_000_000 + i * 1000, LEVEL_X5) for i in range(1000))
+    log = b"".join(struct.pack("<qd", 1_000_000 + i * 33_367, 0.001) for i in range(30))
+    records = [(METADATA, video_metadata("Insta360 X5", 1_000_000, 21.2)), (IMU, samples), (0x0400, log)]
+    path = write_file(tmp_path / "VID_20260126_115034_00_011.insv", records, leading=b"\x00\x00\x00\x18ftypisom")
+
+    assert imu.motion(path).readout == 0.0
 
 
 def test_the_php_port_has_the_same_lateness():

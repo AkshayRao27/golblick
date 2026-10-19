@@ -28,6 +28,7 @@ FIRMWARE = 3
 CALIBRATION_EQUIDISTANT = 5     # exiftool exposes this one as "Parameters"
 DIMENSIONS = 19                 # {1: width, 2: height}
 FIRST_FRAME = 24                # video: frame 0's timecode on the inertial clock
+READOUT = 25                    # video: ms the sensor takes to read a frame, top row to bottom
 SENSOR_CROP = 27                # video: the part of each lens's sensor the frame keeps
 CALIBRATION_POLY = 53
 CALIBRATION_MEI = 54

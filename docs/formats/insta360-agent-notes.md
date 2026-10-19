@@ -588,6 +588,33 @@ What it does to the player, scored as the turn left from frame to frame in the l
 
 ⚠️ What this doesn't do: correct rolling shutter. The sensor reads a frame line by line, so fast motion leaves a wobble within the frame that a rotation per frame cannot remove. Whether Studio corrects it was not checked.
 
+⚠️ Correction (2026-10-19): on fast turns the rolling shutter was most of the shake left over. Studio's export of a 25 fps clip corrects it, and golblick now does too, on the OneR. [Next section](#rolling-shutter).
+
+### Rolling shutter
+
+A OneR reads each frame a row at a time, so a pixel near the bottom of a lens image was seen later than one near the top. Its sensor sits on its side in the body, so a pan runs along the readout: one side of the sphere is stretched and the opposite side squeezed, and one rotation per frame can't undo that. A score over a band all the way round hides it, because opposite sides move opposite ways; it shows when the turn is measured separately in each 45° of longitude.
+
+Metadata field 25 holds the readout time in milliseconds, per file. It follows the recording mode: 35.2 ms on the 2020–21 clips at 25 fps, 23.5 ms at 29.97 fps, 31.2 and 22.3 ms on 2023 clips. Two checks tie it to the picture:
+
+| Check | Result |
+|---|---|
+| The readout that steadies the player's locked view best, fitted per clip on 15 OneR clips with fast turns, scored per sector | follows field 25 per mode: 18–24 ms on the 23.5 ms clips, 24–30 on 35.2, 30–36 on 31.2, 24 on 22.3. The fit spanned the image circle, which is a little shorter than the image, so it is expected slightly under. Typical gain 1.5 to 3.5 times |
+| Insta360 Studio's stabilisation-off export of a 25 fps clip against golblick's unsteadied render, per sector, frames 100–125 (turns up to 16° a frame) | the sectors disagree by 1.60° on average and 3.81° at worst uncorrected; by 0.12° and 0.24° with the model below, the comparison's noise floor |
+
+The model: in a lens image *h* rows high, row *y* was seen at the frame's time plus (*y*/*h* − ½) × field 25, with *y* running down the rows as golblick decodes them, the same way in both lenses. The other three combinations of axis and direction made the match worse than no correction at all (2.2° to 4.1° on frames 104–119, against 2.25° uncorrected and 0.44° for this one, with an earlier and cruder form of the correction). For each pixel, golblick takes the camera's turn between the frame's time and that row's time from the gyroscope, turns the ray by it and projects it again (`stabilise.shutter`, `render._project_read`). It keeps five turns per frame and interpolates between them; nine scored the same. The video stitch and the desktop player's shader both apply it, and the player's picture matches the renderer's to 0.01 px median on a fast-turn frame.
+
+In the player's locked view, as the mean over the 8 sectors of the change in the frame-to-frame turn (degrees):
+
+| Clip | Before | Corrected |
+|---|---|---|
+| 25 fps, walking, frames 60–125 | 0.93 | 0.29 |
+| 29.97 fps, walking, frames 100–150 | 0.62 | 0.13 |
+| 29.97 fps, short jolts, frames 125–160 | 0.52 | 0.13 |
+
+Those figures include a second fix. Each frame used to take the attitude of the next gyroscope sample, up to 2 ms after its own time at 500 Hz; it now takes the attitude at its own time, as the timing census did. On its own that changed little (0.98, 0.61, 0.49), but the frame and its rows must be turned from the same moment: on the third clip the shutter correction alone reached 0.23.
+
+⚠️ The X3 and X5 carry field 25 too, and aren't corrected: which way their sensors read in golblick's lens images hasn't been measured. A second OneR clip's Studio export (29.97 fps, stabilisation off) shows no correction, although the same model steadies that clip in golblick's player as well as the others. Not explained.
+
 ## The embedded thumbnail
 
 Every `.insp` measured carries a 320×160 thumbnail in EXIF IFD1. **Whether it is a stitch depends on the camera**, and the difference decides what can be built on it:

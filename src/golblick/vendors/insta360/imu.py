@@ -280,6 +280,12 @@ _FRAME_ENTRY = struct.Struct("<qd")
 #: form needs nothing (format notes, "Frame stamps in the 56-byte form come late").
 _STAMPED_LATE = {56: 0.0186}
 
+#: Models whose rolling shutter has been measured: each lens image is read
+#: down its rows, both lenses alike, over metadata field 25's time.  Other
+#: models get no correction until their direction is measured (format notes,
+#: "Rolling shutter").
+_READS_DOWN = {"Insta360 OneR"}
+
 
 @dataclass(frozen=True)
 class Motion:
@@ -294,6 +300,11 @@ class Motion:
     which is near 1 only when the camera isn't accelerating.  ``frame_times``
     is when each video frame was captured; there can be a few more of them
     than the video has frames, at the end.
+
+    ``readout`` is how long the sensor took to read a frame, in seconds: a
+    pixel in row ``y`` of a lens image ``h`` rows high was seen at its frame's
+    time plus ``(y / h - 1/2) * readout``.  0 means don't correct for it,
+    because the file doesn't say or the camera hasn't been measured.
     """
 
     sample_times: array
@@ -301,6 +312,7 @@ class Motion:
     up: array
     gravity: array
     frame_times: array
+    readout: float = 0.0
 
 
 def _columns(data: bytes, stride: int):
@@ -340,6 +352,9 @@ def motion(path) -> Motion:
     (:data:`_STAMPED_LATE`).  Format notes, "The gyroscope shares the
     accelerometer's axes", "When each frame was captured" and "Frame stamps in
     the 56-byte form come late".
+
+    The readout time is metadata field 25, in milliseconds, for the models in
+    :data:`_READS_DOWN`.
 
     Raises :class:`FormatError` for a still, an unmeasured camera, a missing
     or unreadable record, and a first frame that falls outside the inertial
@@ -421,7 +436,13 @@ def motion(path) -> Motion:
             up[3 * i] = (a0 * ax + a1 * ay + a2 * az) / length
             up[3 * i + 1] = (b0 * ax + b1 * ay + b2 * az) / length
             up[3 * i + 2] = (c0 * ax + c1 * ay + c2 * az) / length
-    return Motion(sample_times, angular, up, gravity, frame_times)
+    readout = 0.0
+    if model in _READS_DOWN:
+        given = [f.value for f in grouped.get(metadata.READOUT, ()) if isinstance(f.value, float)]
+        # A frame is read within its own period; anything else isn't a readout time.
+        if given and 0.0 < given[0] < 1000.0 * spacing * unit:
+            readout = given[0] / 1000.0
+    return Motion(sample_times, angular, up, gravity, frame_times, readout)
 
 
 def _determinant(m) -> float:

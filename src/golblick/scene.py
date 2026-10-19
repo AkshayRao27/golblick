@@ -162,6 +162,8 @@ class VideoScene:
     turns: tuple[tuple[float, float, float, float], ...] | None
     #: Per frame how far the following view's heading has turned, radians; turning back by it locks the direction.
     headings: tuple[float, ...] | None = None
+    #: Per frame the turns across its readout, stabilise.shutter's; None, rolling shutter not corrected.
+    shutter: tuple | None = None
 
     def camera_from_world(self, k: int, steady: bool = True, lock: bool = False) -> tuple[tuple[float, float, float], ...]:
         """The shader's rows for frame ``k``: the turn after the levelled, faced opening."""
@@ -177,6 +179,16 @@ class VideoScene:
                 turn = stabilise.locked([turn], [self.headings[k]])[0]
             orientation = video.quaternion_matrix(turn) @ orientation
         return _rows(orientation.T)
+
+    def frame_shutter(self, k: int):
+        """Frame ``k``'s turns across its readout, unit quaternions ``(w, x, y, z)``, or None.
+
+        The same steadied or not: they turn the camera's frame, which the
+        steadying doesn't move.
+        """
+        if not self.shutter:
+            return None
+        return self.shutter[min(k, len(self.shutter) - 1)]
 
 
 def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
@@ -213,6 +225,8 @@ def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
         notes.append(f"steadying      {len(turns)} frames from the motion record")
     except (GolblickError, ValueError, AttributeError) as exc:
         notes.append(f"steadying      not steadied: {exc}")
+    read, line = video.shutter(vendor, path)
+    notes.append(line)
     scene = Scene(
         jpeg=b"", width=2 * size, height=size,
         lenses=tuple(_shader_lens(lens, index, render) for index, lens in enumerate(built)),
@@ -223,7 +237,8 @@ def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
     )
     return VideoScene(scene, clip, size, _rows(orientation),
                       None if turns is None else tuple(tuple(float(v) for v in q) for q in turns),
-                      None if headings is None else tuple(float(h) for h in headings))
+                      None if headings is None else tuple(float(h) for h in headings),
+                      None if read is None else tuple(read))
 
 
 def _shader_lens(lens, index: int, render) -> Lens:

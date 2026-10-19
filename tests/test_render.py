@@ -848,3 +848,63 @@ def test_the_numpy_free_level_is_the_renderers():
 
     for up in [(0.1, 0.9, -0.3), (-0.7, 0.2, 0.6), (0.0, -0.2, 1.0), (0.3, 0.1, -0.95)]:
         assert numpy.allclose(numpy.array(stabilise.level(up)), render.level(up), atol=1e-12)
+
+
+def _quarter_turn_rays():
+    """Directions spread over both lenses, lopsided on purpose."""
+    rng = numpy.random.default_rng(7)
+    rays = rng.normal(size=(400, 3)) + numpy.array([0.3, -0.2, 0.1])
+    return rays / numpy.linalg.norm(rays, axis=1, keepdims=True)
+
+
+def _turn_about(axis, degrees):
+    a = numpy.deg2rad(degrees)
+    k = numpy.asarray(axis, float) / numpy.linalg.norm(axis)
+    K = numpy.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    return numpy.eye(3) + numpy.sin(a) * K + (1 - numpy.cos(a)) * K @ K
+
+
+def test_a_shutter_of_no_turns_changes_nothing():
+    lenses = build(ONER, width=6080)
+    rays = _quarter_turn_rays()
+    theta_max = numpy.deg2rad(97)
+    for index, lens in enumerate(lenses):
+        plain = render._project(rays, lens, index, theta_max)
+        read = render._project_read(rays, lens, index, theta_max, [numpy.eye(3)] * 5, 3040)
+        for a, b in zip(plain, read, strict=True):
+            assert numpy.allclose(a, b)
+
+
+def test_the_same_turn_at_every_moment_is_a_plain_turn():
+    lenses = build(ONER, width=6080)
+    rays = _quarter_turn_rays()
+    theta_max = numpy.deg2rad(97)
+    turn = _turn_about((0.2, 1.0, -0.3), 4.0)
+    for index, lens in enumerate(lenses):
+        expected = render._project(rays @ turn.T, lens, index, theta_max)
+        read = render._project_read(rays, lens, index, theta_max, [turn] * 5, 3040)
+        for a, b in zip(expected, read, strict=True):
+            assert numpy.allclose(a, b)
+
+
+def test_each_row_takes_the_turn_of_the_moment_it_was_read():
+    """Turned only at the start of the readout: the top rows move, the bottom ones don't."""
+    lenses = build(ONER, width=6080)
+    rays = _quarter_turn_rays()
+    theta_max = numpy.deg2rad(97)
+    turn = _turn_about((0.0, 1.0, 0.0), 1.0)
+    shutter = [turn, numpy.eye(3), numpy.eye(3), numpy.eye(3), numpy.eye(3)]
+    lens = lenses[0]
+    u0, v0, _ = render._project(rays, lens, 0, theta_max)
+    u, v, _ = render._project_read(rays, lens, 0, theta_max, shutter, 3040)
+    moved = numpy.hypot(u - u0, v - v0)
+    top, bottom = v0 < 0.1 * 3040, v0 > 0.3 * 3040
+    assert top.any() and bottom.any()
+    assert moved[top].min() > 1.0
+    assert numpy.allclose(moved[bottom], 0.0)
+    # Where it moved, it is where a ray turned by its own moment's share of the turn lands.
+    i = numpy.flatnonzero((v0 > 0.03 * 3040) & (v0 < 0.2 * 3040))[0]
+    share = 1.0 - min(max(v[i] / 3040 * 4, 0.0), 1.0)
+    mixed = rays[i] @ turn.T * share + rays[i] * (1 - share)
+    ui, vi, _ = render._project((mixed / numpy.linalg.norm(mixed))[None], lens, 0, theta_max)
+    assert (u[i], v[i]) == pytest.approx((ui[0], vi[0]), abs=0.05)

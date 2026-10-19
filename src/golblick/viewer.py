@@ -82,6 +82,8 @@ uniform float radial[64];
 uniform int radialCount;
 uniform float seam[256];
 uniform int routed;
+uniform int shutterCount;                   // 0: no rolling shutter to undo
+uniform vec4 shutter[5];                    // the frame's turns across its readout, (x, y, z, w)
 varying vec2 ndc;
 const float PI = 3.14159265358979;
 
@@ -111,14 +113,32 @@ vec3 project(vec3 ray, vec3 r0, vec3 r1, vec3 r2, vec2 centre, float radius, flo
     return vec3((at + 0.5) / cell, theta);
 }
 
+vec3 turn(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+
+// render._project_read: the ray turned by the camera's turn to the moment
+// its row was read, between the two nearest, projected again; twice.
+vec3 projectRead(vec3 ray, vec3 r0, vec3 r1, vec3 r2, vec2 centre, float radius, float spin, float left) {
+    vec3 p = project(ray, r0, r1, r2, centre, radius, spin, left);
+    if (shutterCount < 2) return p;
+    float steps = float(shutterCount - 1);
+    for (int n = 0; n < 2; n++) {
+        float at = clamp(p.y - 0.5 / cell.y, 0.0, 1.0) * steps;
+        float low = min(floor(at), steps - 1.0);
+        int j = int(low);
+        vec3 mixed = mix(turn(shutter[j], ray), turn(shutter[j + 1], ray), at - low);
+        p = project(normalize(mixed), r0, r1, r2, centre, radius, spin, left);
+    }
+    return p;
+}
+
 void main() {
     vec3 d = normalize(vec3(ndc * halfTan, 1.0));
     d = vec3(d.x, d.y * cos(pitch) + d.z * sin(pitch), -d.y * sin(pitch) + d.z * cos(pitch));
     d = vec3(d.x * cos(yaw) + d.z * sin(yaw), d.y, -d.x * sin(yaw) + d.z * cos(yaw));
     vec3 ray = vec3(dot(world0, d), dot(world1, d), dot(world2, d));
 
-    vec3 a = project(ray, m00, m01, m02, centres.xy, radii.x, 0.0, 0.0);
-    vec3 b = project(ray, m10, m11, m12, centres.zw, radii.y, spin1, cell.x);
+    vec3 a = projectRead(ray, m00, m01, m02, centres.xy, radii.x, 0.0, 0.0);
+    vec3 b = projectRead(ray, m10, m11, m12, centres.zw, radii.y, spin1, cell.x);
     float va = a.z <= thetaMax ? 1.0 : 0.0;
     float vb = b.z <= thetaMax ? 1.0 : 0.0;
     float ta = va > 0.0 ? a.z : thetaMax + feather;
@@ -305,6 +325,10 @@ class SphereView(QOpenGLWidget):
             for k, value in enumerate(scene.seam):
                 program.setUniformValue1f(uniform(f"seam[{k}]"), value)
         program.setUniformValue1i(uniform("routed"), 1 if scene.seam is not None else 0)
+        turns = self._shutter() or ()
+        for k, (w, x, y, z) in enumerate(turns):
+            program.setUniformValue(uniform(f"shutter[{k}]"), x, y, z, w)
+        program.setUniformValue1i(uniform("shutterCount"), len(turns))
         self._vao.bind()
         gl.glDrawArrays(0x0005, 0, 4)  # GL_TRIANGLE_STRIP
         self._vao.release()
@@ -312,6 +336,10 @@ class SphereView(QOpenGLWidget):
     def _world(self):
         """Rows of the rotation from the viewer's world to the camera frame, for what's drawn now."""
         return self._scene.camera_from_world
+
+    def _shutter(self):
+        """The turns across the readout of what's drawn now, or None: a photo has none."""
+        return None
 
     def closeEvent(self, event) -> None:
         self._release()
@@ -735,6 +763,11 @@ class VideoView(SphereView):
         if self.video is None:
             return super()._world()
         return self.video.camera_from_world(max(0, self._shown), self.steady, self.lock)
+
+    def _shutter(self):
+        if self.video is None:
+            return None
+        return self.video.frame_shutter(max(0, self._shown))
 
     def keyPressEvent(self, event) -> None:
         shift = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
