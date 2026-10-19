@@ -25,6 +25,8 @@ final class Protobuf {
 	public const FIRST_FRAME = 24;
 	/** In a video, how long the sensor takes to read a frame, top row to bottom, in ms (a double). */
 	public const READOUT = 25;
+	/** In a video, ms from the frame clock to when a frame was seen, in the 56-byte inertial form (a double). */
+	public const FRAME_OFFSET = 28;
 	/** In a video, the part of each lens's sensor the frame keeps. */
 	public const SENSOR_CROP = 27;
 	public const CALIBRATION_POLY = 53;

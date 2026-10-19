@@ -228,7 +228,7 @@ final class CameraReport {
 			// What steadying needs, so this fails where the player would.
 			Imu::motionAxes((string)$model);
 			$stride = Imu::stride($record);
-			$frames = Imu::frameTimes($record, $stride, $log, $first);
+			$frames = Imu::frameTimes($record, $stride, $log, $first, Imu::frameOffset($fields));
 			$samples = intdiv(\strlen($record), $stride);
 			$span = (unpack('P', $record, \strlen($record) - $stride)[1] - unpack('P', $record, 0)[1]) * Imu::CLOCK[$stride];
 			$frameSpan = \count($frames) > 1 ? end($frames) - $frames[0] : 0.0;

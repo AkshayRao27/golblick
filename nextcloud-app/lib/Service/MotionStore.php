@@ -34,7 +34,7 @@ use Psr\Log\LoggerInterface;
  */
 final class MotionStore {
 	/** Bump when the algorithm changes, so tracks made by the old one are not served; and motionUrl's v in src/overlay.ts with it. */
-	private const VERSION = 4;
+	private const VERSION = 5;
 
 	public function __construct(
 		private IAppData $appData,
@@ -142,7 +142,7 @@ final class MotionStore {
 		}
 		$stride = Imu::stride($record);
 
-		return [$fields, $model, $record, $stride, Imu::frameTimes($record, $stride, $log, $first)];
+		return [$fields, $model, $record, $stride, Imu::frameTimes($record, $stride, $log, $first, Imu::frameOffset($fields))];
 	}
 
 	private function compute(File $clip): ?array {

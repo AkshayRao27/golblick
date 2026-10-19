@@ -274,17 +274,18 @@ _CLOCK = {20: 1e-6, 56: 1e-3}
 #: X3 clip).
 _FRAME_ENTRY = struct.Struct("<qd")
 
-#: How late the 56-byte form's frame log stamps a frame, in seconds, beyond
-#: half its exposure: the picture matches the gyroscope at the stamp less half
-#: the exposure less this.  Fitted against the picture on 17 clips; the 20-byte
-#: form needs nothing (format notes, "Frame stamps in the 56-byte form come late").
-_STAMPED_LATE = {56: 0.0186}
+#: Forms whose frame log stamps each frame late.  Their frames are counted
+#: off from field 24 at the log's own spacing instead, plus metadata field
+#: 28 (ms), less half each frame's exposure; the 20-byte form needs none of
+#: that.  Scored against the picture on 30 clips (format notes, "Frame stamps
+#: in the 56-byte form come late").
+_LATE_STAMPS = {56}
 
 #: Models whose rolling shutter has been measured: each lens image is read
 #: down its rows, both lenses alike, over metadata field 25's time.  Other
 #: models get no correction until their direction is measured (format notes,
 #: "Rolling shutter").
-_READS_DOWN = {"Insta360 OneR"}
+_READS_DOWN = {"Insta360 OneR", "Insta360 X3"}
 
 
 @dataclass(frozen=True)
@@ -348,8 +349,8 @@ def motion(path) -> Motion:
     Frame 0 is the frame log's entry nearest metadata field 24, a timecode on
     the same clock, and the entries from it on are the frames.  The 20-byte
     form's frames were captured at field 24's time and the log's spacing; the
-    56-byte form's, half an exposure and a little more before each stamp
-    (:data:`_STAMPED_LATE`).  Format notes, "The gyroscope shares the
+    56-byte form's at field 24's time, the log's spacing and field 28, less
+    half each frame's exposure (:data:`_LATE_STAMPS`).  Format notes, "The gyroscope shares the
     accelerometer's axes", "When each frame was captured" and "Frame stamps in
     the 56-byte form come late".
 
@@ -408,14 +409,24 @@ def motion(path) -> Motion:
     spacing = steps[len(steps) // 2]
     if abs(stamps[nearest] - first) > spacing / 2:
         raise FormatError(f"{path}: the first frame's time is not in the frame log")
-    late = _STAMPED_LATE.get(stride)
-    if late is None:
+    if stride not in _LATE_STAMPS:
         shift = first - stamps[nearest]
         frame_times = array("d", ((stamp + shift - start) * unit for stamp in stamps[nearest:]))
     else:
+        offset = [f.value for f in grouped.get(metadata.FRAME_OFFSET, ()) if isinstance(f.value, float)]
+        if not offset:
+            raise FormatError(f"{path}: no frame time offset (metadata field 28)")
         if any(not 0.0 <= exposure < 1.0 for _, exposure in entries[nearest:]):
             raise FormatError(f"{path}: the frame log has an exposure that isn't a fraction of a second")
-        frame_times = array("d", ((stamp - start) * unit - exposure / 2 - late for stamp, exposure in entries[nearest:]))
+        count = len(stamps) - nearest
+        if count < 2:
+            raise FormatError(f"{path}: the frame log ends at the first frame")
+        period = (stamps[-1] - stamps[nearest]) / (count - 1)
+        # Counting frames off at one period is only right if none is missing.
+        if any(abs(stamps[nearest + k] - stamps[nearest] - k * period) > period / 2 for k in range(count)):
+            raise FormatError(f"{path}: the frame log isn't evenly spaced, so its frames can't be counted off from field 24")
+        frame_times = array("d", ((first - start + k * period) * unit + offset[0] / 1000 - exposure / 2
+                                  for k, (_, exposure) in enumerate(entries[nearest:])))
 
     sign = -1.0 if _determinant(axes) < 0 else 1.0
     count = len(timecodes)

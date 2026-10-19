@@ -85,17 +85,29 @@ final class Imu {
 	public const CLOCK = [20 => 1e-6, 56 => 1e-3];
 
 	/**
-	 * How late the 56-byte form's frame log stamps a frame, in seconds, beyond
-	 * half its exposure, as imu.py's _STAMPED_LATE (a test keeps the two equal).
+	 * Forms whose frame log stamps each frame late, as imu.py's _LATE_STAMPS (a
+	 * test keeps the two equal): their frames are counted off from field 24 at
+	 * the log's own spacing, plus field 28, less half each frame's exposure.
 	 */
-	public const STAMPED_LATE = [56 => 0.0186];
+	public const LATE_STAMPS = [56];
+
+	/** Metadata field 28 in ms, which LATE_STAMPS' frames are offset by; null if the file lacks it. */
+	public static function frameOffset(array $fields): ?float {
+		$value = $fields[Protobuf::FRAME_OFFSET][0] ?? null;
+		if (!\is_string($value) || \strlen($value) !== 8) {
+			return null;
+		}
+		$ms = unpack('e', $value)[1];
+
+		return is_finite($ms) ? $ms : null;
+	}
 
 	/**
 	 * Models whose rolling shutter has been measured, as imu.py's _READS_DOWN:
 	 * each lens image is read down its rows, both lenses alike, over metadata
 	 * field 25's time. Others get no correction until it is measured.
 	 */
-	public const READS_DOWN = ['Insta360 OneR'];
+	public const READS_DOWN = ['Insta360 OneR', 'Insta360 X3'];
 
 	/**
 	 * How long the sensor took to read each frame, in seconds, as imu.py's
@@ -174,11 +186,12 @@ final class Imu {
 	 * of the frame log, 0x0400, nearest metadata field 24, which must fall
 	 * inside the record and within half a frame of it. The 20-byte form's
 	 * frames were captured at field 24's time and the log's spacing; the
-	 * 56-byte form's, half an exposure and STAMPED_LATE before each stamp.
+	 * 56-byte form's at field 24's time, the log's spacing and $offset (field
+	 * 28, self::frameOffset), less half each frame's exposure.
 	 *
 	 * @return list<float>
 	 */
-	public static function frameTimes(string $record, int $stride, string $log, int $first): array {
+	public static function frameTimes(string $record, int $stride, string $log, int $first, ?float $offset = null): array {
 		$length = \strlen($record);
 		$start = unpack('P', $record, 0)[1];
 		$end = unpack('P', $record, $length - $stride)[1];
@@ -214,17 +227,32 @@ final class Imu {
 		}
 		$shift = $first - $stamps[$nearest];
 		$unit = self::CLOCK[$stride];
-		$late = self::STAMPED_LATE[$stride] ?? null;
 		$out = [];
-		for ($i = $nearest; $i < \count($stamps); ++$i) {
-			if ($late === null) {
+		if (!\in_array($stride, self::LATE_STAMPS, true)) {
+			for ($i = $nearest; $i < \count($stamps); ++$i) {
 				$out[] = ($stamps[$i] + $shift - $start) * $unit;
-				continue;
 			}
+
+			return $out;
+		}
+		if ($offset === null) {
+			throw new FormatError('no frame time offset (metadata field 28)');
+		}
+		$count = \count($stamps) - $nearest;
+		if ($count < 2) {
+			throw new FormatError('the frame log ends at the first frame');
+		}
+		$period = ($stamps[\count($stamps) - 1] - $stamps[$nearest]) / ($count - 1);
+		for ($k = 0; $k < $count; ++$k) {
+			$i = $nearest + $k;
 			if (!($exposures[$i] >= 0.0 && $exposures[$i] < 1.0)) {
 				throw new FormatError("the frame log has an exposure that isn't a fraction of a second");
 			}
-			$out[] = ($stamps[$i] - $start) * $unit - $exposures[$i] / 2 - $late;
+			// Counting frames off at one period is only right if none is missing.
+			if (abs($stamps[$i] - $stamps[$nearest] - $k * $period) > $period / 2) {
+				throw new FormatError("the frame log isn't evenly spaced, so its frames can't be counted off from field 24");
+			}
+			$out[] = ($first - $start + $k * $period) * $unit + $offset / 1000 - $exposures[$i] / 2;
 		}
 
 		return $out;

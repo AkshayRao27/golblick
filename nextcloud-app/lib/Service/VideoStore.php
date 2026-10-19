@@ -146,10 +146,11 @@ final class VideoStore {
 	 * Bump to stitch every clip again after a change to the geometry. Until a
 	 * clip is remade, the old copy keeps playing (ready()). '-c' marked the
 	 * sensor crop (Calibration::forVideo), '-d' the rolling shutter undone on
-	 * the GPU (worker/stitch.cl); AGENT-NOTES.md, "Video spheres"
-	 * (Re-stitching after a geometry change).
+	 * the GPU (worker/stitch.cl), '-e' the X3's too and the 56-byte form's
+	 * frames timed by field 28 (Imu::frameTimes); AGENT-NOTES.md, "Video
+	 * spheres" (Re-stitching after a geometry change).
 	 */
-	public const VERSION = '-d';
+	public const VERSION = '-e';
 
 	public function nameOf(File $file): string {
 		return self::nameFor($file->getId(), $file->getEtag(), $this->settings->videoWidth());

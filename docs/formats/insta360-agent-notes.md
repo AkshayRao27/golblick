@@ -574,6 +574,15 @@ Candidate rules, each with one constant, scored leaving one clip out at a time (
 
 golblick uses the fourth: field 24 still picks frame 0, but each frame's time comes from its own log entry and exposure (`imu._STAMPED_LATE`, `Imu::STAMPED_LATE` in the app). Half the exposure is what a stamp at the end of the exposure would need. The 18.6 ms is not explained. The difference between the third and fourth rows rests on the three 25 fps clips, because field 24 sits 7 ms before its entry at 25 fps and 11 ms before it at 29.97 fps.
 
+⚠️ Correction (2026-10-19, later): the 18.6 ms is now replaced by a number the file carries. Metadata field 28 reads −12 on every 2020–21 clip recorded at 25 fps and −6 on every one at 29.97 fps (46 clips), and taking frame *k* at field 24 plus *k* periods of the log's own spacing plus field 28 (ms), less half its exposure, fits the picture better with no fitted constant at all. Measured as above on all 46 clips of the 56-byte form, keeping the 30 whose correlation peaks at 0.94 or more, as the error against each clip's own peak:
+
+| Frame seen at | 25 fps (5 clips), median / worst | 29.97 fps (25 clips) | All 30 |
+|---|---|---|---|
+| the log entry's time, less half its exposure and 18.6 ms | 1.2 / 7.4 ms | 2.2 / 8.0 ms | 2.15 / 8.0 ms |
+| **field 24, the log's spacing and field 28, less half the exposure** | 1.6 / 8.0 ms | **1.8 / 6.4 ms** | **1.69 / 8.0 ms** |
+
+The 18.6 ms was the two modes averaged: under it the 29.97 fps clips matched the picture 1.9 ms later than their frame times (median), and field 28 moves them by 1.8. Every one of the 46 logs is evenly spaced to within its millisecond rounding (at most 0.56 ms off a straight line, over up to 20,452 entries), at exactly 40 or 1001/30 ms, so counting frames off from field 24 is safe; golblick refuses a log with a frame missing rather than miscount, and a 56-byte clip without field 28. All 132 videos in the library still read. The rule is `imu._LATE_STAMPS` (`Imu::LATE_STAMPS` in the app).
+
 What it does to the player, scored as the turn left from frame to frame in the locked view (rms change of the yaw / vertical step, degrees; the clip's own peak offset for comparison):
 
 | Clip, exposure | Before | With the rule | At the clip's own peak |
@@ -588,7 +597,7 @@ What it does to the player, scored as the turn left from frame to frame in the l
 
 ⚠️ What this doesn't do: correct rolling shutter. The sensor reads a frame line by line, so fast motion leaves a wobble within the frame that a rotation per frame cannot remove. Whether Studio corrects it was not checked.
 
-⚠️ Correction (2026-10-19): on fast turns the rolling shutter was most of the shake left over. Studio's export of a 25 fps clip corrects it, and golblick now does too, on the OneR. [Next section](#rolling-shutter).
+⚠️ Correction (2026-10-19): on fast turns the rolling shutter was most of the shake left over. Studio's export of a 25 fps clip corrects it, and golblick now does too, on the OneR and X3. [Next section](#rolling-shutter).
 
 ### Rolling shutter
 
@@ -613,7 +622,18 @@ In the player's locked view, as the mean over the 8 sectors of the change in the
 
 Those figures include a second fix. Each frame used to take the attitude of the next gyroscope sample, up to 2 ms after its own time at 500 Hz; it now takes the attitude at its own time, as the timing census did. On its own that changed little (0.98, 0.61, 0.49), but the frame and its rows must be turned from the same moment: on the third clip the shutter correction alone reached 0.23.
 
-⚠️ The X3 and X5 carry field 25 too, and aren't corrected: which way their sensors read in golblick's lens images hasn't been measured. A second OneR clip's Studio export (29.97 fps, stabilisation off) shows no correction, although the same model steadies that clip in golblick's player as well as the others. Not explained.
+The X3 and X5 carry field 25 too: 31.5 or 15.7 ms on the X3 clips here, 21.2 or 9.2 ms on the X5. Which way each reads in golblick's lens images was measured the same way, all eight combinations of axis and per-lens direction against no correction (mean per-sector jerk in the locked view, or disagreement with a Studio stabilisation-off export, degrees):
+
+| Clip | None | Down the rows, both lenses | Best other |
+|---|---|---|---|
+| X3, 15.7 ms, the one X3 clip with fast turns, locked view | 0.45 | **0.30** | 0.47 |
+| X5, 21.2 ms, Studio export, fast frames, stable sectors | 1.35 | **1.08** | 1.25 (rows, first lens reversed) |
+| X5, 21.2 ms, a second Studio export | 1.02 | 1.12 | **0.91** (rows, second lens reversed) |
+| X5, two other fast clips, locked view | 3.79 / 1.21 | 3.37 / 1.06 | 3.50 / 1.05 |
+
+So the X3 reads like the OneR, and is corrected (one clip: the only combination that helped, every other one worse than none). ⚠️ The X5 isn't: the two exports favour different directions, nothing reaches the second export's noise floor (0.1°), and the other two clips are mostly featureless, with something close to the lens moving with the camera, which the measure can't separate from the scene. The X5 keeps its lenses as separate streams, and which stream golblick pairs with which lens is itself an open question ([Which way a levelled panorama faces](#which-way-a-levelled-panorama-faces)), so the direction may differ per lens in a way these clips don't settle.
+
+⚠️ A second OneR clip's Studio export (29.97 fps, stabilisation off) shows no correction, although the same model steadies that clip in golblick's player as well as the others. Not explained.
 
 ## The embedded thumbnail
 
