@@ -133,3 +133,17 @@ def test_the_other_file_of_a_two_file_clip_is_not_called_damaged(tmp_path):
     cut = tmp_path / "cut.insv"
     cut.write_bytes(_box(b"ftyp", b"isom\0\0\0\0") + _box(b"mdat", b"\1" * 64) + b"\0" * 65536)
     assert "damaged or incompletely copied" in cli._sniff(cut)
+
+
+def test_the_library_the_package_and_the_app_carry_one_version():
+    """Three files state it; a release that bumps one has to bump them all."""
+    import re
+    from pathlib import Path
+
+    import golblick
+
+    root = Path(__file__).parents[1]
+    package = re.search(r'^version = "([^"]+)"', (root / "pyproject.toml").read_text(), re.M)
+    app = re.search(r"<version>([^<]+)</version>", (root / "nextcloud-app/appinfo/info.xml").read_text())
+    assert package and app
+    assert golblick.__version__ == package.group(1) == app.group(1)
