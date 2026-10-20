@@ -224,12 +224,18 @@ def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
     built = render.lenses_from_calibration(calibration, 2 * size, radial)
     level, orientation, heading, notes = video.opening(vendor, path, calibration)
     turns = headings = None
+    # Read once for both: a half-hour record is 1.8 million samples.  Where
+    # it can't be read, each asks again and says why in its own note.
     try:
-        turns, headings = video.steadying(vendor, path, level, heading)
+        motion = vendor.motion(path)
+    except (GolblickError, ValueError, AttributeError):
+        motion = None
+    try:
+        turns, headings = video.steadying(vendor, path, level, heading, motion)
         notes.append(f"steadying      {len(turns)} frames from the motion record")
     except (GolblickError, ValueError, AttributeError) as exc:
         notes.append(f"steadying      not steadied: {exc}")
-    read, line = video.shutter(vendor, path)
+    read, line = video.shutter(vendor, path, motion)
     notes.append(line)
     scene = Scene(
         jpeg=b"", width=2 * size, height=size,

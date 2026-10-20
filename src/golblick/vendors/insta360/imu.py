@@ -138,14 +138,32 @@ def gravity(path) -> tuple[float, float, float]:
     This is the direction of gravity in the IMU's own axes, not the render's;
     :func:`gravity_up` applies the measured mapping between them.
     """
-    samples = entries(path)
-    if not samples:
-        raise FormatError(f"{path}: inertial record is empty")
     if is_video(path):
-        samples = samples[:OPENING_SAMPLES]
+        # A long clip's record is millions of samples, so it is read as
+        # columns rather than as a Sample each, by the same stride search.
+        record = read_trailer(path).get(IMU)
+        if record is None:
+            raise FormatError(f"{path}: no inertial record (0x0300) in the trailer")
+        fits = {stride: columns for stride in _LAYOUTS
+                if stride <= len(record.data) and len(record.data) % stride == 0
+                and (columns := _columns(record.data, stride)) is not None}
+        if not fits:
+            raise FormatError(
+                f"{path}: inertial record of {len(record.data)} bytes matches no known entry stride {sorted(_LAYOUTS)}"
+            )
+        if len(fits) > 1:
+            raise FormatError(f"{path}: inertial record is ambiguous -- strides {sorted(fits)} both fit")
+        ((_, values),) = fits.values()
+        rows = min(OPENING_SAMPLES, len(values) // 6)
+        readings = [[values[6 * i + axis] for i in range(rows)] for axis in range(3)]
+    else:
+        samples = entries(path)
+        readings = [[sample.acceleration[axis] for sample in samples] for axis in range(3)]
+    if not readings[0]:
+        raise FormatError(f"{path}: inertial record is empty")
     axes = []
     for axis in range(3):
-        ordered = sorted(sample.acceleration[axis] for sample in samples)
+        ordered = sorted(readings[axis])
         middle = len(ordered) // 2
         axes.append(ordered[middle] if len(ordered) % 2
                     else (ordered[middle - 1] + ordered[middle]) / 2)
@@ -336,8 +354,27 @@ def _gains(grouped, stride: int, path) -> tuple[float, float]:
     return g * 1000.0 / 32768.0, math.radians(degrees) * 1000.0 / 32768.0
 
 
+def _numpy():
+    """numpy if it is installed, else None.  It only makes a long record quicker to read; the results are the same."""
+    try:
+        import numpy
+    except ImportError:
+        return None
+    return numpy
+
+
 def _columns(data: bytes, stride: int):
     """Timecodes and the six values, as arrays; the same ordering rule as _decode."""
+    numpy = _numpy()
+    if numpy is not None:
+        entries = numpy.frombuffer(data, numpy.dtype([("t", "<i8"), ("v", "<u2" if stride == 20 else "<f8", 6)]))
+        steps = numpy.diff(entries["t"])
+        if (steps < 0).any() or numpy.count_nonzero(steps == 0) > _REPEATS_ALLOWED * len(entries):
+            return None
+        values = entries["v"].astype(numpy.float64)
+        if stride == 20:
+            values = (values - 0x8000) / 1000
+        return array("q", entries["t"].tobytes()), array("d", values.tobytes())
     layout, convert = _LAYOUTS[stride]
     times = array("q")
     values = array("d")
@@ -450,12 +487,45 @@ def motion(path) -> Motion:
 
     accelerometer, gyroscope = _gains(grouped, stride, path)
     sign = (-1.0 if _determinant(axes) < 0 else 1.0) * gyroscope
-    count = len(timecodes)
-    sample_times = array("d", ((t - start) * unit for t in timecodes))
+    numpy = _numpy()
+    if numpy is not None:
+        sample_times = array("d", ((numpy.frombuffer(timecodes, numpy.int64) - start) * unit).tobytes())
+    else:
+        sample_times = array("d", ((t - start) * unit for t in timecodes))
+    angular, up, gravity = _turned_into_render(values, axes, sign, accelerometer)
+    readout = 0.0
+    if model in _READS_DOWN:
+        given = [f.value for f in grouped.get(metadata.READOUT, ()) if isinstance(f.value, float)]
+        # A frame is read within its own period; anything else isn't a readout time.
+        if given and 0.0 < given[0] < 1000.0 * spacing * unit:
+            readout = given[0] / 1000.0
+    return Motion(sample_times, angular, up, gravity, frame_times, readout)
+
+
+def _turned_into_render(values, axes, sign: float, accelerometer: float):
+    """Angular velocity, up and gravity's length per sample, in the render's frame, from the six values per sample.
+
+    Each operation in the same order with numpy as without, so the two give the same numbers.
+    """
+    count = len(values) // 6
+    (a0, a1, a2), (b0, b1, b2), (c0, c1, c2) = axes
+    numpy = _numpy()
+    if numpy is not None:
+        v = numpy.frombuffer(values, numpy.float64).reshape(count, 6)
+        ax, ay, az, gx, gy, gz = (v[:, j] for j in range(6))
+        length = (ax * ax + ay * ay + az * az) ** 0.5
+        safe = numpy.where(length > 0, length, 1.0)
+        nonzero = length > 0
+        turning = numpy.stack([sign * (a0 * gx + a1 * gy + a2 * gz), sign * (b0 * gx + b1 * gy + b2 * gz),
+                               sign * (c0 * gx + c1 * gy + c2 * gz)], 1)
+        pointing = numpy.stack([numpy.where(nonzero, (a0 * ax + a1 * ay + a2 * az) / safe, 0.0),
+                                numpy.where(nonzero, (b0 * ax + b1 * ay + b2 * az) / safe, 0.0),
+                                numpy.where(nonzero, (c0 * ax + c1 * ay + c2 * az) / safe, 0.0)], 1)
+        return (array("d", turning.tobytes()), array("d", pointing.tobytes()),
+                array("d", (length * accelerometer).tobytes()))
     angular = array("d", bytes(8 * 3 * count))
     up = array("d", bytes(8 * 3 * count))
     gravity = array("d", bytes(8 * count))
-    (a0, a1, a2), (b0, b1, b2), (c0, c1, c2) = axes
     for i in range(count):
         o = 6 * i
         ax, ay, az, gx, gy, gz = values[o:o + 6]
@@ -468,13 +538,7 @@ def motion(path) -> Motion:
             up[3 * i] = (a0 * ax + a1 * ay + a2 * az) / length
             up[3 * i + 1] = (b0 * ax + b1 * ay + b2 * az) / length
             up[3 * i + 2] = (c0 * ax + c1 * ay + c2 * az) / length
-    readout = 0.0
-    if model in _READS_DOWN:
-        given = [f.value for f in grouped.get(metadata.READOUT, ()) if isinstance(f.value, float)]
-        # A frame is read within its own period; anything else isn't a readout time.
-        if given and 0.0 < given[0] < 1000.0 * spacing * unit:
-            readout = given[0] / 1000.0
-    return Motion(sample_times, angular, up, gravity, frame_times, readout)
+    return angular, up, gravity
 
 
 def _determinant(m) -> float:

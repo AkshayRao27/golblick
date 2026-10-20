@@ -256,3 +256,21 @@ def test_a_frame_between_two_samples_gets_the_attitude_at_its_own_time():
     expected = rotate(multiply(conjugate(attitude(t)), attitude(t + 0.0005)), (0.0, 0.0, 1.0))
     assert abs(expected[0]) > 1e-4
     assert got == pytest.approx(expected, abs=0.05 * abs(expected[0]))
+
+
+def test_numpy_steadies_and_undoes_the_shutter_as_the_standard_library_does(monkeypatch):
+    """numpy, where installed, takes the running product as a prefix scan; that may only differ by rounding."""
+    pytest.importorskip("numpy")
+    motion = camera(jolt=(1.0, 1.4))
+    motion.readout = 0.03
+    reference = reference_for(motion)
+    fast_track, fast_turns = stabilise.steady(motion, reference), stabilise.shutter(motion)
+    monkeypatch.setattr(stabilise, "_numpy", lambda: None)
+    slow_track, slow_turns = stabilise.steady(motion, reference), stabilise.shutter(motion)
+
+    for a, b in zip(fast_track[0], slow_track[0], strict=True):
+        assert a == pytest.approx(b, abs=1e-9)
+    assert fast_track[1] == pytest.approx(slow_track[1], abs=1e-9)
+    for row_a, row_b in zip(fast_turns, slow_turns, strict=True):
+        for a, b in zip(row_a, row_b, strict=True):
+            assert a == pytest.approx(b, abs=1e-9)

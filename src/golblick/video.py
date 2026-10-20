@@ -384,24 +384,26 @@ def opening(vendor, path, calibration):
     return orientation, numpy.asarray(faced, numpy.float64), heading, notes
 
 
-def steadying(vendor, path, level, heading):
+def steadying(vendor, path, level, heading, motion=None):
     """The following view's per-frame turns for a clip faced ``heading`` from ``level``, and each frame's heading.
 
-    ``stabilise.locked`` makes the locked view from the two.  Raises what
+    ``stabilise.locked`` makes the locked view from the two.  ``motion`` is
+    ``vendor.motion(path)`` if the caller has it already.  Raises what
     ``vendor.motion`` and ``stabilise.steady`` raise.
     """
-    follow, headings = stabilise.steady(vendor.motion(path), level)
+    follow, headings = stabilise.steady(motion or vendor.motion(path), level)
     return stabilise.turned(follow, heading), headings
 
 
-def shutter(vendor, path):
+def shutter(vendor, path, motion=None):
     """A clip's turns across each frame's readout, for undoing rolling shutter, and a note.
 
     Returns ``(turns, note)``: ``stabilise.shutter``'s quaternions per frame,
-    or None where the camera's readout isn't known.
+    or None where the camera's readout isn't known.  ``motion`` is
+    ``vendor.motion(path)`` if the caller has it already.
     """
     try:
-        motion = vendor.motion(path)
+        motion = motion or vendor.motion(path)
     except (GolblickError, ValueError, AttributeError) as exc:
         return None, f"shutter        rolling shutter left in: {exc}"
     turns = stabilise.shutter(motion)

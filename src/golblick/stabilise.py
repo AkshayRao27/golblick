@@ -1,4 +1,5 @@
-"""Stabilising a 360 video from its inertial record.  Standard library only.
+"""Stabilising a 360 video from its inertial record.  Standard library only;
+numpy, where it is installed, only makes a long clip quicker.
 
 A 360 video can be stabilised without cropping anything: the whole sphere is
 there, so turning it back against the camera's motion loses nothing.  What
@@ -148,6 +149,16 @@ def shutter(motion, samples: int = SHUTTER_SAMPLES):
     readout = getattr(motion, "readout", 0.0)
     if not readout or samples < 2:
         return None
+    numpy = _numpy()
+    if numpy is not None:
+        frames = numpy.frombuffer(motion.frame_times, numpy.float64)
+        offsets = readout * (numpy.arange(samples) / (samples - 1) - 0.5)
+        prefix = _integrated(numpy, motion)
+        centre = _attitude_at(numpy, motion, prefix, frames)
+        at = _attitude_at(numpy, motion, prefix, (frames[:, None] + offsets).ravel())
+        turns = _qmul(numpy, at * numpy.array([1.0, -1.0, -1.0, -1.0]), numpy.repeat(centre, samples, 0))
+        turns /= numpy.linalg.norm(turns, axis=1, keepdims=True)
+        return [tuple(tuple(float(v) for v in q) for q in row) for row in turns.reshape(len(frames), samples, 4)]
     t = motion.sample_times
     w = motion.angular_velocity
     frames = motion.frame_times
@@ -216,6 +227,9 @@ def level(up):
 
 def _attitudes(motion, up_window):
     """The camera's attitude at each frame time, body to world, as quaternions."""
+    numpy = _numpy()
+    if numpy is not None:
+        return _attitudes_numpy(numpy, motion, up_window)
     t = motion.sample_times
     w = motion.angular_velocity
     up = motion.up
@@ -287,6 +301,117 @@ def _attitudes(motion, up_window):
     return out
 
 
+def _numpy():
+    """numpy if it is installed, else None."""
+    try:
+        import numpy
+    except ImportError:
+        return None
+    return numpy
+
+
+def _qmul(numpy, a, b):
+    """Row by row quaternion products ``a b``, (w, x, y, z), as :func:`_multiply`."""
+    a0, a1, a2, a3 = a[:, 0], a[:, 1], a[:, 2], a[:, 3]
+    b0, b1, b2, b3 = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
+    return numpy.stack([a0 * b0 - a1 * b1 - a2 * b2 - a3 * b3, a0 * b1 + a1 * b0 + a2 * b3 - a3 * b2,
+                        a0 * b2 - a1 * b3 + a2 * b0 + a3 * b1, a0 * b3 + a1 * b2 - a2 * b1 + a3 * b0], 1)
+
+
+def _steps(numpy, w, dt):
+    """The turn of each rate held for each time, as quaternions; none where either is zero or less."""
+    rate = numpy.sqrt((w * w).sum(1))
+    moving = (rate > 0) & (dt > 0)
+    safe = numpy.where(moving, rate, 1.0)
+    half = numpy.where(moving, rate * dt / 2.0, 0.0)
+    s = numpy.sin(half) / safe
+    return numpy.column_stack([numpy.cos(half), w[:, 0] * s, w[:, 1] * s, w[:, 2] * s])
+
+
+def _integrated(numpy, motion):
+    """The attitude after each sample, from the identity at the first: :func:`_attitudes`' integration.
+
+    The rate w[i] holds over (t[i-1], t[i]].  The running product is taken in
+    about sqrt(n) blocks side by side, a step along all of them at a time, and
+    each block is then turned by the product of those before it.  That only
+    groups the products differently, so it differs from one at a time by
+    rounding.
+    """
+    t = numpy.frombuffer(motion.sample_times, numpy.float64)
+    w = numpy.frombuffer(motion.angular_velocity, numpy.float64).reshape(-1, 3)
+    count = len(t)
+    size = max(1, math.isqrt(count))
+    blocks = -(-count // size)
+    q = numpy.zeros((blocks * size, 4))
+    q[:, 0] = 1.0
+    q[1:count] = _steps(numpy, w[1:], numpy.diff(t))
+    q = q.reshape(blocks, size, 4)
+    for j in range(1, size):
+        step = _qmul(numpy, q[:, j - 1], q[:, j])
+        q[:, j] = step / numpy.linalg.norm(step, axis=1, keepdims=True)
+    before = numpy.empty((blocks, 4))
+    before[0] = (1.0, 0.0, 0.0, 0.0)
+    for k in range(1, blocks):
+        before[k] = _normalise(_multiply(tuple(before[k - 1]), tuple(q[k - 1, -1])))
+    q = _qmul(numpy, numpy.repeat(before, size, 0), q.reshape(-1, 4))[:count]
+    return q / numpy.linalg.norm(q, axis=1, keepdims=True)
+
+
+def _attitude_at(numpy, motion, prefix, times):
+    """The attitude at each of ``times``, from :func:`_integrated`: the sample before turned by the next one's rate."""
+    t = numpy.frombuffer(motion.sample_times, numpy.float64)
+    w = numpy.frombuffer(motion.angular_velocity, numpy.float64).reshape(-1, 3)
+    i = numpy.searchsorted(t, times, side="left")
+    out = numpy.empty((len(times), 4))
+    out[i == 0] = prefix[0]
+    out[i == len(t)] = prefix[-1]
+    inside = (i > 0) & (i < len(t))
+    j = i[inside]
+    turned = _qmul(numpy, prefix[j - 1], _steps(numpy, w[j], times[inside] - t[j - 1]))
+    out[inside] = turned / numpy.linalg.norm(turned, axis=1, keepdims=True)
+    return out
+
+
+def _attitudes_numpy(numpy, motion, up_window):
+    """:func:`_attitudes` with numpy, the same steps on whole arrays."""
+    t = numpy.frombuffer(motion.sample_times, numpy.float64)
+    up = numpy.frombuffer(motion.up, numpy.float64).reshape(-1, 3)
+    gravity = numpy.frombuffer(motion.gravity, numpy.float64)
+    frames = numpy.frombuffer(motion.frame_times, numpy.float64)
+    prefix = _integrated(numpy, motion)
+    at_frames = _attitude_at(numpy, motion, prefix, frames)
+
+    # Each still reading turned into the integrated frame, R(q) @ u, binned.
+    still = numpy.abs(gravity - 1.0) < STILL
+    if not still.any():
+        raise ValueError("the accelerometer never reads close to 1 g, so up can't be found")
+    q0, q1, q2, q3 = prefix[still].T
+    ux, uy, uz = up[still].T
+    vx = (1 - 2 * (q2 * q2 + q3 * q3)) * ux + 2 * (q1 * q2 - q0 * q3) * uy + 2 * (q1 * q3 + q0 * q2) * uz
+    vy = 2 * (q1 * q2 + q0 * q3) * ux + (1 - 2 * (q1 * q1 + q3 * q3)) * uy + 2 * (q2 * q3 - q0 * q1) * uz
+    vz = 2 * (q1 * q3 - q0 * q2) * ux + 2 * (q2 * q3 + q0 * q1) * uy + (1 - 2 * (q1 * q1 + q2 * q2)) * uz
+    bins = int(t[-1] / BIN) + 1
+    b = (t[still] / BIN).astype(numpy.int64)
+    weight = numpy.bincount(b, minlength=bins).astype(numpy.float64)
+    sigma = up_window / BIN
+    mx, my, mz = (numpy.asarray(_smooth(numpy.bincount(b, v, bins), weight, sigma, presummed=True)) for v in (vx, vy, vz))
+
+    # The levelling turn per frame, as _level_quaternion, then applied.
+    k = numpy.clip((frames / BIN).astype(numpy.int64), 0, bins - 1)
+    x, y, z = mx[k], my[k], mz[k]
+    n = numpy.sqrt(x * x + y * y + z * z)
+    n = numpy.where(n == 0, 1.0, n)
+    x, y, z = x / n, y / n, z / n
+    level = numpy.column_stack([1.0 + y, -z, numpy.zeros_like(x), x])
+    with numpy.errstate(invalid="ignore", divide="ignore"):   # straight down is set just below
+        level /= numpy.linalg.norm(level, axis=1, keepdims=True)
+    level[1.0 + y < 1e-9] = (0.0, 1.0, 0.0, 0.0)
+    level[(mx[k] == 0) & (my[k] == 0) & (mz[k] == 0)] = (1.0, 0.0, 0.0, 0.0)
+    out = _qmul(numpy, level, at_frames)
+    out /= numpy.linalg.norm(out, axis=1, keepdims=True)
+    return [tuple(float(v) for v in q) for q in out]
+
+
 def _smooth(values, weights, sigma, presummed=False):
     """A weighted, normalised Gaussian smoothing, as three passes of a running sum.
 
@@ -349,6 +474,13 @@ def _line_at(values, x):
 def _box(values, width):
     """Centred running sum of ``width`` (odd) slots, by prefix sums."""
     half = width // 2
+    numpy = _numpy()
+    if numpy is not None:
+        # cumsum adds in order, as the loop below does, so the sums are the same.
+        prefix = numpy.concatenate([[0.0], numpy.cumsum(numpy.asarray(values, numpy.float64))])
+        n = len(prefix) - 1
+        i = numpy.arange(n)
+        return list(prefix[numpy.minimum(n, i + half + 1)] - prefix[numpy.maximum(0, i - half)])
     prefix = [0.0]
     for v in values:
         prefix.append(prefix[-1] + v)

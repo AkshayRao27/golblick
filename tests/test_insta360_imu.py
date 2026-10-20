@@ -464,6 +464,19 @@ def test_the_20_byte_form_counts_in_field_65_s_full_scale(tmp_path):
     assert large.angular_velocity[1] == pytest.approx(2 * small.angular_velocity[1])
 
 
+@pytest.mark.parametrize("clip", ["x5", "oner"])
+def test_reading_with_numpy_gives_the_same_numbers_as_without(tmp_path, monkeypatch, clip):
+    pytest.importorskip("numpy")
+    path = x5_clip(tmp_path, gyro=(0.1, -0.2, 0.03)) if clip == "x5" else oner_clip(tmp_path, first_frame=1000 + 3 * 40 - 7)
+    fast, opening = imu.motion(path), imu.gravity(path)
+    monkeypatch.setattr(imu, "_numpy", lambda: None)
+    slow = imu.motion(path)
+
+    for name in ("sample_times", "angular_velocity", "up", "gravity", "frame_times"):
+        assert getattr(fast, name).tobytes() == getattr(slow, name).tobytes(), name
+    assert opening == imu.gravity(path)
+
+
 def test_the_20_byte_form_needs_field_65(tmp_path):
     with pytest.raises(FormatError, match="field 65"):
         imu.motion(x5_clip(tmp_path, full_scale=None))
