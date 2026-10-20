@@ -58,6 +58,7 @@ void main() { ndc = corner; gl_Position = vec4(corner, 0.0, 1.0); }
 # and tapered at its rim.
 _FRAGMENT = """
 #ifdef GL_ES
+#extension GL_OES_standard_derivatives : enable
 precision highp float;
 #endif
 uniform sampler2D lens0;                    // RGB, or a video frame's luma
@@ -79,6 +80,8 @@ uniform float spin1;
 uniform vec2 cell;                          // size of each lens's texture, pixels
 uniform float thetaMax;
 uniform float feather;
+uniform float coarse;                       // 0, or the blurred lenses' wider cross-fade
+uniform float coarseLevel;                  // the mip level that blurs them, lens texture pixels
 uniform float radial[64];
 uniform int radialCount;
 uniform float seam[256];
@@ -110,6 +113,18 @@ vec3 colourAt(sampler2D luma, sampler2D chroma, vec2 at) {
     if (nv12 == 0) return texture2D(luma, at).rgb;
     vec3 yuv = (vec3(texture2D(luma, at).r, texture2D(chroma, at).rg) - yuvLow) * yuvGain;
     return clamp(vec3(dot(yuvR, yuv), dot(yuvG, yuv), dot(yuvB, yuv)), 0.0, 1.0);
+}
+
+vec3 blurredAt(sampler2D luma, sampler2D chroma, vec2 at, float bias) {
+    if (nv12 == 0) return texture2D(luma, at, bias).rgb;
+    vec3 yuv = (vec3(texture2D(luma, at, bias).r, texture2D(chroma, at, bias).rg) - yuvLow) * yuvGain;
+    return clamp(vec3(dot(yuvR, yuv), dot(yuvG, yuv), dot(yuvB, yuv)), 0.0, 1.0);
+}
+
+// The level the GPU would pick here, so a bias can land on coarseLevel at any zoom.
+float level(vec2 at) {
+    vec2 x = dFdx(at * cell), y = dFdy(at * cell);
+    return max(0.0, 0.5 * log2(max(dot(x, x), dot(y, y))));
 }
 
 // Where a camera-frame ray lands in one lens: texture coordinates, and the
@@ -169,7 +184,9 @@ void main() {
     float ta = va > 0.0 ? a.z : thetaMax + feather;
     float tb = vb > 0.0 ? b.z : thetaMax + feather;
 
+    float levelA = level(a.xy), levelB = level(b.xy);   // outside any branch: derivatives need every pixel
     float wa, wb;
+    float across = ta - tb;                     // how far past the hand-over, as d = theta0 - theta1
     if (routed == 1) {
         float dz = 2.0 * acos(clamp(ray.z, -1.0, 1.0)) - PI;
         float position = mod((atan(ray.y, ray.x) + PI) / (2.0 * PI) * 256.0, 256.0);
@@ -177,7 +194,8 @@ void main() {
         int lo = int(low);
         int hi = lo == 255 ? 0 : lo + 1;
         float offset = mix(seam[lo], seam[hi], position - low);
-        float share = clamp((feather - (dz - offset)) / (2.0 * feather), 0.0, 1.0);
+        across = dz - offset;
+        float share = clamp((feather - across) / (2.0 * feather), 0.0, 1.0);
         wa = share;
         wb = 1.0 - share;
     } else {
@@ -192,6 +210,17 @@ void main() {
     if (wb > 0.0) colour += colourAt(lens1, chroma1, b.xy) * wb;
     float total = wa + wb;
     colour = total > 0.0 ? colour / total : vec3(0.0);
+    // Two bands: what both lenses show blurred hands over across the wide
+    // band, so a difference in brightness has room to fade, while detail
+    // keeps the narrow one, so a near subject is cut rather than doubled.
+    if (coarse > 0.0 && va * vb > 0.0 && total > 0.0) {
+        float fine = wb / total;
+        float wide = 1.0 - clamp((coarse - across) / (2.0 * coarse), 0.0, 1.0);
+        vec3 lowA = blurredAt(lens0, chroma0, a.xy, coarseLevel - levelA);
+        vec3 lowB = blurredAt(lens1, chroma1, b.xy, coarseLevel - levelB);
+        float rim = clamp((thetaMax - max(ta, tb)) / feather, 0.0, 1.0);
+        colour = clamp(colour + (fine - wide) * (lowA - lowB) * rim, 0.0, 1.0);
+    }
     // render.balance_field: half the lenses' difference, added to lens 0 and
     // taken from lens 1 by their shares, fading out away from the seam.
     if (balanced == 1 && total > 0.0) {
@@ -351,6 +380,10 @@ class SphereView(QOpenGLWidget):
         program.setUniformValue(uniform("cell"), scene.width / 2, scene.height)
         program.setUniformValue1f(uniform("thetaMax"), scene.theta_max)
         program.setUniformValue1f(uniform("feather"), scene.feather)
+        program.setUniformValue1f(uniform("coarse"), scene.coarse)
+        # A blur about half the wide band across, in the lens texture's pixels.
+        program.setUniformValue1f(uniform("coarseLevel"), math.log2(max(
+            1.0, scene.coarse / 2 * scene.lenses[0].radius / scene.theta_max)))
         radial = list(scene.radial[:64])
         for k, value in enumerate(radial):
             program.setUniformValue1f(uniform(f"radial[{k}]"), value)
@@ -866,7 +899,9 @@ class VideoView(SphereView):
                 texture.setSize(side, side)
                 texture.setFormat(QOpenGLTexture.TextureFormat.R8_UNorm if kind == "luma"
                                   else QOpenGLTexture.TextureFormat.RG8_UNorm)
-                texture.setMinMagFilters(QOpenGLTexture.Filter.Linear, QOpenGLTexture.Filter.Linear)
+                # Mipmapped for the seam's blurred band (setData makes the levels).
+                texture.setMipLevels(texture.maximumMipLevels())
+                texture.setMinMagFilters(QOpenGLTexture.Filter.LinearMipMapLinear, QOpenGLTexture.Filter.Linear)
                 texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
                 texture.allocateStorage()
                 self._textures.append(texture)

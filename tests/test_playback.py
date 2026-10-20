@@ -254,6 +254,17 @@ def test_the_player_s_shader_fades_the_balance_as_the_stitch_does():
     assert float(scale.group(1)) == float(python_scale.group(1))
 
 
+def test_the_blurred_band_stays_inside_every_camera_s_overlap():
+    """Past the overlap one lens has nothing to blur; the rim taper (1.5 degrees) needs room too."""
+    from golblick import scene
+    from golblick.vendors.insta360.lens import PROFILES
+
+    for profile in PROFILES.values():
+        for guards in (False, True):
+            past = profile.field_of_view_for(guards) / 2 - 90
+            assert scene.SEAM_COARSE / 2 + 1.5 <= past, profile
+
+
 def _probed_keyframes(path, index):
     out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", f"v:{index}", "-show_entries",
                           "packet=pts_time,flags", "-of", "csv=p=0", str(path)],

@@ -700,6 +700,8 @@ What the hand-over in `render.equirectangular`, `render.plan_seam` and `render.r
 
 `min(3°, max(1.5°, 4 output rows))`. It has to be a few pixels wide so the hand-over doesn't alias into a stair-step at small sizes (1° is 1.4 rows of a 256-row preview), and a wide blend drags back the content a routed seam went round. It also needs a minimum angle, because hiding the brightness step between the lenses is a question of angle, not pixels: a width in pixels alone came to 0.35° at 4096 wide and the seam showed as a hard line. Gradient at the seam over the gradient just outside it, nine frames: 1.16 at 0.35°, 1.11 at 0.70°, 1.01 at 1.5°, which still keeps 17% of the routing gain. Above 2° routing stops paying at all.
 
+The desktop player hands a video over in two bands. Detail keeps the 1.5° cross-fade, so a subject near the seam is cut rather than doubled. What the lenses show blurred (a mipmap level about 3° across) hands over across 6°, so a brightness step the lens balance leaves fades out instead of drawing a line. A single 6° cross-fade hid the step too, and doubled a glove and a zip close to the camera on an X5 clip; the two bands left those as the 1.5° fade had them. The stitched copies still use one band.
+
 ### Routing the seam
 
 With two lenses the hand-over can follow a path instead of the bisector: parametrise it by `d = θ₀ − θ₁` against the azimuth about the lens axis, and put it where the lenses already agree, so a near subject is walked round instead of cut through. Median 25% less disagreement across nine frames, 10% to 57%.

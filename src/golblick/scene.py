@@ -35,6 +35,10 @@ BALANCE_LIMIT = 20.0
 #: Strip columns a lens balance is box-blurred over round the seam, either
 #: side, twice: ``video._balance``'s avgblur.
 BALANCE_BLUR = 12
+#: Degrees a video's lenses hand over across in their blurred band: a
+#: brightness step the balance leaves fades over this instead of the 1.5-degree
+#: cross-fade, inside the narrowest overlap (an X3's, 6 degrees either side).
+SEAM_COARSE = 6.0
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,9 @@ class Scene:
     parallax: tuple[float, ...] | None = None
     #: The unit vector from lens 0 to lens 1 the aim pushes along, camera frame.
     baseline: tuple[float, float, float] | None = None
+    #: A second, wider cross-fade for what the lenses show blurred, radians;
+    #: 0 for one.  Detail still hands over at ``feather``.
+    coarse: float = 0.0
 
 
 def photo_scene(path: str | Path) -> Scene:
@@ -256,6 +263,7 @@ def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
         feather=float(numpy.deg2rad(1.5)),
         camera_from_world=_rows(numpy.asarray(orientation).T),
         notes=(cropped, *notes),
+        coarse=float(numpy.deg2rad(SEAM_COARSE)),
     )
     return VideoScene(scene, clip, size, _rows(orientation),
                       None if turns is None else tuple(tuple(float(v) for v in q) for q in turns),
