@@ -310,7 +310,7 @@ _LATE_STAMPS = {56}
 #: down its rows, both lenses alike, over metadata field 25's time.  Other
 #: models get no correction until their direction is measured (format notes,
 #: "Rolling shutter").
-_READS_DOWN = {"Insta360 OneR", "Insta360 X3"}
+_READS_DOWN = {"Insta360 OneR", "Insta360 X3", "Insta360 X5"}
 
 
 @dataclass(frozen=True)

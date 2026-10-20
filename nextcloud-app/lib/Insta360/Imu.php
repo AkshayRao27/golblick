@@ -107,7 +107,7 @@ final class Imu {
 	 * each lens image is read down its rows, both lenses alike, over metadata
 	 * field 25's time. Others get no correction until it is measured.
 	 */
-	public const READS_DOWN = ['Insta360 OneR', 'Insta360 X3'];
+	public const READS_DOWN = ['Insta360 OneR', 'Insta360 X3', 'Insta360 X5'];
 
 	/**
 	 * How long the sensor took to read each frame, in seconds, as imu.py's

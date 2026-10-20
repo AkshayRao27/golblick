@@ -637,6 +637,18 @@ The X3 and X5 carry field 25 too: 31.5 or 15.7 ms on the X3 clips here, 21.2 or 
 
 So the X3 reads like the OneR, and is corrected (one clip: the only combination that helped, every other one worse than none). ⚠️ The X5 isn't: the two exports favour different directions, nothing reaches the second export's noise floor (0.1°), and the other two clips are mostly featureless, with something close to the lens moving with the camera, which the measure can't separate from the scene. The X5 keeps its lenses as separate streams, and which stream golblick pairs with which lens is itself an open question ([Which way a levelled panorama faces](#which-way-a-levelled-panorama-faces)), so the direction may differ per lens in a way these clips don't settle.
 
+⚠️ Correction (2026-10-20): the X5 reads down its rows like the other two, and is now corrected. Three things were wrong with the X5 rows above. The gyroscope read 6.1% low on the X5 then ([Record `0x0300` — IMU](#record-0x0300--imu)). The first export was made with lens guards on, which scales Studio's lens by 2.25% of the angle ([Lens guards narrow the field of view](#lens-guards-narrow-the-field-of-view-x5)), far more than the warp being looked for. And a shift per sector is a poor way to see this warp on an X5: its sensor isn't on its side, so a pan shears the picture instead of stretching it along the longitude, and the band's mean shift barely moves.
+
+A test that needs no export settles it. In golblick's locked view, the dense optical flow between two consecutive uncorrected frames is regressed on the flow the correction would take out of them (the flow from each frame to its corrected render, frame k's less frame k+1's), over textured pixels, on pairs of frames that both turn 1.5° or more within the readout (2° for the control). A slope of 1 means the model is right, −1 the opposite direction, 0 no such warp:
+
+| Clip | Pairs | Slope | Bootstrap over pairs, 5–95% |
+|---|---|---|---|
+| OneR, 25 fps, known to read down (control) | 40 | +1.09 | +0.76 to +1.56 |
+| X5, 21.2 ms, walking | 54 | +1.43 | +0.50 to +2.32 |
+| X5, 21.2 ms, skiing | 59 | +1.23 | +0.06 to +2.44 |
+
+Reading up is ruled out on both X5 clips, and no correction on the walking one. A single pair scatters widely, because the camera's movement also shifts near content between frames, so this says which way the rows are read, not how long it takes; the time is field 25's, as on the other cameras. With the same correction applied to both lenses the slope can't come out near 1 if one of them read the other way, so the open question of which stream is which lens doesn't change the direction. The desktop player's shader matches the renderer to 0.01 px median on a fast X5 frame, where the correction moves the picture by 2.3 px median and 8 px at most.
+
 ⚠️ A second OneR clip's Studio export (29.97 fps, stabilisation off) shows no correction, although the same model steadies that clip in golblick's player as well as the others. Not explained.
 
 ## The embedded thumbnail

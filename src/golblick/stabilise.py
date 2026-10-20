@@ -36,6 +36,7 @@ rotation in the column convention, ``v_out = R @ v_in``.
 from __future__ import annotations
 
 import math
+import weakref
 
 #: Seconds over which the accelerometer is averaged into up (a Gaussian's
 #: sigma).  Tuned on one X5 clip only; 1 and 2 seconds scored alike there and
@@ -158,7 +159,7 @@ def shutter(motion, samples: int = SHUTTER_SAMPLES):
         at = _attitude_at(numpy, motion, prefix, (frames[:, None] + offsets).ravel())
         turns = _qmul(numpy, at * numpy.array([1.0, -1.0, -1.0, -1.0]), numpy.repeat(centre, samples, 0))
         turns /= numpy.linalg.norm(turns, axis=1, keepdims=True)
-        return [tuple(tuple(float(v) for v in q) for q in row) for row in turns.reshape(len(frames), samples, 4)]
+        return turns.reshape(len(frames), samples, 4).tolist()
     t = motion.sample_times
     w = motion.angular_velocity
     frames = motion.frame_times
@@ -328,7 +329,25 @@ def _steps(numpy, w, dt):
     return numpy.column_stack([numpy.cos(half), w[:, 0] * s, w[:, 1] * s, w[:, 2] * s])
 
 
+#: The last record :func:`_integrated` was given, held weakly, and its result:
+#: steadying and the rolling shutter integrate the same record one after the
+#: other, and both go when the record does.
+_last_integrated: list = [None, None]
+
+
 def _integrated(numpy, motion):
+    held, q = _last_integrated
+    if held is not None and held() is motion:
+        return q
+    q = _integrate(numpy, motion)
+    try:
+        _last_integrated[:] = [weakref.ref(motion, lambda _: _last_integrated.__setitem__(slice(None), [None, None])), q]
+    except TypeError:   # a record that can't be referred to weakly isn't kept
+        _last_integrated[:] = [None, None]
+    return q
+
+
+def _integrate(numpy, motion):
     """The attitude after each sample, from the identity at the first: :func:`_attitudes`' integration.
 
     The rate w[i] holds over (t[i-1], t[i]].  The running product is taken in
@@ -409,7 +428,7 @@ def _attitudes_numpy(numpy, motion, up_window):
     level[(mx[k] == 0) & (my[k] == 0) & (mz[k] == 0)] = (1.0, 0.0, 0.0, 0.0)
     out = _qmul(numpy, level, at_frames)
     out /= numpy.linalg.norm(out, axis=1, keepdims=True)
-    return [tuple(float(v) for v in q) for q in out]
+    return out.tolist()
 
 
 def _smooth(values, weights, sigma, presummed=False):
