@@ -138,6 +138,11 @@ def keyframe_times(clip: Clip) -> list[float]:
     """When lens 0 has a keyframe, in seconds, from the packet index: nothing is decoded."""
     _, ffprobe = binaries()
     file, index = clip.lenses[0]
+    # The movie header lists them; asking ffprobe for packets reads the whole
+    # file, a minute for a long clip on a slow disk.
+    indexed = _indexed_keyframes(file, index)
+    if indexed is not None:
+        return indexed
     result = subprocess.run(
         [ffprobe, "-v", "error", "-select_streams", f"v:{index}", "-show_entries", "packet=pts_time,flags",
          "-of", "csv=p=0", str(file)], capture_output=True, text=True)
@@ -150,6 +155,97 @@ def keyframe_times(clip: Clip) -> list[float]:
             except ValueError:
                 continue
     return sorted(times)
+
+
+def _indexed_keyframes(file, index: int) -> list[float] | None:
+    """The ``index``-th video track's keyframe times from its sample tables, as ffprobe gives them.
+
+    None for a layout this doesn't handle (no movie header, an edit list with
+    more than one edit or an empty one), so the caller can ask ffprobe.
+    """
+    try:
+        with open(file, "rb") as handle:
+            handle.seek(0, 2)
+            length, at, moov = handle.tell(), 0, None
+            while at + 8 <= length and moov is None:
+                handle.seek(at)
+                head = handle.read(16)
+                size, kind, body = int.from_bytes(head[:4], "big"), head[4:8], 8
+                if size == 1:
+                    size, body = int.from_bytes(head[8:16], "big"), 16
+                elif size == 0:
+                    size = length - at
+                if size < body:
+                    return None
+                if kind == b"moov":
+                    handle.seek(at)
+                    moov = handle.read(size)
+                at += size
+    except OSError:
+        return None
+    if moov is None or len(moov) < 8 or moov[4:8] != b"moov":
+        return None
+
+    def u32(at):
+        return int.from_bytes(moov[at:at + 4], "big")
+
+    seen = 0
+    for kind, start, size in _children(moov, 8, len(moov)):
+        if kind != b"trak":
+            continue
+        boxes = {inner: inner_start for inner, inner_start, _ in _descend(moov, start, size)}
+        handler = boxes.get(b"hdlr")
+        if handler is None or moov[handler + 16:handler + 20] != b"vide":
+            continue
+        if seen != index:
+            seen += 1
+            continue
+        if not {b"mdhd", b"stts", b"stss"} <= boxes.keys():
+            return None
+        mdhd = boxes[b"mdhd"]
+        scale = u32(mdhd + 28) if moov[mdhd + 8] == 1 else u32(mdhd + 20)
+        shift = 0
+        for edts, edts_start, edts_size in _children(moov, start + 8, start + size):
+            if edts != b"edts":
+                continue
+            edits = [child for child in _children(moov, edts_start + 8, edts_start + edts_size) if child[0] == b"elst"]
+            if len(edits) != 1:
+                return None
+            elst = edits[0][1]
+            wide = moov[elst + 8] == 1
+            if u32(elst + 12) != 1:
+                return None
+            entry = elst + 16
+            shift = int.from_bytes(moov[entry + 8:entry + 16] if wide else moov[entry + 4:entry + 8], "big", signed=True)
+            if shift < 0:
+                return None
+        if scale <= 0:
+            return None
+        stts, stss = boxes[b"stts"], boxes[b"stss"]
+        decode, number = [], 0
+        for k in range(u32(stts + 12)):
+            count, delta = u32(stts + 16 + 8 * k), u32(stts + 20 + 8 * k)
+            for _ in range(count):
+                decode.append(number)
+                number += delta
+        offsets = [0] * len(decode)
+        if b"ctts" in boxes:
+            ctts, sample = boxes[b"ctts"], 0
+            for k in range(u32(ctts + 12)):
+                count = u32(ctts + 16 + 8 * k)
+                offset = int.from_bytes(moov[ctts + 20 + 8 * k:ctts + 24 + 8 * k], "big", signed=True)
+                offsets[sample:sample + count] = [offset] * count
+                sample += count
+            if len(offsets) != len(decode):
+                return None
+        times = []
+        for k in range(u32(stss + 12)):
+            sample = u32(stss + 16 + 4 * k) - 1
+            if not 0 <= sample < len(decode):
+                return None
+            times.append((decode[sample] + offsets[sample] - shift) / scale)
+        return sorted(times)
+    return None
 
 
 def probe_times(wanted: list[float], keyframes: list[float]) -> list[float]:

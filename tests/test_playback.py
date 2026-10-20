@@ -252,3 +252,28 @@ def test_the_player_s_shader_fades_the_balance_as_the_stitch_does():
     assert reach and scale and python_scale
     assert float(reach.group(1)) == render.BALANCE_REACH
     assert float(scale.group(1)) == float(python_scale.group(1))
+
+
+def _probed_keyframes(path, index):
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", f"v:{index}", "-show_entries",
+                          "packet=pts_time,flags", "-of", "csv=p=0", str(path)],
+                         capture_output=True, text=True, check=True).stdout
+    return sorted(float(stamp) for stamp, _, flags in (line.partition(",") for line in out.splitlines()) if "K" in flags)
+
+
+def test_keyframes_read_from_the_movie_header_are_the_ones_ffprobe_lists(tmp_path):
+    """B-frames give the tracks composition offsets and an edit list; the two streams keyframe at different spacings."""
+    path = tmp_path / "pair.mp4"
+    lens = f"testsrc=s={SIZE}x{SIZE}:r=30:d=3"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", lens, "-f", "lavfi", "-i", lens,
+                    "-map", "0", "-map", "1", "-c:v", "mpeg4", "-bf", "2", "-g:v:0", "7", "-g:v:1", "11", str(path)],
+                   check=True)
+    first, second = video._indexed_keyframes(path, 0), video._indexed_keyframes(path, 1)
+    assert first == pytest.approx(_probed_keyframes(path, 0), abs=1e-6)
+    assert second == pytest.approx(_probed_keyframes(path, 1), abs=1e-6)
+    assert len(first) != len(second)
+
+
+def test_keyframes_come_from_ffprobe_where_there_is_no_movie_header(clip):
+    assert video._indexed_keyframes(clip.lenses[0][0], 0) is None
+    assert video.keyframe_times(clip) == pytest.approx(_probed_keyframes(clip.lenses[0][0], 0))
