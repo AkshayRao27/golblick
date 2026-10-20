@@ -38,13 +38,14 @@ final class Stabilise {
 	 *
 	 * @param string $record the raw 0x0300 payload
 	 * @param array<int, array<int, float>> $axes Imu::motionAxes
+	 * @param array{float, float} $gains Imu::gains
 	 * @param list<float> $frameTimes Imu::frameTimes
 	 * @param array<int, array<int, float>> $reference the orientation the frames were rendered with
 	 * @return array{rotations: list<array{float, float, float, float}>, turns: list<float>}
 	 */
-	public static function track(string $record, int $stride, array $axes, array $frameTimes, array $reference,
+	public static function track(string $record, int $stride, array $axes, array $gains, array $frameTimes, array $reference,
 		float $upWindow = self::UP_WINDOW, float $follow = self::FOLLOW): array {
-		$attitudes = self::attitudes($record, $stride, $axes, $frameTimes, $upWindow);
+		$attitudes = self::attitudes($record, $stride, $axes, $gains, $frameTimes, $upWindow);
 
 		$steps = [];
 		for ($i = 1; $i < \count($frameTimes); ++$i) {
@@ -81,11 +82,11 @@ final class Stabilise {
 	}
 
 	/** @return list<array{float, float, float, float}> body to world at each frame time */
-	private static function attitudes(string $record, int $stride, array $axes, array $frames, float $upWindow): array {
+	private static function attitudes(string $record, int $stride, array $axes, array $gains, array $frames, float $upWindow): array {
 		$length = \strlen($record);
 		$count = intdiv($length, $stride);
 		$unit = Imu::CLOCK[$stride];
-		$sign = Imu::handedness($axes);
+		$sign = Imu::handedness($axes) * $gains[1];
 		[[$a0, $a1, $a2], [$b0, $b1, $b2], [$c0, $c1, $c2]] = $axes;
 
 		$start = Imu::entryAt($record, $stride, 0)[0];
@@ -140,11 +141,11 @@ final class Stabilise {
 				}
 			}
 			$previous = $t;
-			$g = sqrt($ax * $ax + $ay * $ay + $az * $az);
-			if (abs($g - 1.0) < self::STILL) {
-				$ux = ($a0 * $ax + $a1 * $ay + $a2 * $az) / $g;
-				$uy = ($b0 * $ax + $b1 * $ay + $b2 * $az) / $g;
-				$uz = ($c0 * $ax + $c1 * $ay + $c2 * $az) / $g;
+			$length = sqrt($ax * $ax + $ay * $ay + $az * $az);
+			if (abs($length * $gains[0] - 1.0) < self::STILL) {
+				$ux = ($a0 * $ax + $a1 * $ay + $a2 * $az) / $length;
+				$uy = ($b0 * $ax + $b1 * $ay + $b2 * $az) / $length;
+				$uz = ($c0 * $ax + $c1 * $ay + $c2 * $az) / $length;
 				$b = (int)($t / self::BIN);
 				$sx[$b] += (1 - 2 * ($q2 * $q2 + $q3 * $q3)) * $ux + 2 * ($q1 * $q2 - $q0 * $q3) * $uy
 					+ 2 * ($q1 * $q3 + $q0 * $q2) * $uz;
@@ -189,9 +190,10 @@ final class Stabilise {
 	 * Null when $readout is 0.
 	 *
 	 * @param array<int, array<int, float>> $axes Imu::motionAxes
+	 * @param array{float, float} $gains Imu::gains
 	 * @param list<float> $frameTimes Imu::frameTimes
 	 */
-	public static function shutter(string $record, int $stride, array $axes, array $frameTimes, float $readout,
+	public static function shutter(string $record, int $stride, array $axes, array $gains, array $frameTimes, float $readout,
 		int $samples = self::SHUTTER_SAMPLES): ?string {
 		if ($readout <= 0.0 || $samples < 2 || $frameTimes === []) {
 			return null;
@@ -216,7 +218,7 @@ final class Stabilise {
 		$length = \strlen($record);
 		$count = intdiv($length, $stride);
 		$unit = Imu::CLOCK[$stride];
-		$sign = Imu::handedness($axes);
+		$sign = Imu::handedness($axes) * $gains[1];
 		[[$a0, $a1, $a2], [$b0, $b1, $b2], [$c0, $c1, $c2]] = $axes;
 		$start = Imu::entryAt($record, $stride, 0)[0];
 		// A frame's last moment comes after every earlier frame's, so frames

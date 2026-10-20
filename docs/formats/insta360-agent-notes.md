@@ -470,8 +470,12 @@ Each entry is a 64-bit millisecond timecode followed by six values: three accele
 
 | Stride | Payload | Value |
 |---|---|---|
-| 20 B | `int64` timecode + 6 × `uint16` | `(raw − 32768) / 1000` |
+| 20 B | `int64` timecode + 6 × `uint16` | `(raw − 32768) × full scale / 32768`, the full scale from metadata field 65 |
 | 56 B | `int64` timecode + 6 × `float64` | as stored |
+
+⚠️ Correction (2026-10-20): the 20-byte form was read as thousandths, `(raw − 32768) / 1000`, which is how exiftool reads it too, and that is close to the unit but not it. Each value counts 1/32768ths of the sensor's full scale. Metadata field 65 gives the two ranges as `{1: g, 2: degrees per second}`, and it reads 32 g and 2000 °/s on all 86 twenty-byte clips in the library (X5, X3, and the OneR from 2023 on); none of the 46 float-form clips carries it. So the accelerometer is `raw / 1024` g and the gyroscope `raw × 2000 / 32768` °/s, and thousandths read them 2.4% high and 6.1% low. The accelerometer shows it. Over the quietest tenth of each record, thousandths put gravity at a median 1.025 g on the X5 and X3 and 1.02 g on the OneR's 20-byte form, against 1.005 g in the float form, and field 65 brings them to 1.00. The direction of gravity is the same either way, so levelling was never affected. Steadying was: every turn of a 20-byte clip came back 6.1% short. `imu.motion` applies field 65 and refuses a 20-byte record without it.
+
+A check from the picture doesn't settle the gain on its own. With field 65 applied, the band's yaw shift per frame against the gyroscope's turn reads 0.93 to 0.99 on four 20-byte clips, and 1.01 on a float-form control, so the scatter is as large as the 6.5% in question. Content fixed to the camera pulls the band down: on the ski clip that read 0.93, the two sectors behind the camera, where the skier is, read 0.05 and 0.07, and the four in front 0.99 to 1.15.
 
 Of the 379 OneR stills in one library that carry this record, **285 use the 56-byte form and 94 use the 20-byte one**. Both groups are the same camera model, so the stride must be *searched*, not looked up. `imu.entries` keeps only a stride that divides the record exactly and whose timecodes rise monotonically, and refuses when none fits or more than one does.
 
@@ -509,7 +513,7 @@ Fitting angular velocity from the Studio track against the gyroscope over all 48
 | X5 | 0.16 | 1.92 | identity, within 1.4° |
 | OneR | 0.58 | 1.75 | yaw 180°, roll −90° (the mounting angle) |
 
-So no new constants: the measured gravity maps carry over. The one twist is that all three cameras' maps are reflections (determinant −1), and an angular velocity is an axial vector, so it changes sign under one. The units are radians per second: the fitted scale was 0.98 to 1.07. The OneR residual is higher because its clip moves little and FlowState's own smoothing shows up in the track. The X3's frame (yaw 180°) was confirmed by the horizon: the opening level matches Studio's FlowState frame 0 to 0.76° with it.
+So no new constants: the measured gravity maps carry over. The one twist is that all three cameras' maps are reflections (determinant −1), and an angular velocity is an axial vector, so it changes sign under one. The units are radians per second: the fitted scale was 0.98 to 1.07. ⚠️ Correction (2026-10-20): not in the 20-byte form, which reads 6.1% short until it is scaled by field 65 ([Record `0x0300` — IMU](#record-0x0300--imu)). A fit with that much scatter could not tell 1.00 from 1.065. The OneR residual is higher because its clip moves little and FlowState's own smoothing shows up in the track. The X3's frame (yaw 180°) was confirmed by the horizon: the opening level matches Studio's FlowState frame 0 to 0.76° with it.
 
 ⚠️ Measuring this from the record alone failed. Gravity seen from a turning body moves at the gyroscope's rate, but on a steady clip the accelerometer's noise (about 1°) swamps the motion, and on a carried one its direction swings about 9° in every window with walking. Neither fit explained the data (residual 0.64 to 0.97).
 

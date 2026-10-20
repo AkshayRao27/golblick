@@ -31,6 +31,7 @@ FIRST_FRAME = 24                # video: frame 0's timecode on the inertial cloc
 READOUT = 25                    # video: ms the sensor takes to read a frame, top row to bottom
 FRAME_OFFSET = 28               # video: ms from the frame clock to when a frame was seen (56-byte form)
 SENSOR_CROP = 27                # video: the part of each lens's sensor the frame keeps
+FULL_SCALE = 65                 # the inertial sensors' ranges: {1: g, 2: degrees per second}
 CALIBRATION_POLY = 53
 CALIBRATION_MEI = 54
 CALIBRATION_MEI_EXTENDED = 111  # X5 only; see docs/formats/insta360-agent-notes.md
@@ -213,4 +214,24 @@ def sensor_crop(grouped: dict[int, list[Field]]) -> tuple[int, int, int, int, in
                 break
         else:
             return tuple(values)
+    return None
+
+
+def full_scale(grouped: dict[int, list[Field]]) -> tuple[int, int] | None:
+    """The FULL_SCALE submessage: the accelerometer's range in g and the gyroscope's in degrees per second.
+
+    None if the field is absent or not that shape.
+    """
+    for field in grouped.get(FULL_SCALE, ()):
+        if not isinstance(field.value, bytes):
+            continue
+        try:
+            inner = by_number(field.value)
+        except ProtobufError:
+            continue
+        acceleration = inner.get(1, [None])[0]
+        rotation = inner.get(2, [None])[0]
+        if acceleration is not None and rotation is not None:
+            if isinstance(acceleration.value, int) and isinstance(rotation.value, int) and acceleration.value > 0 and rotation.value > 0:
+                return acceleration.value, rotation.value
     return None

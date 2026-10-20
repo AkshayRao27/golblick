@@ -153,6 +153,27 @@ final class Imu {
 		return $axes;
 	}
 
+	/**
+	 * What the decoded accelerometer and gyroscope values are multiplied by to
+	 * be in g and radians per second, as imu.py's _gains: 1 for the 56-byte
+	 * form, and field 65's full scale over 32768 for the 20-byte one, which
+	 * LAYOUTS reads as thousandths (6.1% short for the gyroscope).
+	 *
+	 * @param array<int, list<string|int>> $fields Protobuf::fields of the metadata record
+	 * @return array{float, float}
+	 */
+	public static function gains(array $fields, int $stride): array {
+		if ($stride !== 20) {
+			return [1.0, 1.0];
+		}
+		$scale = Protobuf::fullScale($fields);
+		if ($scale === null) {
+			throw new FormatError('no sensor full scale (metadata field 65), which the 20-byte form is counted in');
+		}
+
+		return [$scale[0] * 1000.0 / 32768.0, deg2rad($scale[1]) * 1000.0 / 32768.0];
+	}
+
 	/** -1.0 where the map is a reflection, else 1.0. */
 	public static function handedness(array $axes): float {
 		[[$a, $b, $c], [$d, $e, $f], [$g, $h, $i]] = $axes;

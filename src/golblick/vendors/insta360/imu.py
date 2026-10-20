@@ -17,6 +17,12 @@ Stride     Payload                    Where it was seen
 56 bytes   6 x float64                value as stored
 =========  =========================  ==========================================
 
+A 20-byte value is really a count of 1/32768ths of the sensor's full scale,
+which metadata field 65 gives (32 g and 2000 degrees per second on every file
+so far).  Thousandths read the accelerometer 2.4% high and the gyroscope 6.1%
+low: near enough for which way is down, which is all a still needs, but not
+for how far the camera turned, so :func:`motion` applies the field.
+
 The stride is not a property of the camera model: one OneR writes both forms.
 So :func:`entries` searches the candidate strides and keeps only one that
 divides the record exactly and whose timecodes rise monotonically, refusing
@@ -29,6 +35,7 @@ corrects the roll of every file that carries a trailer.
 
 from __future__ import annotations
 
+import math
 import struct
 from array import array
 from dataclasses import dataclass
@@ -316,6 +323,19 @@ class Motion:
     readout: float = 0.0
 
 
+def _gains(grouped, stride: int, path) -> tuple[float, float]:
+    """What the decoded accelerometer and gyroscope values are multiplied by to be in g and radians per second."""
+    if stride != 20:
+        return 1.0, 1.0
+    from . import metadata  # circular at import time, fine at call time
+
+    scale = metadata.full_scale(grouped)
+    if scale is None:
+        raise FormatError(f"{path}: no sensor full scale (metadata field 65), which the 20-byte form is counted in")
+    g, degrees = scale
+    return g * 1000.0 / 32768.0, math.radians(degrees) * 1000.0 / 32768.0
+
+
 def _columns(data: bytes, stride: int):
     """Timecodes and the six values, as arrays; the same ordering rule as _decode."""
     layout, convert = _LAYOUTS[stride]
@@ -358,8 +378,8 @@ def motion(path) -> Motion:
     :data:`_READS_DOWN`.
 
     Raises :class:`FormatError` for a still, an unmeasured camera, a missing
-    or unreadable record, and a first frame that falls outside the inertial
-    record or the frame log.
+    or unreadable record, a 20-byte record without field 65, and a first frame
+    that falls outside the inertial record or the frame log.
     """
     from . import describe, metadata  # circular at import time, fine at call time
     from .trailer import FRAMES, METADATA
@@ -428,7 +448,8 @@ def motion(path) -> Motion:
         frame_times = array("d", ((first - start + k * period) * unit + offset[0] / 1000 - exposure / 2
                                   for k, (_, exposure) in enumerate(entries[nearest:])))
 
-    sign = -1.0 if _determinant(axes) < 0 else 1.0
+    accelerometer, gyroscope = _gains(grouped, stride, path)
+    sign = (-1.0 if _determinant(axes) < 0 else 1.0) * gyroscope
     count = len(timecodes)
     sample_times = array("d", ((t - start) * unit for t in timecodes))
     angular = array("d", bytes(8 * 3 * count))
@@ -442,7 +463,7 @@ def motion(path) -> Motion:
         angular[3 * i + 1] = sign * (b0 * gx + b1 * gy + b2 * gz)
         angular[3 * i + 2] = sign * (c0 * gx + c1 * gy + c2 * gz)
         length = (ax * ax + ay * ay + az * az) ** 0.5
-        gravity[i] = length
+        gravity[i] = length * accelerometer
         if length > 0:
             up[3 * i] = (a0 * ax + a1 * ay + a2 * az) / length
             up[3 * i + 1] = (b0 * ax + b1 * ay + b2 * az) / length

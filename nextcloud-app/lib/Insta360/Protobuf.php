@@ -29,6 +29,8 @@ final class Protobuf {
 	public const FRAME_OFFSET = 28;
 	/** In a video, the part of each lens's sensor the frame keeps. */
 	public const SENSOR_CROP = 27;
+	/** The inertial sensors' ranges, {1: g, 2: degrees per second}, which the 20-byte form counts 1/32768ths of. */
+	public const FULL_SCALE = 65;
 	public const CALIBRATION_POLY = 53;
 
 	/**
@@ -107,6 +109,32 @@ final class Protobuf {
 			}
 
 			return $crop;
+		}
+
+		return null;
+	}
+
+	/**
+	 * The FULL_SCALE submessage as [g, degrees per second], as metadata.py's
+	 * full_scale(); null if absent or not that shape.
+	 *
+	 * @return array{int, int}|null
+	 */
+	public static function fullScale(array $fields): ?array {
+		foreach ($fields[self::FULL_SCALE] ?? [] as $value) {
+			if (!\is_string($value)) {
+				continue;
+			}
+			try {
+				$inner = self::fields($value);
+			} catch (FormatError $e) {
+				continue;
+			}
+			$g = $inner[1][0] ?? null;
+			$degrees = $inner[2][0] ?? null;
+			if (\is_int($g) && \is_int($degrees) && $g > 0 && $degrees > 0) {
+				return [$g, $degrees];
+			}
 		}
 
 		return null;

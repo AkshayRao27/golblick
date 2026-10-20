@@ -4,6 +4,7 @@ Fixtures are synthesised, as everywhere else in this suite.  The values are
 chosen so that a wrong stride cannot accidentally produce a valid-looking read.
 """
 
+import math
 import re
 import struct
 from pathlib import Path
@@ -322,9 +323,13 @@ def test_an_x5_video_has_its_own_axes(tmp_path):
     assert up_still[0] == pytest.approx(-up_video[0]) and up_still[2] == pytest.approx(-up_video[2])
 
 
-def video_metadata(model, first_frame=None, readout=None, offset=None):
-    """Model string, plus fields 24 (frame 0's timecode), 25 (the readout, ms) and 28 (frame offset, ms) when given."""
+def video_metadata(model, first_frame=None, readout=None, offset=None, full_scale=None):
+    """Model string, plus fields 24 (frame 0's timecode), 25 (the readout, ms), 28 (frame offset, ms) and 65 (g, degrees per second) when given."""
     out = model_record(model)
+    if full_scale is not None:
+        g, degrees = full_scale
+        inner = b"\x08" + bytes([g]) + b"\x10" + bytes([0x80 | degrees & 0x7F, degrees >> 7])
+        out += b"\x8a\x04" + bytes([len(inner)]) + inner
     if readout is not None:
         out += b"\xc9\x01" + struct.pack("<d", readout)
     if offset is not None:
@@ -341,12 +346,12 @@ def video_metadata(model, first_frame=None, readout=None, offset=None):
     return out
 
 
-def x5_clip(tmp_path, *, first_frame=1_100_000, gyro=(0.1, 0.0, 0.0), log_start=1_000_000):
+def x5_clip(tmp_path, *, first_frame=1_100_000, gyro=(0.1, 0.0, 0.0), log_start=1_000_000, full_scale=(32, 2000)):
     """One second of X5 record at 1 kHz on a microsecond clock, a frame log at
-    30 fps starting before the first frame, and field 24."""
+    30 fps starting before the first frame, and fields 24 and 65."""
     samples = b"".join(biased(1_000_000 + i * 1000, LEVEL_X5[:3] + gyro) for i in range(1000))
     log = b"".join(struct.pack("<qd", log_start + i * 33_367, 0.001) for i in range(30))
-    records = [(METADATA, video_metadata("Insta360 X5", first_frame)), (IMU, samples), (0x0400, log)]
+    records = [(METADATA, video_metadata("Insta360 X5", first_frame, full_scale=full_scale)), (IMU, samples), (0x0400, log)]
     return write_file(tmp_path / "VID_20260126_115034_00_011.insv", records,
                       leading=b"\x00\x00\x00\x18ftypisom")
 
@@ -416,7 +421,7 @@ def test_a_camera_whose_readout_direction_is_unmeasured_is_not_corrected(tmp_pat
     """The file gives the time, not which way the sensor reads, so only measured models get one."""
     samples = b"".join(biased(1_000_000 + i * 1000, LEVEL_X5) for i in range(1000))
     log = b"".join(struct.pack("<qd", 1_000_000 + i * 33_367, 0.001) for i in range(30))
-    records = [(METADATA, video_metadata("Insta360 X5", 1_000_000, 21.2)), (IMU, samples), (0x0400, log)]
+    records = [(METADATA, video_metadata("Insta360 X5", 1_000_000, 21.2, full_scale=(32, 2000))), (IMU, samples), (0x0400, log)]
     path = write_file(tmp_path / "VID_20260126_115034_00_011.insv", records, leading=b"\x00\x00\x00\x18ftypisom")
 
     assert imu.motion(path).readout == 0.0
@@ -444,9 +449,24 @@ def test_motion_turns_the_gyroscope_with_the_gravity_axes_and_flips_it_for_a_ref
     motion = imu.motion(x5_clip(tmp_path, first_frame=1_000_000, gyro=(0.1, 0.0, 0.0)))
 
     # The video map sends (x, y, z) to (z, -x, y); the reflection flips that.
-    assert tuple(motion.angular_velocity[:3]) == pytest.approx((0.0, 0.1, 0.0))
+    # 0.1 is 100 counts of 2000 / 32768 degrees per second.
+    assert tuple(motion.angular_velocity[:3]) == pytest.approx((0.0, 100 * math.radians(2000) / 32768, 0.0))
     up = imu.gravity_up(x5_clip(tmp_path, first_frame=1_000_000))
     assert tuple(motion.up[:3]) == pytest.approx(up)
+
+
+def test_the_20_byte_form_counts_in_field_65_s_full_scale(tmp_path):
+    """1,024 counts of 32 g is 1 g, and 1,000 of them aren't; the gyroscope scales with its own range."""
+    small = imu.motion(x5_clip(tmp_path, gyro=(0.1, 0.0, 0.0), full_scale=(32, 2000)))
+    large = imu.motion(x5_clip(tmp_path, gyro=(0.1, 0.0, 0.0), full_scale=(32, 4000)))
+
+    assert small.gravity[0] == pytest.approx(1.0, abs=1e-3)
+    assert large.angular_velocity[1] == pytest.approx(2 * small.angular_velocity[1])
+
+
+def test_the_20_byte_form_needs_field_65(tmp_path):
+    with pytest.raises(FormatError, match="field 65"):
+        imu.motion(x5_clip(tmp_path, full_scale=None))
 
 
 def test_motion_refuses_a_still(tmp_path):
