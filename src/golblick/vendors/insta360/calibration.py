@@ -30,12 +30,16 @@ are measured.  For the equidistant model the six per-lens values are identified
 The interior layout of the richer models is *not* confirmed.  The names in
 MODELS are descriptions of shape, not claims about meaning, and the parameters
 are deliberately exposed as a raw tuple rather than as named attributes so that
-nothing here reads as a fact it has not earned.
+nothing here reads as a fact it has not earned.  Two readings have since been measured
+and are read by name in one place each: the lens offset in the polynomial model
+(:attr:`Calibration.lens_offset`) and the radial curve of the MEI model
+(:meth:`Calibration.radial_correction`).
 ``docs/formats/insta360-agent-notes.md``, "Calibration", has the evidence.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from ...errors import FormatError
@@ -133,6 +137,47 @@ class Calibration:
             raise CalibrationError(f"field {self.field}: no lens offsets in this string")
         first, second = (tuple(block[6:9]) for block in self.lenses)
         return tuple(b - a for a, b in zip(first, second, strict=True))
+
+    def radial_correction(self, step: float, count: int) -> tuple[float, ...]:
+        """The MEI model's radial curve, as a correction to the equidistant model, in degrees.
+
+        Of each lens block, xi, fx and fy are the first three values and the
+        radial terms k1, k2 and k3 the twelfth to fourteenth: the unified camera
+        model reading of this string (credited in the format notes).  Read as
+        stored, the curve's scale does not match the vendor's stitch; its shape
+        does, on the X5.  So it is anchored to the equidistant model at 90
+        degrees, where the fitted field of view already holds the seam, and
+        only the shape is kept:
+        ``correction(theta) = 90 * r(theta) / r(90) - theta``, every ``step``
+        degrees from the axis, ``count`` values, the two lenses averaged.
+
+        Against the X5's own stitch this took 43 of 45 photos from a median 11
+        px of error at 2048 wide to 2; format notes, "The equidistant model is
+        close, but not exact".  The tangential terms are not read.
+        """
+        if self.field != metadata.CALIBRATION_MEI:
+            raise CalibrationError(f"field {self.field}: the radial curve is read from the MEI model only")
+        if self.lens_count != 2 or any(len(block) < 14 for block in self.lenses):
+            raise CalibrationError(f"field {self.field}: no radial terms in this string")
+
+        def radius(block, theta: float) -> float:
+            xi, fx, fy, k1, k2, k3 = block[0], block[1], block[2], block[11], block[12], block[13]
+            m = math.sin(theta) / (math.cos(theta) + xi)
+            m2 = m * m
+            return (fx + fy) / 2 * m * (1 + k1 * m2 + k2 * m2 ** 2 + k3 * m2 ** 3)
+
+        right_angle = math.radians(90.0)
+        anchors = [radius(block, right_angle) for block in self.lenses]
+        if any(not math.isfinite(r) or r <= 0 for r in anchors):
+            raise CalibrationError(f"field {self.field}: the radial curve does not reach 90 degrees")
+        curve = []
+        for k in range(count):
+            theta = math.radians(k * step)
+            mapped = [90.0 * radius(block, theta) / anchor for block, anchor in zip(self.lenses, anchors, strict=True)]
+            curve.append(round(sum(mapped) / len(mapped) - k * step, 4))
+        if any(b <= a - step for a, b in zip(curve, curve[1:], strict=False)):
+            raise CalibrationError(f"field {self.field}: the radial curve is not monotone")
+        return tuple(curve)
 
     def for_video(self, crop: tuple[int, int, int, int, int, int]) -> Calibration:
         """This calibration as it applies to a video's frames, given the sensor crop.

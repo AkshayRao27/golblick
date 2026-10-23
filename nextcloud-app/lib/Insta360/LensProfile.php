@@ -65,6 +65,9 @@ final class LensProfile {
 		'Insta360 X5' => [197.5, [], 1.0225],
 	];
 
+	/** Models whose radial curve comes from each file's MEI calibration: radial_from_file in lens.py. */
+	public const RADIAL_FROM_FILE = ['Insta360 X5'];
+
 	/** Whether $model has measured values, rather than the default every other camera gets. */
 	public static function isMeasured(?string $model): bool {
 		return isset(self::PROFILES[$model ?? '']);
@@ -72,16 +75,19 @@ final class LensProfile {
 
 	/**
 	 * @param bool $guards clip-on lens guards fitted, which narrow the field of view
+	 * @param float[]|null $fileRadial the file's own curve (Calibration::$radial), used where the model takes it
 	 * @return array{float, float[]} field of view in degrees, radial correction in degrees
 	 */
-	public static function for(?string $model, bool $guards = false): array {
+	public static function for(?string $model, bool $guards = false, ?array $fileRadial = null): array {
 		$profile = self::PROFILES[$model ?? ''] ?? [self::DEFAULT_FIELD_OF_VIEW, []];
 		$degrees = $profile[0];
 		if ($guards && isset($profile[2])) {
 			$degrees /= $profile[2];
 		}
 
-		return [$degrees, $profile[1]];
+		$radial = $fileRadial !== null && \in_array($model, self::RADIAL_FROM_FILE, true) ? $fileRadial : $profile[1];
+
+		return [$degrees, $radial];
 	}
 
 	/** Whether lens guards are modelled for $model, i.e. whether detecting them means anything. */

@@ -144,7 +144,7 @@ final class Insta360 implements IProviderV2 {
 		if ($text === null) {
 			throw new FormatError('no equidistant calibration');
 		}
-		$calibration = Calibration::parse($text);
+		$calibration = Calibration::parse($text)->withMei(Protobuf::firstText($fields, Protobuf::CALIBRATION_MEI));
 
 		[$encoded, $available] = $this->sourceFor($trailer, $handle, $preview, $width);
 

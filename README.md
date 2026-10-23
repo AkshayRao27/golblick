@@ -111,6 +111,8 @@ Files named `*agent-notes*` hold the detailed working notes behind the docs: eve
 
 [insv-stitch](https://github.com/BenjaminHenriksson/insv-stitch) (MIT) is a video-only Insta360 X5 stitching pipeline and was a useful reference for the projection maths. It is not vendored here.
 
+[raw360-formats](https://github.com/freeKC/raw360-formats) (MIT) and [GyroView](https://github.com/bubo-squared/GyroView) (MIT) read the X5's richer lens calibration as a unified camera model, and GyroView measured how far its scale is from the vendor's stitch. golblick's X5 lens curve follows that reading, measured again here against the camera's own panorama.
+
 ## Licence
 
 AGPL-3.0-or-later, for the whole repository. You can use, change and share it, including commercially, but if you distribute a modified version, or let people use one over a network, you have to publish your changes under the same licence. The full text is in [LICENSE](LICENSE).

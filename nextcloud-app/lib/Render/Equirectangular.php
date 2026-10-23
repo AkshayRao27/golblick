@@ -130,7 +130,7 @@ final class Equirectangular {
 		$scale = $calibration->scaleFor($sourceWidth) * $shrink;
 		// Neither the rim angle nor the lens's departure from the equidistant
 		// model is in the file; both are measured per camera. See LensProfile.
-		[$fieldOfView, $radial] = LensProfile::for($model);
+		[$fieldOfView, $radial] = LensProfile::for($model, false, $calibration->radial);
 		$thetaMax = deg2rad($fieldOfView) / 2.0;
 		$radialRad = array_map('deg2rad', $radial);
 		$radialLast = count($radialRad) - 1;

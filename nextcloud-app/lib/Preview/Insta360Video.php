@@ -146,7 +146,7 @@ final class Insta360Video implements IProviderV2 {
 		if ($text === null) {
 			throw new FormatError('no equidistant calibration');
 		}
-		$calibration = Calibration::parse($text);
+		$calibration = Calibration::parse($text)->withMei(Protobuf::firstText($fields, Protobuf::CALIBRATION_MEI));
 		$crop = Protobuf::sensorCrop($fields);
 		if ($crop !== null) {
 			$calibration = $calibration->forVideo($crop);

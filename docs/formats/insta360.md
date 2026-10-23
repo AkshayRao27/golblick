@@ -40,7 +40,7 @@ Some differences that matter in practice:
 
 - **Only the X5 stores a finished panorama.** `golblick preview` gets it out, and it is also what X5 renders are checked against. The OneR and X3 store the two circles, so their panoramas have to be built from scratch.
 - **Most OneR photos have no motion sensor reading of their own.** In bursts and brackets the camera writes the reading to one frame, and golblick borrows it from another photo taken in the same shutter press.
-- **The calibration doesn't say everything.** It doesn't say how wide each lens sees, or how far the lens departs from an ideal fisheye. Both were measured per camera and are built into golblick. The X5 is left uncorrected: a fixed correction didn't bring its renders closer to Insta360's.
+- **The calibration doesn't say everything.** It doesn't say how wide each lens sees, or how far the lens departs from an ideal fisheye. Both were measured per camera and are built into golblick. The X5 is the exception for the lens shape: its files carry a richer calibration that describes it, which brings renders to within about 0.4° of the camera's own panorama.
 - **The sensors are mounted at different angles.** A OneR's sensor sits 90° round from an X3's or X5's. The calibration records this, and without it every OneR panorama would come out on its side.
 - **In video, the two lenses don't match.** In a photo the camera has evened out the two lenses' brightness and colour. In video it hasn't, and with the sun on one lens they can differ by up to 40% along the sky, so a stitch has to even them out itself.
 

@@ -252,7 +252,8 @@ def cmd_render(args: argparse.Namespace) -> int:
           + ("" if args.field_of_view else " (the camera's measured value)"))
     if guards is not None:
         print(f"  lens guards    {guards}")
-    print(f"  lens model     {'equidistant, measured correction' if radial else 'equidistant'}")
+    shape = "the file's own lens curve" if profile is not None and profile.radial_from_file else "measured correction"
+    print(f"  lens model     {f'equidistant, {shape}' if radial else 'equidistant'}")
     print(f"  levelling      {levelling}")
     if score is not None:
         print(f"  lens agreement {score:+.3f}  (a wrong convention scores about +0.02)")
@@ -443,7 +444,8 @@ def cmd_report(args: argparse.Namespace) -> int:
     elif profile is None:
         add(f"{'lens':<12} not measured for this camera")
     else:
-        correction = f", radial correction ({len(profile.radial)} terms)" if profile.radial else ""
+        correction = (", radial correction from the file's own lens curve" if profile.radial_from_file and profile.radial
+                      else f", radial correction ({len(profile.radial)} terms)" if profile.radial else "")
         guards = (f", divided by {profile.guard_factor:g} with lens guards"
                   if profile.guard_factor else "")
         add(f"{'lens':<12} measured: field of view {profile.field_of_view:g} degrees{guards}{correction}")

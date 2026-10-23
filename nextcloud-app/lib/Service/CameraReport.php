@@ -132,14 +132,14 @@ final class CameraReport {
 			$add('calibration', 'no equidistant calibration');
 		} else {
 			try {
-				$calibration = Calibration::parse($text);
+				$calibration = Calibration::parse($text)->withMei(Protobuf::firstText($fields, Protobuf::CALIBRATION_MEI));
 				$add('calibration', 'equidistant, read');
 			} catch (\Throwable $e) {
 				$failed('calibration', $e);
 			}
 		}
 
-		[$fieldOfView, $radial] = LensProfile::for($model);
+		[$fieldOfView, $radial] = LensProfile::for($model, false, $calibration?->radial);
 		$add('lens', LensProfile::isMeasured($model)
 			? sprintf('measured: field of view %g degrees', $fieldOfView)
 				. (LensProfile::guardFactor($model) !== null ? sprintf(', divided by %g with lens guards', LensProfile::guardFactor($model)) : '')

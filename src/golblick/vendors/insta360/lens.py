@@ -12,7 +12,9 @@ lenses agree where they overlap.
 ``radial`` is the correction to the equidistant model, sampled every
 ``render.RADIAL_STEP`` degrees out from the axis (see ``render.Lens.radial``),
 measured against the vendor's own stitch.  Empty where that has not been
-measured well enough.
+measured well enough.  Where ``radial_from_file`` is set, each file's own MEI
+calibration gives it instead (``Calibration.radial_correction``): it is per
+camera body, and on the X5 it beats any table measured here.
 
 How each value was measured: ``docs/formats/insta360-agent-notes.md``, "The
 equidistant model is close, but not exact" and "Lens guards narrow the field
@@ -23,7 +25,7 @@ Stdlib only: this is read by the dependency-free CLI as well as the renderer.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -36,6 +38,8 @@ class LensProfile:
     #: How much a clip-on lens guard narrows the field of view, as a divisor,
     #: where measured.  None means guards are not modelled for this camera.
     guard_factor: float | None = None
+    #: Take ``radial`` from the file's MEI calibration (field 54) where it carries one.
+    radial_from_file: bool = False
 
     def field_of_view_for(self, guards: bool = False) -> float:
         """The angle to render with, with or without guards.
@@ -85,13 +89,30 @@ PROFILES: dict[str, LensProfile] = {
         # Studio's "Standard lens guards" setting against its "off": a pure
         # radial scale of 2.25%.
         guard_factor=1.0225,
-        basis="field of view fitted by lens agreement per file, checked against Insta360 Studio exports; lens guard factor measured from Studio's own setting",
+        # Against the camera's own stitch, 43 of 45 photos: a median 11 px of
+        # error at 2048 wide without it, 2 px with it.
+        radial_from_file=True,
+        basis="field of view fitted by lens agreement per file, checked against Insta360 Studio exports; lens guard factor measured from Studio's own setting; radial from the file's MEI calibration, checked against the camera's own stitch",
     ),
 }
 
 
 def lens_profile(path: str | Path) -> LensProfile | None:
     """The measured profile for the camera that wrote ``path``, or None."""
+    from ... import render
     from . import describe  # circular at import time, fine at call time
+    from .calibration import CalibrationError
+    from .metadata import CALIBRATION_MEI
 
-    return PROFILES.get(describe(path)["model"])
+    info = describe(path)
+    profile = PROFILES.get(info["model"])
+    if profile is None or not profile.radial_from_file:
+        return profile
+    mei = info["calibrations"].get(CALIBRATION_MEI)
+    if mei is None:
+        return profile
+    try:
+        radial = mei.radial_correction(render.RADIAL_STEP, int(100 / render.RADIAL_STEP) + 1)
+    except CalibrationError:
+        return profile   # equidistant, as before the curve was read
+    return replace(profile, radial=radial)

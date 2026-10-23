@@ -32,6 +32,7 @@ final class Protobuf {
 	/** The inertial sensors' ranges, {1: g, 2: degrees per second}, which the 20-byte form counts 1/32768ths of. */
 	public const FULL_SCALE = 65;
 	public const CALIBRATION_POLY = 53;
+	public const CALIBRATION_MEI = 54;
 
 	/**
 	 * @return array<int, list<string|int>> field number => values, in order

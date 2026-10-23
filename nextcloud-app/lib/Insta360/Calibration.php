@@ -23,6 +23,9 @@ final class Calibration {
 	/** @var list<float> trailing global values; the first two are the reference frame */
 	public array $globals;
 
+	/** @var float[]|null the file's own radial curve, degrees every LensProfile::RADIAL_STEP (withMei) */
+	public ?array $radial = null;
+
 	private function __construct(array $lenses, array $globals) {
 		$this->lenses = $lenses;
 		$this->globals = $globals;
@@ -51,6 +54,61 @@ final class Calibration {
 		}
 
 		return new self($lenses, \array_slice($values, 1 + 6 * $count));
+	}
+
+	/**
+	 * This calibration with the radial curve of the file's MEI model (field
+	 * 54), where it has one that reads. LensProfile uses it for the cameras
+	 * whose curve comes from the file.
+	 */
+	public function withMei(?string $mei): self {
+		$copy = clone $this;
+		$copy->radial = $mei === null ? null
+			: self::radialCorrection($mei, LensProfile::RADIAL_STEP, (int)(100 / LensProfile::RADIAL_STEP) + 1);
+
+		return $copy;
+	}
+
+	/**
+	 * The MEI model's radial curve as a correction to the equidistant model,
+	 * degrees: xi, fx, fy are the first three values of each 19-value lens
+	 * block and k1, k2, k3 the twelfth to fourteenth. Anchored to the
+	 * equidistant model at 90 degrees, so only its shape counts, and the two
+	 * lenses averaged. Port of Calibration.radial_correction() in the
+	 * library, which has the measurement. Null when the string is not that
+	 * shape or the curve does not read.
+	 *
+	 * @return float[]|null
+	 */
+	public static function radialCorrection(string $mei, float $step, int $count): ?array {
+		$values = array_map('floatval', explode('_', trim($mei)));
+		if (\count($values) !== 1 + 2 * 19 + 1 || (int)$values[0] !== 2) {
+			return null;
+		}
+		$radius = static function (int $index, float $theta) use ($values): float {
+			$b = 1 + 19 * $index;
+			$m = sin($theta) / (cos($theta) + $values[$b]);
+			$m2 = $m * $m;
+			return ($values[$b + 1] + $values[$b + 2]) / 2
+				* $m * (1 + $values[$b + 11] * $m2 + $values[$b + 12] * $m2 ** 2 + $values[$b + 13] * $m2 ** 3);
+		};
+		$anchors = [$radius(0, M_PI / 2), $radius(1, M_PI / 2)];
+		if (!is_finite($anchors[0]) || !is_finite($anchors[1]) || $anchors[0] <= 0 || $anchors[1] <= 0) {
+			return null;
+		}
+		$curve = [];
+		for ($k = 0; $k < $count; ++$k) {
+			$theta = deg2rad($k * $step);
+			$mapped = (90.0 * $radius(0, $theta) / $anchors[0] + 90.0 * $radius(1, $theta) / $anchors[1]) / 2;
+			$curve[] = round($mapped - $k * $step, 4);
+		}
+		for ($k = 1; $k < $count; ++$k) {
+			if ($curve[$k] <= $curve[$k - 1] - $step) {
+				return null;
+			}
+		}
+
+		return $curve;
 	}
 
 	/**
@@ -117,8 +175,10 @@ final class Calibration {
 		$globals = $this->globals;
 		$globals[0] = (float)(2 * $keptW);
 		$globals[1] = (float)$keptH;
+		$cropped = new self($lenses, $globals);
+		$cropped->radial = $this->radial;   // in degrees, so the crop leaves it alone
 
-		return new self($lenses, $globals);
+		return $cropped;
 	}
 
 	public function scaleFor(int $width): float {
