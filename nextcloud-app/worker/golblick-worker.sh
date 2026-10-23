@@ -142,7 +142,7 @@ stitch() {
 	track=$(text "$dir/job" track '[0-9][0-9]*x[0-9][0-9]*')
 	# Optional: each frame's turns across its readout, to undo rolling shutter.
 	shutter=$(text "$dir/job" shutter '[0-9][0-9]*x[0-9][0-9]*'); samples=$(value "$dir/job" samples)
-	[ -n "$shutter" ] && [ -n "$samples" ] && [ -r "$dir/shutter.p016" ] || shutter=
+	[ -n "$shutter" ] && [ -n "$samples" ] && [ -r "$dir/shutter.p016" ] || { shutter=; samples=0; }
 	local inputs=()
 	while IFS= read -r path; do
 		# Only files under the data directory, named the way the app names them.
@@ -156,7 +156,7 @@ stitch() {
 		return
 	fi
 	touch "$dir/running"
-	printf '#define WIDTH %d\n#define MARK %d\n#define SAMPLES %d\n' "$width" "$mark" "${shutter:+$samples}" | cat - "$STITCH_KERNEL" > "$dir/stitch.cl"
+	printf '#define WIDTH %d\n#define MARK %d\n#define SAMPLES %d\n' "$width" "$mark" "$samples" | cat - "$STITCH_KERNEL" > "$dir/stitch.cl"
 
 	# ffmpeg negotiates colour range and space across a filter's inputs and
 	# can't convert frames on the GPU, so every input to the kernel carries
