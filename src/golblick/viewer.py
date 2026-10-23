@@ -629,6 +629,7 @@ class VideoView(SphereView):
         self._restarted = 0.0                         # when it last started, by time.monotonic()
         self._timing = False                          # its first frame hasn't come yet
         self._skipping_said = False
+        self._changed = 0.0                           # when the frame on screen last changed, by time.monotonic()
         self._keyframes: tuple[float, float] | None = None   # playback.keyframe_spacing, once read
         self.playing = False
         self._clock = QElapsedTimer()
@@ -785,6 +786,9 @@ class VideoView(SphereView):
             due = self._shown + 1 if self._waiting else self._shown   # a seek's first frame, playing or not
         latest = None
         while self._shown < due:
+            if (now is not None and not self._waiting and self._held is None and due == self._shown + 1
+                    and time.monotonic() - self._changed < self._least_hold()):
+                break   # one refresh more, rather than a frame held for one refresh and the next for three
             if self._held is not None:
                 frame, self._held = self._held, None
             else:
@@ -822,6 +826,7 @@ class VideoView(SphereView):
                 if self.playing and self._speaker is not None:
                     self._speaker.begin()
             self._frame = latest
+            self._changed = time.monotonic()
             self.update()
             self.position.emit(latest.index)
         if not self.playing and self._shown >= due:
@@ -829,6 +834,21 @@ class VideoView(SphereView):
         elif (now is not None and self._held is None and not self._timing
               and due - self._shown > self.BEHIND * self.rate):
             self._catch_up(due)
+
+    def _least_hold(self) -> float:
+        """How long, in seconds, a frame stays up before the next may replace it.
+
+        At 29.97 fps on a 60 Hz screen each frame should stay two refreshes.
+        The moment a frame is due drifts slowly across the refreshes, and
+        near one the clock's jitter would flip frames between one refresh and
+        three, a judder while the view turns.  Holding a frame at least one
+        and a half refreshes keeps it to two, at most a refresh late.  With
+        frames shorter than two refreshes there's nothing to hold.
+        """
+        screen = self.screen()
+        refresh = 1.0 / (screen.refreshRate() if screen is not None and screen.refreshRate() > 1 else 60.0)
+        whole = math.floor(1.0 / (self.rate * refresh))
+        return (whole - 0.5) * refresh if whole >= 2 else 0.0
 
     def _read_keyframes(self, clip) -> None:
         spacing = playback.keyframe_spacing(clip)
