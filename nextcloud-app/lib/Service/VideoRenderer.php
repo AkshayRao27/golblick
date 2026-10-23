@@ -41,8 +41,10 @@ use Psr\Log\LoggerInterface;
  * once, from the first seconds of the inertial record, as the thumbnail is;
  * the horizon is not followed through the clip.
  *
- * The camera doesn't match a video's lenses to each other, so each frame is
- * also evened out along the seam (RemapTables::writeBalance, balance()).
+ * The camera doesn't match a video's lenses to each other, so they hand over
+ * in two bands, as in the desktop player: detail across the narrow one, the
+ * lenses blurred across a wider one, so a brightness step between them fades
+ * out instead of showing as a line (RemapTables, twoBands()).
  *
  * Where the lenses hand over is planned once per clip from a few frames
  * (SeamPlan): each lens aimed so a subject near the camera lines up, and the
@@ -53,6 +55,12 @@ use Psr\Log\LoggerInterface;
  * always and the per-frame work goes to the worker instead (StitchQueue).
  */
 final class VideoRenderer {
+	/**
+	 * How far the wide band's blur reaches, degrees: a box this wide, and
+	 * bilinear back up; video.BLUR in the library.
+	 */
+	private const BLUR_DEGREES = 3.0;
+
 	/** 20 Mbit/s at 3840x1920, in proportion for other widths. */
 	private const BITS_PER_PIXEL_SECOND = 20e6 / (3840 * 1920);
 
@@ -132,7 +140,6 @@ final class VideoRenderer {
 			throw new FormatError('could not create the table directory');
 		}
 		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
-		RemapTables::writeBalance($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
 
 		$bitrate = self::bitrate($width);
 		if ($gpu && $this->stitch->canStitch($inputs)) {
@@ -157,16 +164,14 @@ final class VideoRenderer {
 			array_push($command, '-threads', '1', '-i', $input);
 		}
 		$table = [];
-		foreach (['x0', 'y0', 'x1', 'y1', 'mask', 's0x', 's0y', 's1x', 's1y', 'fx', 'fy'] as $index => $map) {
+		foreach (['x0', 'y0', 'x1', 'y1', 'mask', 'wide'] as $index => $map) {
 			array_push($command, '-i', "$tables/$map.pgm");
 			$table[$map] = (\count($inputs) + $index) . ':v';
 		}
-		$filter = sprintf('[%d:v:%d]scale=%d:%3$d:flags=area,split[l0][s0];', $lenses[0][0], $lenses[0][1], $lensSize)
-			. sprintf('[%d:v:%d]scale=%d:%3$d:flags=area,split[l1][s1];', $lenses[1][0], $lenses[1][1], $lensSize)
-			. self::balance($table, $width)
-			. "[l0][{$table['x0']}][{$table['y0']}]remap,format=gbrp[a];[l1][{$table['x1']}][{$table['y1']}]remap,format=gbrp[b];"
-			. "[{$table['mask']}]format=gbrp[m];[a][b][m]maskedmerge[blended];"
-			. '[blended][correction]blend=all_mode=grainmerge,format=yuv420p,' . FrameCode::filter($width) . '[out]';
+		$filter = sprintf('[%d:v:%d]scale=%d:%3$d:flags=area[l0];', $lenses[0][0], $lenses[0][1], $lensSize)
+			. sprintf('[%d:v:%d]scale=%d:%3$d:flags=area[l1];', $lenses[1][0], $lenses[1][1], $lensSize)
+			. self::twoBands($table, $width)
+			. '[blended]format=yuv420p,' . FrameCode::filter($width) . '[out]';
 		array_push($command,
 			'-filter_threads', '1', '-filter_complex', $filter, '-map', '[out]', '-map', '0:a:0?',
 			'-c:v', 'libx264', '-preset', 'veryfast', '-threads', '2', '-x264-params', 'sliced-threads=1:rc-lookahead=0',
@@ -197,46 +202,26 @@ final class VideoRenderer {
 	}
 
 	/**
-	 * The filters that even the lenses out, frame by frame: from the lens
-	 * streams [s0] and [s1], a [correction] to add to the blended frame,
-	 * centred on 128 (blend's grain modes); RemapTables::writeBalance has the
-	 * reasoning and the tables, AGENT-NOTES.md ("Lens balance, per frame") the
-	 * measurements.
+	 * The filters that stitch [l0] and [l1] through the tables into [blended].
 	 *
-	 * - The difference, lens 1 minus lens 0, along the seam strip, with any
-	 *   pixel near white in either lens counted as no difference: where glare
-	 *   has washed a lens out there is nothing to match.
-	 * - Averaged across the strip, then blurred round the circle, about ten
-	 *   degrees, twice. The strip is tiled three wide first so the blur wraps.
-	 *   avgblur, not gblur: gblur returns black on an image one pixel high.
-	 * - Averaged over nine frames, so a person walking past the seam moves it
-	 *   slowly.
-	 * - Half to each lens, at most 20 levels: a glare offset needs up to about
-	 *   20, and anything far bigger is a washed-out lens, not an offset.
-	 * - Laid out as a ladder of weights from -1 to 1 (geq; scale can't
-	 *   interpolate between two rows) and spread over the frame through fx and
-	 *   fy, at a quarter of the output size and upscaled.
+	 * The narrow band's blend, plus the lenses blurred (an area scale down to
+	 * BLUR_DEGREES a pixel and bilinear back up) and blended across the wide
+	 * band, less the same blended across the narrow one: (mask - wide) times
+	 * the blurred difference, written with maskedmerge, which takes no signed
+	 * weight, and blend's grain modes, centred on 128.
 	 *
 	 * @param array<string, string> $table input labels of the tables, by name
 	 */
-	private static function balance(array $table, int $width): string {
-		$around = RemapTables::STRIP_AROUND;
-		$ladder = RemapTables::LADDER;
-		$step = ($ladder - 1) / 2;
-		// Quoted, so the commas inside stay part of the expression.
-		$white = "'255*gte(val,250)'";
-		$rung = static fn (string $c): string => "'clip(($c(X,Y)-128)/2,-20,20)*(Y/$step-1)+128'";
+	private static function twoBands(array $table, int $width): string {
+		$small = (int)round(360 / self::BLUR_DEGREES);
+		$blur = sprintf('scale=%d:%d:flags=area,scale=%d:%d:flags=bilinear', $small, intdiv($small, 2), $width, intdiv($width, 2));
 
-		return "[s0][{$table['s0x']}][{$table['s0y']}]remap,format=gbrp,split[t0][k0];"
-			. "[s1][{$table['s1x']}][{$table['s1y']}]remap,format=gbrp,split[t1][k1];"
-			. "[k0]lutrgb=r={$white}:g={$white}:b={$white}[w0];[k1]lutrgb=r={$white}:g={$white}:b={$white}[w1];"
-			. '[w0][w1]blend=all_mode=lighten[white];'
-			. '[t1][t0]blend=all_mode=grainextract,split[diff][grey];[grey]lutrgb=r=128:g=128:b=128[none];'
-			. "[diff][none][white]maskedmerge,scale=$around:1:flags=area,split=3[d0][d1][d2];"
-			. "[d0][d1][d2]hstack=inputs=3,avgblur=sizeX=12:sizeY=0,avgblur=sizeX=12:sizeY=0,crop=$around:1:$around:0,"
-			. "tmix=frames=9,scale=$around:$ladder:flags=neighbor,"
-			. sprintf('geq=r=%s:g=%s:b=%s[ladder];', $rung('r'), $rung('g'), $rung('b'))
-			. sprintf('[ladder][%s][%s]remap,scale=%d:%d:flags=bilinear[correction];', $table['fx'], $table['fy'], $width, intdiv($width, 2));
+		return "[l0][{$table['x0']}][{$table['y0']}]remap,format=gbrp,split[a][a2];"
+			. "[l1][{$table['x1']}][{$table['y1']}]remap,format=gbrp,split[b][b2];"
+			. "[a2]$blur,split[la][la2];[b2]$blur,split[lb][lb2];"
+			. "[{$table['mask']}]format=gbrp,split[m][m2];[{$table['wide']}]format=gbrp[w];"
+			. '[a][b][m]maskedmerge[fine];[la][lb][w]maskedmerge[across];[la2][lb2][m2]maskedmerge[cut];'
+			. '[across][cut]blend=all_mode=grainextract[lift];[fine][lift]blend=all_mode=grainmerge[blended];';
 	}
 
 	/**

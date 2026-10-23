@@ -27,9 +27,10 @@ from pathlib import Path
 #: Output width the background seam is decided at; see render.seam_columns.
 SEAM_WIDTH = 2048
 
-#: Degrees a video's lenses hand over across in their blurred band: a
-#: brightness step the balance leaves fades over this instead of the 1.5-degree
-#: cross-fade, inside the narrowest overlap (an X3's, 6 degrees either side).
+#: Degrees a video's lenses hand over across in their blurred band, in the
+#: player and in stitched copies: a brightness step between the lenses fades
+#: over this instead of the 1.5-degree cross-fade, inside the narrowest overlap
+#: (an X3's, 6 degrees either side).
 SEAM_COARSE = 6.0
 
 

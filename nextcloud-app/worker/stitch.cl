@@ -11,8 +11,11 @@
 // sample's direction, turned by the frame's steadying (steady.cl's
 // convention), looked up in the app's tables, which are made for the levelled
 // clip. So the picture is resampled once, where stitching and then baking
-// resampled it twice. Blending and the balance offset are linear, so they work
-// on Y, U and V as they would on R, G and B.
+// resampled it twice. The lenses hand over in two bands, as in the desktop
+// player: the narrow band's blend, plus (mask - wide) times the difference of
+// the lenses blurred, which are the lenses scaled down to a pixel about 3
+// degrees across and sampled bilinearly (the player's mip level). Blending is
+// linear, so it works on Y, U and V as it would on R, G and B.
 //
 // #defines from the job: WIDTH (output width), MARK (1 to set the frame
 // code's baked bit: the copy is steadied and the player mustn't steady it
@@ -86,10 +89,6 @@ float3 when_read(float3 s, float row, __read_only image2d_t shutter, unsigned in
 }
 #endif
 
-float2 entry(__read_only image2d_t t, int2 p) {
-    return read_imagef(t, pick, p).xy * 65535.0f;
-}
-
 // A lens at a position in full-size lens pixels (centres at +0.5), in this pass's plane.
 float2 lens(__read_only image2d_t img, float2 at, float scale) {
     int2 size = get_image_dim(img);
@@ -99,10 +98,10 @@ float2 lens(__read_only image2d_t img, float2 at, float scale) {
 
 __kernel void stitch(__write_only image2d_t dst, unsigned int index,
                      __read_only image2d_t lens0, __read_only image2d_t lens1,
+                     __read_only image2d_t blur0, __read_only image2d_t blur1,
                      __read_only image2d_t ta, __read_only image2d_t tb, __read_only image2d_t tc,
-                     __read_only image2d_t td, __read_only image2d_t te,
-                     __read_only image2d_t fa, __read_only image2d_t fb,
-                     __read_only image2d_t ladder, __read_only image2d_t track
+                     __read_only image2d_t td, __read_only image2d_t te, __read_only image2d_t tf,
+                     __read_only image2d_t track
 #if SAMPLES > 1
                      , __read_only image2d_t shutter
 #endif
@@ -151,22 +150,11 @@ __kernel void stitch(__write_only image2d_t dst, unsigned int index,
         v = mix(lens(lens0, at0 + 0.5f, scale), lens(lens1, at1 + 0.5f, scale), share);
     }
 
-    // The balance: the ladder looked up through the field, nearest at the
-    // field's resolution, spread bilinearly between field pixels (as the CPU graph).
-    int2 fsize = get_image_dim(fa);
-    float2 c = uv * (float2)(fsize.x, fsize.y) - 0.5f;
-    float2 f = floor(c);
-    float2 w = c - f;
-    float2 corr[4];
-    for (int k = 0; k < 4; k++) {
-        int i = ((int)f.x + (k & 1)) % fsize.x;
-        if (i < 0) i += fsize.x;
-        int j = clamp((int)f.y + (k >> 1), 0, fsize.y - 1);
-        float2 cr = chroma ? entry(fa, (int2)(i, j)) : (float2)(entry(fa, (int2)(i, j)).x, entry(fb, (int2)(i, j)).x);
-        cr = chroma ? cr * 0.5f : cr;   // ladder chroma is half size too
-        corr[k] = read_imagef(ladder, pick, (int2)((int)cr.x, (int)cr.y)).xy;
+    // The wide band: the tables fold wide back to share wherever it mustn't apply.
+    float wide = table(tf, uv).x / 65535.0f;
+    if (wide != share) {
+        float small = scale * get_image_dim(blur0).x / get_image_dim(lens0).x;
+        v = clamp(v + (share - wide) * (lens(blur0, at0 + 0.5f, small) - lens(blur1, at1 + 0.5f, small)), 0.0f, 1.0f);
     }
-    float2 off = mix(mix(corr[0], corr[1], w.x), mix(corr[2], corr[3], w.x), w.y) - 0.5f;
-    v = clamp(v + off, 0.0f, 1.0f);
     write_imagef(dst, p, (float4)(v.x, chroma ? v.y : 0.0f, 0.0f, 1.0f));
 }

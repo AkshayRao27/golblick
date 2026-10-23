@@ -147,10 +147,12 @@ final class VideoStore {
 	 * clip is remade, the old copy keeps playing (ready()). '-c' marked the
 	 * sensor crop (Calibration::forVideo), '-d' the rolling shutter undone on
 	 * the GPU (worker/stitch.cl), '-e' the X3's too and the 56-byte form's
-	 * frames timed by field 28 (Imu::frameTimes); AGENT-NOTES.md, "Video
-	 * spheres" (Re-stitching after a geometry change).
+	 * frames timed by field 28 (Imu::frameTimes), '-f' the two-band hand-over
+	 * with no lens balance (RemapTables), the gyroscope read at its full scale,
+	 * the X5's rolling shutter and the X5's lens curve from its calibration;
+	 * AGENT-NOTES.md, "Video spheres" (Re-stitching after a geometry change).
 	 */
-	public const VERSION = '-e';
+	public const VERSION = '-f';
 
 	public function nameOf(File $file): string {
 		return self::nameFor($file->getId(), $file->getEtag(), $this->settings->videoWidth());
