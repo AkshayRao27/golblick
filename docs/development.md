@@ -5,6 +5,7 @@
 ```sh
 uv sync --group dev && uv run pytest -q                    # without numpy: rendering tests skip
 uv sync --group dev --extra render && uv run pytest -q     # with the render extra
+uv sync --group dev --extra desktop && uv run pytest -q    # and the viewer window's tests
 uv run ruff check src tests                                # lint
 ```
 
@@ -23,8 +24,14 @@ src/golblick/
   gpano.py             GPano XMP: build the packet and embed it in JPEG or PNG; stdlib only
   stabilise.py         the rotation that steadies each frame of a video, from its motion record; stdlib only
   video.py             stitching a whole video, steadied, through ffmpeg; numpy, behind the `render` extra
+  scene.py             a photo or clip as the viewer window projects it on the GPU, without rendering; numpy
+  playback.py          decoding a clip's two lenses for the viewer, frame by frame, through ffmpeg
+  viewer.py            the viewer window behind `open`; PySide6, behind the `desktop` extra
+  fling.py, icons.py   the viewer's coast after a drag, and its buttons' icons
+  desktop.py           the file association and icon that `desktop install` writes; stdlib only
+  golblick.svg         the application icon
   exif.py              clears location, dates and descriptions from EXIF in place, for `share`
-  cli.py               probe, triage, thumb, preview, render, report, share, stabilise, vendors
+  cli.py               probe, triage, thumb, preview, render, report, share, stabilise, open, desktop, vendors
   vendors/
     __init__.py        the registry, detection, and the vendor contract (read this first)
     insta360/          trailer, metadata, calibration, thumbnail, preview, source, imu, lens, naming, keyframe, share
@@ -37,7 +44,7 @@ nextcloud-app/         the Nextcloud app: a PHP port, its sphere player (src/, b
 
 A pull request that breaks one of these will be asked to change.
 
-- **No new dependencies in the library or CLI.** They have to run on a bare Python install. numpy and Pillow are allowed only in rendering, behind the `render` extra.
+- **No new dependencies in the library or CLI.** They have to run on a bare Python install. numpy and Pillow are allowed only in rendering, behind the `render` extra, and Qt (PySide6) only in the viewer window, behind the `desktop` extra.
 - **Refuse a file you can't read properly.** If a reader can't confirm it understood a file's layout, it raises `FormatError` instead of returning something that looks plausible. For example, the Insta360 trailer reader only accepts a parse that ends exactly on the trailer boundary. Keep that when extending it.
 - **Recognise files by their content, not their extension**, so a renamed file still works and a different file with the same extension isn't claimed. `triage` is the one exception: it runs over whole photo libraries, and opening every file would make it slow for no benefit.
 - **Don't label what hasn't been confirmed.** If the meaning of a value isn't known, expose it as a raw number rather than giving it a name. In `docs/formats/`, mark guesses as unverified.

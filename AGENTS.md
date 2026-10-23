@@ -4,7 +4,7 @@ This project was written almost entirely by LLM coding agents, and contributions
 
 ## What this is
 
-A Python library and CLI that reads 360-camera container files on Linux (Insta360 `.insp`, `.insv`, `.lrv` so far), extracts what the camera stored, and projects the dual-fisheye pair into an equirectangular panorama with GPano metadata. `nextcloud-app/` is a separate PHP port that shows those files as panoramic previews in Nextcloud, with a browser-side sphere viewer; optionally it also stitches videos with ffmpeg and plays them steadied.
+A Python library and CLI that reads 360-camera container files on Linux (Insta360 `.insp`, `.insv`, `.lrv` so far), extracts what the camera stored, and projects the dual-fisheye pair into an equirectangular panorama with GPano metadata. `golblick open` shows a photo or plays a video in a Qt viewer window that projects the lenses on the GPU as it draws. `nextcloud-app/` is a separate PHP port that shows those files as panoramic previews in Nextcloud, with a browser-side sphere viewer; optionally it also stitches videos with ffmpeg and plays them steadied.
 
 Read these first, in this order:
 
@@ -42,7 +42,7 @@ Run the tests both ways. The core must pass without numpy installed, and with nu
 
 ## Rules
 
-- The library and CLI have no dependencies. numpy and Pillow are allowed only behind the `render` extra, and only in `render.py` and the CLI's render path.
+- The library and CLI have no dependencies. numpy and Pillow are allowed only behind the `render` extra and PySide6 only behind the `desktop` extra, each imported only where it's needed, so every other command runs without them.
 - Refuse rather than guess. Raise `FormatError` instead of returning a partial or inferred parse. A parser has to prove it understood the layout; the trailer reader's padding search is the model.
 - Detect files by content, not extension. `triage` is the one intentional exception, and it is tested.
 - Vendor-specific code lives in the vendor's module. Adding a vendor should need a new module and a `VENDORS` entry, nothing else.

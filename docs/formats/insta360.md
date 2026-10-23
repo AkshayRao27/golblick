@@ -46,7 +46,8 @@ Some differences that matter in practice:
 
 ## What isn't known yet
 
-- Video. `probe` reads videos from all three cameras, `render` renders a video's opening frame, and the Nextcloud app stitches whole clips. X5 videos lay out their trailer differently, with an index of where each block sits, and several of those blocks aren't identified.
+- Video. `probe` reads videos from all three cameras. `render` and the Nextcloud app stitch whole clips, steadied, and the viewer window plays them steadied without stitching first. X5 videos lay out their trailer differently, with an index of where each block sits, and several of those blocks aren't identified.
+- Which of an X5 video's two streams holds which lens isn't settled. Swapping them changes the picture by a fraction of a degree at the seam.
 - Two record types in photos, `0x0900` and `0x0b00`, appear in most files and aren't identified.
 - Three of the four calibration types. Only the simplest one is understood, and it's the one every camera stores. The others have a known number of values but not a known meaning, so golblick gives them to you as raw numbers.
 

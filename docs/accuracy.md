@@ -15,7 +15,7 @@ This page says how that was checked, and what the *lens agreement* number that `
 | Steadied video, shake left | 0.08–0.9° rms of yaw (unsteadied: 0.14–6.6°) | the same |
 | Where each lens's picture lands, OneR | median 3.0 px off at 2048 px wide (9.8 px before the lens correction) | Insta360 Studio's exports, on scenes not used to measure the correction |
 | Same, X3 | about 1 px (about 3–4 px before) | the same, but only two scenes |
-| Same, X5 | 5.5–6.7 px, with no correction; a fixed correction doesn't improve it (see below) | the panorama the X5 stores, and Studio's exports, all 48 photos |
+| Same, X5 | median 2.1 px (11.1 px as a plain equidistant lens), with the lens shape read from the file (see below) | the panorama the X5 stores, 45 photos |
 
 Insta360 Studio exports were made with its stitching optimisation switched off, so they show where the camera's calibration puts things rather than Studio's extra per-photo warping. On X5 photos, Studio's horizon and the horizon of the panorama the camera stores agree to within 0.03°, so for levelling the two references are effectively the same thing.
 
@@ -32,7 +32,7 @@ Around +0.7 to +0.9 means the projection is right. Around +0.02 means something 
 
 It is a quick sanity check and not a quality score. Because it only compares the lenses with each other, it can't tell you whether the panorama is upside down, mirrored, or tilted, and it can't see errors that move both lenses the same way. It also depends on the scene: a photo of a plain wall scores lower than a busy street even when both are stitched equally well. So don't use it to rank photos against each other. If you are checking a new camera, look at the picture too: text in the scene shows a mirror at a glance, and a horizon or a straight edge shows whether the lenses line up across the seam.
 
-On the X5, both references move the lens picture by a different amount in every scene (from 0.1° to 2.9°), and they agree with each other scene by scene. They seem to adjust the stitch to each scene, so they can't pin down a fixed lens curve, and a correction fitted on half the photos made the other half no better. The X5 is left uncorrected.
+On the X5, both references move the lens picture by a different amount in every scene (from 0.1° to 2.9°), so a lens curve fitted to them made other photos no better. X5 files carry a second, richer calibration that describes each camera's lens, and golblick reads the curve from that instead, with nothing fitted to a reference. Measured where each lens appears alone, it brings 43 of 45 photos closer to the camera's own panorama. The other two are photos where golblick misjudges whether lens guards were fitted.
 
 For the method behind each measurement, see the [research notes](formats/insta360-agent-notes.md).
 

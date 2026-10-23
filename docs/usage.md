@@ -1,10 +1,11 @@
 # Using the CLI
 
-Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra, and also [ffmpeg](https://ffmpeg.org/) for a video. golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra, and also [ffmpeg](https://ffmpeg.org/) for a video, and `open`, which needs the `desktop` extra. golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
 uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'   # with panorama rendering
 uv tool install 'golblick @ git+https://github.com/AkshayRao27/golblick'           # without it, no dependencies
+uv tool install 'golblick[desktop] @ git+https://github.com/AkshayRao27/golblick'  # rendering and the viewer window
 uv tool upgrade golblick                                                            # later, to update
 ```
 
@@ -152,7 +153,7 @@ Two lines in that output are worth reading:
 
 Whichever route levels it, a photo's panorama is turned so that its middle is the middle of Insta360 Studio's export of the same photo. That's a fixed direction relative to the camera, not a choice of the interesting part of the scene. A stitched video is turned the same way, so it starts facing the middle of Studio's export of the clip.
 
-The file does not say what angle the rim of each fisheye circle corresponds to, or how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3 and 197.5° for an X5, and a radial correction of up to 1.75° on the OneR and X3. A video uses the same angle; it only keeps less of the sensor, which the file records. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
+The file does not say what angle the rim of each fisheye circle corresponds to, and on the OneR and X3 it doesn't say how far the lens departs from the equidistant model the calibration describes. Both are measured per camera and applied automatically: 194° for a OneR, 192° for an X3 and 197.5° for an X5, and a radial correction of up to 1.75° on the OneR and X3. An X5 file carries a second calibration that describes its lens shape, and golblick reads the correction from that. A video uses the same angle; it only keeps less of the sensor, which the file records. `--field-of-view` overrides the angle. The [format notes](formats/insta360-agent-notes.md#the-equidistant-model-is-close-but-not-exact) say how they were measured.
 
 Clip-on lens guards narrow that angle by about 2%, and the file does not record whether they were fitted. On an X5, `render` works it out from the picture: it tries both angles and keeps the one at which the two lenses agree clearly better where they overlap, and assumes no guards when neither wins. The output's `lens guards` line says what it decided. `--lens-guards on` or `off` overrides it.
 
@@ -182,7 +183,9 @@ To open photos and videos by double-clicking them, run this once:
 golblick desktop install
 ```
 
-It gives `.insp` and `.insv` files types of their own, as kinds of JPEG and MP4 so your other image viewers and video players still offer to open them, and makes `golblick open` the default for both. Everything goes in your own `~/.local/share`, and `golblick desktop uninstall` removes it. Files are recognised by their extension; `open` checks the content and refuses anything that isn't an Insta360 photo or video. `.lrv` files are left as ordinary MP4s. If you ran `desktop install` before videos were added, run it again.
+It gives `.insp` and `.insv` files types of their own, as kinds of JPEG and MP4 so your other image viewers and video players still offer to open them, makes `golblick open` the default for both, and installs golblick's icon. Everything goes in your own `~/.local/share`, and `golblick desktop uninstall` removes it. Files are recognised by their extension; `open` checks the content and refuses anything that isn't an Insta360 photo or video. `.lrv` files are left as ordinary MP4s. If you ran `desktop install` before videos were added, or before it had an icon, run it again.
+
+Thumbnails come from your file manager, not from golblick. Because the files count as JPEGs and MP4s, a photo gets the small panorama the camera stores in it (the fisheye pair on a OneR or X3), and a video gets one lens's fisheye circle. In KDE's Dolphin both appear once previews are on.
 
 ## Stitch a video
 
@@ -197,12 +200,12 @@ VID_20260126_115034_00_011.360.mp4
   seam           aimed and routed
   levelling      from gravity at the opening (inertial record)
   steadying      follows the camera's turns, 337 frames from the motion record
-  shutter        rolling shutter left in: no readout time for this camera
+  shutter        rolling shutter undone, 21.2 ms readout
   335 frames at 2880x1440, tables made by 8 processes
   done: 14.8 MiB in 2:41
 ```
 
-The stitch is the one the [Nextcloud app](../nextcloud-app/README.md#videos) makes: the same lens model, one seam chosen for the whole clip, and the two lenses' brightness evened out along it. The steadying is applied in the same pass, so the picture is resampled only once. On a OneR or X3 clip the same pass also undoes the rolling shutter, the stretch and squeeze a fast turn leaves in each frame because the sensor reads it a row at a time. `--no-steady` gives the plain stitch, levelled at the start only, and `--lock` keeps the direction the clip opens in instead of following the camera's turns. The default size is 2880 × 1440; `-w` changes it.
+The stitch is the one the [Nextcloud app](../nextcloud-app/README.md#videos) makes: the same lens model, one seam chosen for the whole clip, and the two lenses' brightness evened out along it. The steadying is applied in the same pass, so the picture is resampled only once. The same pass also undoes the rolling shutter, the stretch and squeeze a fast turn leaves in each frame because the sensor reads it a row at a time. `--no-steady` gives the plain stitch, levelled at the start only, and `--lock` keeps the direction the clip opens in instead of following the camera's turns. The default size is 2880 × 1440; `-w` changes it.
 
 It is slow, because every frame gets its own projection. On a desktop with 16 threads, at 2880, each second of video took 8 to 11 seconds on OneR and X3 clips and 19 on an X5 clip. The work is spread over half the machine's threads, fewer if memory is short, and `--jobs` sets the number.
 

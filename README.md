@@ -1,3 +1,5 @@
+<img src="src/golblick/golblick.svg" alt="" width="88" align="right">
+
 # Golblick
 
 **Read, inspect and render 360-camera files on Linux.**
@@ -72,7 +74,7 @@ What I can say, however, is that
 
 | Camera | Status |
 |---|---|
-| Insta360 OneR, X3, X5, stills (`.insp`) | ✅ Read, rendered and levelled. Lens corrections measured per camera. The X5 doesn't need one: a fixed correction made its renders no closer to Insta360's own |
+| Insta360 OneR, X3, X5, stills (`.insp`) | ✅ Read, rendered and levelled. The lens shape is measured per camera on the OneR and X3, and read from each file's own calibration on the X5 |
 | Insta360 video (`.insv`, `.lrv`) | 🟨 All three cameras. `render` stitches a whole clip into a steadied 360 MP4 (it needs ffmpeg), `open` plays one in the viewer window, and the Nextcloud app stitches clips in the background and plays them as a sphere, steadied from the camera's motion sensor as they play; `stabilise` writes the steadying rotation for every frame. People and things close to the camera can still break up where the two lenses meet |
 | Other Insta360 models | ❓ Untested. Other models may store things differently - if you have one [please consider contributing](CONTRIBUTING.md#testing-a-camera-i-dont-have) |
 | Other vendors | ❌ None yet - if you have a camera I do not, [please consider contributing](CONTRIBUTING.md#testing-a-camera-i-dont-have)  |
