@@ -252,6 +252,10 @@ class SphereView(QOpenGLWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.grabGesture(Qt.GestureType.PinchGesture)
+        # Pinches through a filter, not an event() override: Qt paints inside
+        # event(), and an override holds the GIL through the wait for the
+        # screen, starving the decoder's thread while a drag repaints.
+        self.installEventFilter(self)
 
     def show_scene(self, scene: scenes.Scene, halves: tuple[QImage, QImage] | None = None) -> None:
         """Show ``scene``; ``halves``, the lens pair split in two, only when the picture is new."""
@@ -407,8 +411,8 @@ class SphereView(QOpenGLWidget):
 
     # -- Looking around --------------------------------------------------------
 
-    def event(self, event) -> bool:
-        if event.type() == QEvent.Type.Gesture:
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self and event.type() == QEvent.Type.Gesture:
             pinch = event.gesture(Qt.GestureType.PinchGesture)
             if pinch is not None:
                 if pinch.state() == Qt.GestureState.GestureStarted:
@@ -418,7 +422,7 @@ class SphereView(QOpenGLWidget):
                 if pinch.state() in (Qt.GestureState.GestureFinished, Qt.GestureState.GestureCanceled):
                     self._pinch_fov = None
                 return True
-        return super().event(event)
+        return super().eventFilter(watched, event)
 
     def _sample(self, event) -> None:
         position = event.position()
