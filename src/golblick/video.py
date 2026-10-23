@@ -4,8 +4,8 @@ Needs the ``render`` extra (numpy) and ffmpeg.  ffmpeg decodes the lenses,
 remaps them and encodes the result; nothing per pixel goes through Python.
 The projection is the one the Nextcloud app renders videos with:
 :func:`render.remap_tables` with one :func:`render.plan_seam` hand-over for
-the whole clip, and the lens balance (:func:`render.balance_strips`,
-:func:`render.balance_field`).
+the whole clip, in two bands as the desktop player hands over: detail across
+the narrow one, the lenses blurred across ``scene.SEAM_COARSE``.
 
 The difference is the steadying.  The app writes one set of tables per clip
 and turns the picture afterwards, in its player or on a GPU.  Here every
@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-from . import render, stabilise
+from . import render, scene, stabilise
 from .errors import FormatError, GolblickError, MissingDependency, UnsupportedFile
 
 #: Output bitrate, per pixel per second: the Nextcloud app's, 20 Mbit/s at 3840 x 1920.
@@ -548,49 +548,39 @@ def _tables(k: int) -> bytes:
     return frame_tables(_WORKER, frame_orientation(_WORKER, k), frame_shutter(_WORKER, k))
 
 
-def layout(width: int) -> tuple[int, int, int, int]:
-    """The stacked tables' size: ``(width, height, field_width, field_height)``.
+#: The stacked tables, top to bottom: each lens's x and y, the narrow band's mask and the wide one's.
+TABLES = ("x0", "y0", "x1", "y1", "mask", "wide")
 
-    Five full-size tables one above the other (x0, y0, x1, y1, mask), then a
-    band holding the balance field's fx and fy side by side, so a frame's
-    tables are one picture through one pipe and ffmpeg crops them apart.
+
+def layout(width: int) -> tuple[int, int]:
+    """The stacked tables' size, ``(width, height)``: :data:`TABLES` one above the other.
+
+    So a frame's tables are one picture through one pipe, and ffmpeg crops them apart.
     """
-    field_width = width // 4
-    field_height = field_width // 2
-    return width, 5 * (width // 2) + field_height, field_width, field_height
+    return width, len(TABLES) * (width // 2)
 
 
 def frame_tables(plan: Plan, orientation, shutter=None) -> bytes:
     numpy = render._numpy()
     width, height = plan.width, plan.width // 2
     last = plan.lens_size - 1
-    # x0, y0, x1, y1 and the mask, as the filter graph crops them.
-    planes = [numpy.empty((height, width), "<u2") for _ in range(5)]
+    planes = [numpy.empty((height, width), "<u2") for _ in TABLES]
+    coarse = float(numpy.deg2rad(scene.SEAM_COARSE))
     for top in range(0, height, BAND):
         rows = slice(top, min(height, top + BAND))
-        maps, share = render.remap_tables(plan.lenses, (width, height), plan.field_of_view, orientation,
-                                          plan.lens_size, plan.seam, rows=rows, shutter=shutter)
+        maps, share, wide = render.remap_tables(plan.lenses, (width, height), plan.field_of_view, orientation,
+                                                plan.lens_size, plan.seam, rows=rows, shutter=shutter,
+                                                coarse=coarse)
         for index, (x, y, valid) in enumerate(maps):
             planes[2 * index][rows] = numpy.where(valid, numpy.clip(numpy.rint(x), 0, last), 0)
             planes[2 * index + 1][rows] = numpy.where(valid, numpy.clip(numpy.rint(y), 0, last), 0)
-        # The mask is 8-bit in the app; as 16 bits, v * 257 converts back to exactly v.
+        # The masks are 8-bit in the app; as 16 bits, v * 257 converts back to exactly v.
         planes[4][rows] = numpy.rint(255.0 * share).astype("<u2") * 257
-    fx, fy = render.balance_field(plan.lenses, width, plan.field_of_view, orientation, plan.lens_size,
-                                  plan.seam)
-    _, _, field_width, field_height = layout(width)
-    band = numpy.zeros((field_height, width), "<u2")
-    band[:, :field_width] = fx
-    band[:, field_width:2 * field_width] = fy
-    planes.append(band)
+        planes[5][rows] = numpy.rint(255.0 * wide).astype("<u2") * 257
     return numpy.concatenate(planes).tobytes()
 
 
 # ---- ffmpeg ---------------------------------------------------------------------------
-
-def _pgm(path: Path, values) -> None:
-    height, width = values.shape
-    path.write_bytes(f"P5 {width} {height} 65535\n".encode() + values.astype(">u2").tobytes())
-
 
 def frame_clock(rate: Fraction) -> str:
     """A filter that times each frame by its number at ``rate``, whatever the stream's time base.
@@ -605,47 +595,38 @@ def frame_clock(rate: Fraction) -> str:
     return f"setpts=round(N*{rate.denominator}/{rate.numerator}/TB)"
 
 
+#: How far the wide band's blur reaches, degrees: a box this wide, as the
+#: player's mip level, and bilinear back up.  Fixed in degrees, so the blurred
+#: picture is the same size at any width.
+BLUR = scene.SEAM_COARSE / 2
+
+
 def _graph(clip: Clip, plan: Plan, inputs: dict[str, int]) -> str:
-    """The filter graph: the app's, with every table arriving per frame from input ``tables``."""
+    """The filter graph: the app's, with every table arriving per frame from input ``tables``.
+
+    The copy is the narrow band's blend, plus the blurred lenses blended
+    across the wide band, less the same blended across the narrow one: the
+    shader's ``(fine - wide) * (lowA - lowB)``, written with what ffmpeg has
+    (``maskedmerge`` takes no signed weight).
+    """
     width, height = plan.width, plan.width // 2
-    _, _, field_width, field_height = layout(width)
+    small_width = round(360 / BLUR)
     pts = frame_clock(clip.rate)
     lens = plan.lens_size
-    graph = f"[{inputs['tables']}:v]{pts},split=7[t0][t1][t2][t3][t4][t5][t6];"
+    graph = f"[{inputs['tables']}:v]{pts},split=6[t0][t1][t2][t3][t4][t5];"
     for index, name in enumerate(("x0", "y0", "x1", "y1")):
         graph += f"[t{index}]crop={width}:{height}:0:{index * height}[{name}];"
-    graph += f"[t4]crop={width}:{height}:0:{4 * height},format=gray,format=gbrp[m];"
-    graph += f"[t5]crop={field_width}:{field_height}:0:{5 * height}[fx];"
-    graph += f"[t6]crop={field_width}:{field_height}:{field_width}:{5 * height}[fy];"
+    graph += f"[t4]crop={width}:{height}:0:{4 * height},format=gray,format=gbrp,split[m][m2];"
+    graph += f"[t5]crop={width}:{height}:0:{5 * height},format=gray,format=gbrp[w];"
     for index, (_, stream) in enumerate(clip.lenses):
-        graph += (f"[{inputs[f'lens{index}']}:v:{stream}]{pts},scale={lens}:{lens}:flags=area,"
-                  f"split[l{index}][s{index}];")
-    graph += _balance(inputs, width)
-    graph += ("[l0][x0][y0]remap,format=gbrp[a];[l1][x1][y1]remap,format=gbrp[b];"
-              "[a][b][m]maskedmerge[blended];"
-              "[blended][correction]blend=all_mode=grainmerge,format=yuv420p[out]")
+        graph += f"[{inputs[f'lens{index}']}:v:{stream}]{pts},scale={lens}:{lens}:flags=area[l{index}];"
+    blur = f"scale={small_width}:{small_width // 2}:flags=area,scale={width}:{height}:flags=bilinear"
+    graph += ("[l0][x0][y0]remap,format=gbrp,split[a][a2];[l1][x1][y1]remap,format=gbrp,split[b][b2];"
+              f"[a2]{blur},split[la][la2];[b2]{blur},split[lb][lb2];"
+              "[a][b][m]maskedmerge[fine];[la][lb][w]maskedmerge[across];[la2][lb2][m2]maskedmerge[cut];"
+              "[across][cut]blend=all_mode=grainextract[lift];"
+              "[fine][lift]blend=all_mode=grainmerge,format=yuv420p[out]")
     return graph
-
-
-def _balance(inputs: dict[str, int], width: int) -> str:
-    """The app's lens balance (``VideoRenderer::balance`` has the reasoning), with fx and fy per frame."""
-    around, ladder = render.STRIP_AROUND, render.LADDER
-    step = (ladder - 1) / 2
-    white = "'255*gte(val,250)'"
-
-    def rung(c: str) -> str:
-        return f"'clip(({c}(X,Y)-128)/2,-20,20)*(Y/{step:g}-1)+128'"
-
-    return (f"[s0][{inputs['s0x']}:v][{inputs['s0y']}:v]remap,format=gbrp,split[q0][k0];"
-            f"[s1][{inputs['s1x']}:v][{inputs['s1y']}:v]remap,format=gbrp,split[q1][k1];"
-            f"[k0]lutrgb=r={white}:g={white}:b={white}[w0];[k1]lutrgb=r={white}:g={white}:b={white}[w1];"
-            "[w0][w1]blend=all_mode=lighten[white];"
-            "[q1][q0]blend=all_mode=grainextract,split[diff][grey];[grey]lutrgb=r=128:g=128:b=128[none];"
-            f"[diff][none][white]maskedmerge,scale={around}:1:flags=area,split=3[d0][d1][d2];"
-            f"[d0][d1][d2]hstack=inputs=3,avgblur=sizeX=12:sizeY=0,avgblur=sizeX=12:sizeY=0,crop={around}:1:{around}:0,"
-            f"tmix=frames=9,scale={around}:{ladder}:flags=neighbor,"
-            f"geq=r={rung('r')}:g={rung('g')}:b={rung('b')}[ladder];"
-            f"[ladder][fx][fy]remap,scale={width}:{width // 2}:flags=bilinear[correction];")
 
 
 def stitch(vendor, path, output, width: int = 2880, steady: bool = True, lock: bool = False,
@@ -663,7 +644,7 @@ def stitch(vendor, path, output, width: int = 2880, steady: bool = True, lock: b
         say(f"  {note}")
 
     jobs = jobs or default_jobs(width)
-    stack_width, stack_height, _, _ = layout(width)
+    stack_width, stack_height = layout(width)
     part = output.with_name(output.name + ".part")
     with tempfile.TemporaryDirectory(prefix="golblick-") as scratch:
         scratch = Path(scratch)
@@ -678,11 +659,6 @@ def stitch(vendor, path, output, width: int = 2880, steady: bool = True, lock: b
         inputs["tables"] = len(files)
         command += ["-f", "rawvideo", "-pix_fmt", "gray16le", "-s", f"{stack_width}x{stack_height}",
                     "-framerate", str(clip.rate), "-i", "pipe:0"]
-        strips = render.balance_strips(decided.lenses, decided.lens_size, decided.field_of_view)
-        for offset, name in enumerate(("s0x", "s0y", "s1x", "s1y")):
-            _pgm(scratch / f"{name}.pgm", strips[name])
-            command += ["-i", str(scratch / f"{name}.pgm")]
-            inputs[name] = inputs["tables"] + 1 + offset
 
         bitrate = round(BITS_PER_PIXEL_SECOND * width * (width // 2))
         command += ["-filter_complex", _graph(clip, decided, inputs), "-map", "[out]", "-map", "0:a:0?",

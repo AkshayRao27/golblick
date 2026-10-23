@@ -821,7 +821,7 @@ def seam_columns(image, lenses, field_of_view: float, orientation=None, width: i
 
 
 def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, plan=None,
-                 feather_height=None, rows=None, shutter=None):
+                 feather_height=None, rows=None, shutter=None, coarse=None):
     """Where each output pixel comes from, for a video renderer that remaps every frame.
 
     A video is the same projection applied to every frame, so it is computed
@@ -843,6 +843,14 @@ def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, 
     depends on its own direction alone, and a band small enough to stay in
     the processor's cache is several times faster per pixel.  ``shutter``
     undoes the frame's rolling shutter, as in :func:`equirectangular`.
+
+    ``coarse``, radians in ``d`` as the cross-fade is, adds a third table,
+    ``wide``: lens 1's share across that wider band, for what the two lenses
+    show blurred (the desktop player's two bands, ``scene.SEAM_COARSE``).
+    A copy is then the fine blend plus ``share - wide`` times the blurred
+    lenses' difference, so a brightness step fades out across the wide band
+    while detail is still cut across the narrow one.  Where only one lens
+    sees, or near either rim, ``wide`` is ``share``, so nothing is added.
     """
     numpy = _numpy()
     width, height = size
@@ -879,7 +887,9 @@ def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, 
                    for index, (theta, (_, _, valid)) in enumerate(zip(thetas, maps, strict=True))]
         total = weights[0] + weights[1]
         share = numpy.where(total > 0, weights[1] / numpy.maximum(total, 1e-9), 0.0)
-        return maps, share
+        if coarse is None:
+            return maps, share
+        return maps, share, _wide(share, d - offset, thetas, maps, theta_max, feather, coarse)
 
     closest = numpy.minimum.reduce(thetas)
     weights = [numpy.clip((closest + feather - theta) / feather, 0, 1)
@@ -887,18 +897,17 @@ def remap_tables(lenses, size, field_of_view, orientation=None, lens_size=None, 
                for theta, (_, _, valid) in zip(thetas, maps, strict=True)]
     total = weights[0] + weights[1]
     share = numpy.where(total > 0, weights[1] / numpy.maximum(total, 1e-9), 0.0)
-    return maps, share
+    if coarse is None:
+        return maps, share
+    return maps, share, _wide(share, thetas[0] - thetas[1], thetas, maps, theta_max, feather, coarse)
 
 
-#: The lens balance's seam strip: samples round the seam and across the band
-#: both lenses see, and the rungs of its ladder of correction weights.  The
-#: Nextcloud app's RemapTables uses the same numbers.
-STRIP_AROUND = 720
-STRIP_ACROSS = 16
-LADDER = 64
-
-#: How far from the seam the balance correction reaches before it fades to nothing, degrees.
-BALANCE_REACH = 60.0
+def _wide(share, across, thetas, maps, theta_max, feather, coarse):
+    """Lens 1's share across the wide band, folded back to ``share`` where it mustn't apply (the player's shader)."""
+    numpy = _numpy()
+    wide = 1.0 - numpy.clip((coarse - across) / (2 * coarse), 0, 1)
+    rim = numpy.clip((theta_max - numpy.maximum(thetas[0], thetas[1])) / feather, 0, 1) * maps[0][2] * maps[1][2]
+    return share - (share - wide) * rim
 
 
 def lens_size_for(lenses, native: int, width: int, field_of_view: float) -> int:
@@ -911,61 +920,6 @@ def lens_size_for(lenses, native: int, width: int, field_of_view: float) -> int:
     wanted = 1.15 * (width / 360.0) * (field_of_view / 2.0) / lenses[0].radius * native
     size = int(min(native, -(-wanted // 1)))
     return max(64, size + size % 2)
-
-
-def balance_strips(lenses, lens_size: int, field_of_view: float):
-    """Where each lens sees a strip that runs once round the seam.
-
-    The camera leaves a video's lenses unmatched, and not by one factor, so
-    the renderer compares them where both see the same thing and evens them
-    out from there; the Nextcloud app's ``RemapTables::writeBalance`` has the
-    reasoning.  These are fixed in the camera's frame, whatever the output's
-    orientation: ``s0x``, ``s0y``, ``s1x``, ``s1y`` as ``STRIP_ACROSS`` by
-    ``STRIP_AROUND`` arrays of whole lens pixels.
-    """
-    numpy = _numpy()
-    band = field_of_view / 2 - 91.0   # a degree inside each rim
-    if band <= 0:
-        raise ValueError("the lenses do not overlap, so there is nothing to compare")
-    across = numpy.deg2rad(90.0 - band + (numpy.arange(STRIP_ACROSS) + 0.5) / STRIP_ACROSS * 2.0 * band)
-    around = 2.0 * numpy.pi * (numpy.arange(STRIP_AROUND) + 0.5) / STRIP_AROUND
-    polar, azimuth = numpy.meshgrid(across, around, indexing="ij")
-    rays = numpy.stack([numpy.sin(polar) * numpy.cos(azimuth), numpy.sin(polar) * numpy.sin(azimuth),
-                        numpy.cos(polar)], -1)
-    theta_max = numpy.deg2rad(field_of_view / 2)
-    strips = {}
-    for index, lens in enumerate(lenses):
-        u, v, _ = _project(rays, lens, index, theta_max)
-        last = lens_size - 1
-        strips[f"s{index}x"] = numpy.clip(numpy.rint(u - index * lens_size), 0, last).astype(numpy.uint16)
-        strips[f"s{index}y"] = numpy.clip(numpy.rint(v), 0, last).astype(numpy.uint16)
-    return strips
-
-
-def balance_field(lenses, width: int, field_of_view: float, orientation=None, lens_size=None, plan=None):
-    """For each pixel of a quarter-size output, which point of the strip it is level with, and how much.
-
-    Returns ``(fx, fy)``: the strip column round the seam, and the ladder rung
-    (``LADDER`` of them, from -1 to 1) that carries the correction's weight
-    there, which fades from the seam to nothing ``BALANCE_REACH`` degrees in
-    and changes sign with the hand-over: one lens moves up as the other moves
-    down.  Unlike the strips this moves with ``orientation``.
-    """
-    numpy = _numpy()
-    field_width = width // 4
-    field_height = field_width // 2
-    rays = _rays(field_width, field_height)
-    if orientation is not None:
-        rays = rays @ numpy.asarray(orientation, numpy.float64)
-    azimuth = numpy.arctan2(rays[..., 1], rays[..., 0]) % (2 * numpy.pi)
-    fx = numpy.minimum(STRIP_AROUND - 1, numpy.floor(azimuth / (2 * numpy.pi) * STRIP_AROUND))
-    polar = numpy.arccos(numpy.clip(rays[..., 2], -1, 1))
-    fade = numpy.maximum(0.0, 1.0 - numpy.abs(polar - numpy.pi / 2) / numpy.deg2rad(BALANCE_REACH))
-    _, share = remap_tables(lenses, (field_width, field_height), field_of_view, orientation, lens_size, plan,
-                            feather_height=width // 2)
-    weight = fade * (1.0 - 2.0 * share)
-    fy = numpy.clip(numpy.rint((weight + 1.0) / 2.0 * (LADDER - 1)), 0, LADDER - 1)
-    return fx.astype(numpy.uint16), fy.astype(numpy.uint16)
 
 
 def overlap_agreement(hemispheres):

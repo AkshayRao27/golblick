@@ -8,7 +8,6 @@ namespace OCA\Golblick\Service;
 
 use OCA\Golblick\Insta360\FormatError;
 use OCA\Golblick\Render\GpuTables;
-use OCA\Golblick\Render\RemapTables;
 use OCA\Golblick\Render\Stabilise;
 use OCP\IConfig;
 
@@ -34,8 +33,13 @@ use OCP\IConfig;
 final class StitchQueue {
 	/** Where the worker's compose file mounts the data directory. */
 	public const DATA = '/data';
-	/** The balance strip is made from lenses this size: it only reads a 720-pixel band. */
-	private const STRIP_SIZE = 512;
+	/**
+	 * The wide band's blur samples each lens scaled to this size: a lens
+	 * circle spans its field of view, about 194 degrees, so a pixel is about
+	 * 3 (VideoRenderer::BLUR_DEGREES), and bilinear sampling blurs as the
+	 * desktop player's mip level does.
+	 */
+	private const BLUR_SIZE = 64;
 
 	public function __construct(
 		private VideoStore $store,
@@ -74,14 +78,12 @@ final class StitchQueue {
 		}
 		try {
 			$paths = array_map(fn (string $path): string => $this->workerPath($path) ?? throw new FormatError("$path is outside the data directory"), $inputs);
-			$sizes = GpuTables::write($tables, $dir, $lensSize, self::STRIP_SIZE);
+			GpuTables::write($tables, $dir);
 			$trackSize = GpuTables::writeTrack($track === null ? [] : BakeQueue::quaternions($track), BakeQueue::COLUMNS, "$dir/track.p016");
 			$job = [
 				'width' => $width,
 				'lens' => $lensSize,
-				'strip' => self::STRIP_SIZE,
-				'around' => RemapTables::STRIP_AROUND,
-				'ladder' => RemapTables::LADDER,
+				'blur' => self::BLUR_SIZE,
 				'bitrate' => $bitrate,
 				'mark' => $track === null ? 0 : 1,
 				'matrix' => $probe['matrix'],
@@ -89,7 +91,6 @@ final class StitchQueue {
 				'rate' => $probe['rate'],
 				'duration' => sprintf('%.3f', $probe['duration']),
 				'track' => $trackSize,
-				'field' => $sizes['fa'],
 			] + ($probe['created'] === null ? [] : ['created' => $probe['created']]);
 			if ($shutter !== null) {
 				$job['shutter'] = GpuTables::writeTrack($shutter, BakeQueue::COLUMNS, "$dir/shutter.p016");

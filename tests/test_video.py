@@ -1,9 +1,10 @@
 """Stitching a whole video: the per-frame tables, checked without ffmpeg, and the 360 tag with it."""
 
 import dataclasses
-import re
 import shutil
 import subprocess
+import types
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ numpy = pytest.importorskip("numpy")
 
 from test_render import synthetic_pair  # noqa: E402
 
-from golblick import render, stabilise, video  # noqa: E402
+from golblick import render, scene, stabilise, video  # noqa: E402
 
 SIZE = 256   # the synthetic pair's lens size; the output is SIZE x SIZE / 2
 
@@ -97,20 +98,56 @@ def test_tables_made_in_bands_are_the_tables_made_whole(monkeypatch):
     whole = video.frame_tables(plan, plan.orientation)
 
     assert banded == whole
-    width, height, _, _ = video.layout(SIZE)
+    width, height = video.layout(SIZE)
     assert len(whole) == 2 * width * height
 
 
-def test_the_balance_matches_the_nextcloud_app():
+def test_the_wide_band_reaches_further_and_only_where_both_lenses_see():
+    _, lenses = synthetic_pair(size=SIZE)
+    coarse = numpy.deg2rad(scene.SEAM_COARSE)
+    maps, share, wide = render.remap_tables(lenses, (1024, 512), 194.0, lens_size=SIZE, coarse=coarse)
+    both = maps[0][2] & maps[1][2]
+
+    assert ((wide >= 0) & (wide <= 1)).all()
+    assert numpy.array_equal(wide[~both], share[~both])
+    handing = lambda weight: ((weight > 0.05) & (weight < 0.95)).sum()   # noqa: E731
+    assert handing(wide) > 2.5 * handing(share)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_the_copy_hands_a_brightness_step_over_across_the_wide_band(tmp_path):
+    """Two flat lenses blur to themselves, so the graph has to give exactly the wide band's blend."""
+    _, lenses = synthetic_pair(size=SIZE)
+    plan = _plan(lenses, None, render.rotation(20.0, 10.0, -5.0))
+    tables = video.frame_tables(plan, plan.orientation)
+    (tmp_path / "tables.raw").write_bytes(tables)
+    clip = types.SimpleNamespace(rate=Fraction(10), lenses=[(None, 0), (None, 0)])
+    graph = video._graph(clip, plan, {"lens0": 0, "lens1": 1, "tables": 2})
+    width, height = video.layout(SIZE)
+    out = subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"color=c=0x646464:s={SIZE}x{SIZE}:r=10:d=0.1",
+         "-f", "lavfi", "-i", f"color=c=0x8c8c8c:s={SIZE}x{SIZE}:r=10:d=0.1",
+         "-f", "rawvideo", "-pix_fmt", "gray16le", "-s", f"{width}x{height}", "-framerate", "10",
+         "-i", str(tmp_path / "tables.raw"), "-filter_complex", graph, "-map", "[out]", "-frames:v", "1",
+         "-f", "rawvideo", "-pix_fmt", "gray", "-"], check=True, capture_output=True).stdout
+    luma = numpy.frombuffer(out, numpy.uint8)[:SIZE * SIZE // 2].reshape(SIZE // 2, SIZE).astype(float)
+    stack = numpy.frombuffer(tables, "<u2").reshape(-1, SIZE)
+    share, wide = ((stack[k * SIZE // 2:(k + 1) * SIZE // 2] // 257) / 255.0 for k in (4, 5))
+    low, high = numpy.percentile(luma, [0.5, 99.5])
+
+    seen = (luma - low) / (high - low)
+
+    assert high - low > 30
+    assert numpy.abs(seen - wide).max() < 0.06
+    assert numpy.abs(seen - share).max() > 3 * numpy.abs(seen - wide).max()   # not the one-band blend
+
+
+def test_the_two_bands_match_the_nextcloud_app():
     """The app restates these numbers; a change to one side has to reach the other."""
     php = (Path(__file__).parents[1] / "nextcloud-app/lib/Render/RemapTables.php").read_text()
-    constants = dict(re.findall(r"const (STRIP_AROUND|STRIP_ACROSS|LADDER|BALANCE_REACH) = ([\d.]+);", php))
-
-    assert int(constants["STRIP_AROUND"]) == render.STRIP_AROUND
-    assert int(constants["STRIP_ACROSS"]) == render.STRIP_ACROSS
-    assert int(constants["LADDER"]) == render.LADDER
-    assert float(constants["BALANCE_REACH"]) == render.BALANCE_REACH
+    assert f"COARSE_DEGREES = {scene.SEAM_COARSE};" in php
     renderer = (Path(__file__).parents[1] / "nextcloud-app/lib/Service/VideoRenderer.php").read_text()
+    assert f"BLUR_DEGREES = {video.BLUR};" in renderer
     assert "BITS_PER_PIXEL_SECOND = 20e6 / (3840 * 1920)" in renderer
     assert video.BITS_PER_PIXEL_SECOND == 20e6 / (3840 * 1920)
 

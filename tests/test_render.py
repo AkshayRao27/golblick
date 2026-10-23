@@ -816,6 +816,21 @@ def test_planned_tables_bring_the_lenses_together_at_the_seam():
     assert 0.0 < share.mean() < 1.0
 
 
+def test_the_wide_band_follows_a_routed_seam():
+    """Both bands hand over about the planned route, and the wide one only where both lenses see."""
+    _, lenses = synthetic_pair(size=256)
+    columns = numpy.arange(render._SEAM_COLUMNS) * 2 * numpy.pi / render._SEAM_COLUMNS
+    plan = render.SeamPlan((0.0, 0.0, -1.0), offset=numpy.deg2rad(3.0) * numpy.sin(columns))
+    maps, share, wide = render.remap_tables(lenses, (1024, 512), 194.0, lens_size=256, plan=plan,
+                                            coarse=numpy.deg2rad(6.0))
+    both = maps[0][2] & maps[1][2]
+
+    assert numpy.array_equal(wide[~both], share[~both])
+    halfway = both & (numpy.abs(share - 0.5) < 0.05)
+    assert halfway.sum() > 500
+    assert numpy.abs(wide[halfway] - 0.5).max() < 0.06
+
+
 def test_the_app_plans_a_seam_with_the_same_constants():
     """The PHP port restates the planner's constants; a drift is a different estimator.
 

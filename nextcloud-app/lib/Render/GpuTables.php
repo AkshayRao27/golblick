@@ -22,33 +22,28 @@ use OCA\Golblick\Insta360\FormatError;
  * stitch.cl:
  *
  *   ta: x0 | x0, y0      tb: y0 | x1, y1      tc: x1 | mask, -
- *   td: y1 | -, -        te: mask | -, -
- *   fa: fx | fx, fy      fb: fy | -, -        (the balance field, a quarter size)
+ *   td: y1 | -, -        te: mask | -, -      tf: wide | wide, -
  *
  * Halving takes every other entry, not an average: a lens writes 0 where it
- * doesn't see, and an average would mix that in. The mask is widened from 8
- * to 16 bits. Each file is read and written a row at a time, so a 3840 table
+ * doesn't see, and an average would mix that in. The masks are widened from
+ * 8 to 16 bits. Each file is read and written a row at a time, so a 3840 table
  * never sits in PHP's memory as an array.
  */
 final class GpuTables {
 	/** @return array<string, string> the files written, by name, with each one's size as WxH */
-	public static function write(string $tables, string $directory, int $lensSize, int $stripSize): array {
+	public static function write(string $tables, string $directory): array {
 		$layout = [
 			'ta' => ['x0', 'x0', 'y0'],
 			'tb' => ['y0', 'x1', 'y1'],
 			'tc' => ['x1', 'mask', null],
 			'td' => ['y1', null, null],
 			'te' => ['mask', null, null],
-			'fa' => ['fx', 'fx', 'fy'],
-			'fb' => ['fy', null, null],
+			'tf' => ['wide', 'wide', null],
 		];
 		$sizes = [];
 		foreach ($layout as $name => [$full, $first, $second]) {
 			$sizes[$name] = self::pack("$tables/$full.pgm", $first === null ? null : "$tables/$first.pgm",
 				$second === null ? null : "$tables/$second.pgm", "$directory/$name.p016");
-		}
-		foreach (['s0x', 's0y', 's1x', 's1y'] as $name) {
-			self::rescale("$tables/$name.pgm", "$directory/$name.pgm", $stripSize / $lensSize, $stripSize - 1);
 		}
 
 		return $sizes;
@@ -158,21 +153,6 @@ final class GpuTables {
 		}
 
 		return $width . 'x' . $height;
-	}
-
-	/** A 16-bit PGM with every entry scaled by $factor, at most $max: lens positions for a smaller lens. */
-	private static function rescale(string $from, string $to, float $factor, int $max): void {
-		[$in, $width, $height, $wide] = self::open($from);
-		$out = self::create($to);
-		try {
-			fwrite($out, "P5 $width $height 65535\n");
-			for ($y = 0; $y < $height; $y++) {
-				fwrite($out, pack('n*', ...array_map(static fn (int $v): int => min($max, (int)round($v * $factor)), self::row($in, $width, $wide))));
-			}
-		} finally {
-			fclose($in);
-			fclose($out);
-		}
 	}
 
 	/**

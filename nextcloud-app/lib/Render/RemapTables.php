@@ -20,11 +20,17 @@ use OCA\Golblick\Insta360\LensProfile;
  * Equirectangular::fromLensPair, written out plainly because this runs once
  * per video rather than once per pixel of every preview.
  *
- * Writes five PGM files into a directory: x0, y0, x1, y1 (16-bit) say which
+ * Writes six PGM files into a directory: x0, y0, x1, y1 (16-bit) say which
  * pixel of each lens's OWN frame lands at each output pixel -- the lenses of
  * a OneR or X3 video are separate streams, and the X5's are separate streams
  * of one file -- and mask (8-bit) says how much of each output pixel comes
- * from lens 1. ffmpeg's remap takes the nearest pixel, so the lenses are
+ * from lens 1. wide (8-bit) is lens 1's share across a wider band, for the
+ * lenses blurred: the copy is the mask's blend plus (mask - wide) times the
+ * blurred lenses' difference (VideoRenderer::start has the filters), so a
+ * brightness step between the lenses fades out across COARSE_DEGREES while
+ * detail is cut across the narrow band, as in the desktop player. Where only
+ * one lens sees, or near either rim, wide is the mask, so nothing is added.
+ * ffmpeg's remap takes the nearest pixel, so the lenses are
  * scaled down to the output's density first ({@see lensSizeFor}), which is
  * what keeps nearest sampling from shimmering.
  *
@@ -35,6 +41,9 @@ use OCA\Golblick\Insta360\LensProfile;
 final class RemapTables {
 	/** The same feather rule as photos; see render.equirectangular(). */
 	private const FEATHER_DEGREES = 3.0;
+
+	/** The wide band, in the same measure as the feather; scene.SEAM_COARSE in the library. */
+	private const COARSE_DEGREES = 6.0;
 
 	/** The ring disagreement() samples; the same as render.BAND_* in the library. */
 	private const BAND_AROUND = 720;
@@ -71,6 +80,7 @@ final class RemapTables {
 		$lenses = self::lenses($calibration, $lensSize, $model, $guards);
 		$thetaMax = $lenses['thetaMax'];
 		$feather = deg2rad(min(self::FEATHER_DEGREES, max(1.5, 4.0 * 180.0 / $height)));
+		$coarse = deg2rad(self::COARSE_DEGREES);
 		$m = $orientation;
 
 		$files = [];
@@ -78,6 +88,7 @@ final class RemapTables {
 			$files[$name] = self::open("$directory/$name.pgm", "P5 $width $height 65535\n");
 		}
 		$files['mask'] = self::open("$directory/mask.pgm", "P5 $width $height 255\n");
+		$files['wide'] = self::open("$directory/wide.pgm", "P5 $width $height 255\n");
 		$last = $lensSize - 1;
 
 		try {
@@ -87,6 +98,7 @@ final class RemapTables {
 				$sinLat = sin($latitude);
 				$rows = ['x0' => [], 'y0' => [], 'x1' => [], 'y1' => []];
 				$mask = '';
+				$wide = '';
 				for ($px = 0; $px < $width; ++$px) {
 					$longitude = ($px + 0.5) / $width * 2 * M_PI - M_PI;
 					$ox = $cosLat * sin($longitude);
@@ -98,7 +110,7 @@ final class RemapTables {
 					$y = $m[0][1] * $ox + $m[1][1] * $oy + $m[2][1] * $oz;
 					$z = $m[0][2] * $ox + $m[1][2] * $oy + $m[2][2] * $oz;
 
-					[$thetas, $coords, $share] = self::through($lenses, $plan, $x, $y, $z, $feather);
+					[$thetas, $coords, $share, $across] = self::through($lenses, $plan, $x, $y, $z, $feather);
 
 					for ($index = 0; $index < 2; ++$index) {
 						$seen = $thetas[$index] <= $thetaMax;
@@ -106,11 +118,13 @@ final class RemapTables {
 						$rows['y' . $index][] = $seen ? max(0, min($last, (int)round($coords[$index][1]))) : 0;
 					}
 					$mask .= \chr((int)round(255.0 * $share));
+					$wide .= \chr((int)round(255.0 * self::wide($share, $across, $thetas, $thetaMax, $feather, $coarse)));
 				}
 				foreach ($rows as $name => $values) {
 					fwrite($files[$name], pack('n*', ...$values));
 				}
 				fwrite($files['mask'], $mask);
+				fwrite($files['wide'], $wide);
 			}
 		} finally {
 			foreach ($files as $handle) {
@@ -119,118 +133,21 @@ final class RemapTables {
 		}
 	}
 
-	/** Lens balance: the seam strip, around and across, and the ladder of correction weights. */
-	public const STRIP_AROUND = 720;
-	public const STRIP_ACROSS = 16;
-	public const LADDER = 64;
-
-	/** How far from the seam the balance correction reaches before it fades to nothing, degrees. */
-	private const BALANCE_REACH = 60.0;
-
 	/**
-	 * Tables for evening out the lenses, frame by frame, inside ffmpeg.
+	 * Lens 1's share across the wide band, folded back to $share where both
+	 * lenses don't see or near either rim: render._wide() in the library.
 	 *
-	 * The camera leaves a video's lenses unmatched, and not by a single factor:
-	 * glare from the sun on one lens is added to the picture, so a gain would
-	 * be wrong (AGENT-NOTES.md, "Lens balance, per frame"). The difference is
-	 * taken where it shows, along the seam, and spread from there:
-	 *
-	 * - s0x, s0y, s1x, s1y remap each lens into a strip that runs once round
-	 *   the seam (STRIP_AROUND) and across the band both lenses see
-	 *   (STRIP_ACROSS), so the two strips show the same directions. ffmpeg
-	 *   takes their difference, averages it across, blurs it around the circle
-	 *   and over a few frames.
-	 * - fx, fy (a quarter of the output size; it is smooth) say, for each
-	 *   output pixel, which point round the seam it is level with and how much
-	 *   of the correction applies there.
-	 *
-	 * Each lens moves half the difference h towards the other, fading from all
-	 * of it at the seam to none BALANCE_REACH degrees in. That is applied once,
-	 * to the blended frame: (1 - s)(a + h) + s(b - h) is the plain blend plus
-	 * (1 - 2s)h, where s is the mask's share for lens 1, so the weight here is
-	 * fade * (1 - 2s), from -1 to 1: one full-size pass instead of one per lens,
-	 * which saves memory. It is a row of a ladder ffmpeg builds from the
-	 * difference (geq), row j carrying 2j / (LADDER - 1) - 1 of it; the field
-	 * is upscaled bilinearly, which smooths the rungs.
+	 * @param array{float, float} $thetas
 	 */
-	public static function writeBalance(string $directory, Calibration $calibration, int $lensSize, int $width,
-		array $orientation, ?string $model, bool $guards = false, ?SeamPlan $plan = null): void {
-		$lenses = self::lenses($calibration, $lensSize, $model, $guards);
-		$band = rad2deg($lenses['thetaMax']) - 91.0;   // a degree inside each rim
-		if ($band <= 0.0) {
-			throw new FormatError('the lenses do not overlap, so there is nothing to compare');
+	private static function wide(float $share, float $across, array $thetas, float $thetaMax, float $feather,
+		float $coarse): float {
+		if ($thetas[0] > $thetaMax || $thetas[1] > $thetaMax) {
+			return $share;
 		}
-		$last = $lensSize - 1;
+		$wide = 1.0 - max(0.0, min(1.0, ($coarse - $across) / (2.0 * $coarse)));
+		$rim = max(0.0, min(1.0, ($thetaMax - max($thetas[0], $thetas[1])) / $feather));
 
-		$files = [];
-		foreach (['s0x', 's0y', 's1x', 's1y'] as $name) {
-			$files[$name] = self::open("$directory/$name.pgm", sprintf("P5 %d %d 65535\n", self::STRIP_AROUND, self::STRIP_ACROSS));
-		}
-		try {
-			for ($j = 0; $j < self::STRIP_ACROSS; ++$j) {
-				$polar = deg2rad(90.0 - $band + ($j + 0.5) / self::STRIP_ACROSS * 2.0 * $band);
-				$rows = ['s0x' => [], 's0y' => [], 's1x' => [], 's1y' => []];
-				for ($k = 0; $k < self::STRIP_AROUND; ++$k) {
-					$azimuth = 2.0 * M_PI * ($k + 0.5) / self::STRIP_AROUND;
-					$x = sin($polar) * cos($azimuth);
-					$y = sin($polar) * sin($azimuth);
-					$z = cos($polar);
-					for ($index = 0; $index < 2; ++$index) {
-						[$u, $v] = self::locate($lenses, $index, $x, $y, $z);
-						$rows["s{$index}x"][] = max(0, min($last, (int)round($u)));
-						$rows["s{$index}y"][] = max(0, min($last, (int)round($v)));
-					}
-				}
-				foreach ($rows as $name => $values) {
-					fwrite($files[$name], pack('n*', ...$values));
-				}
-			}
-		} finally {
-			foreach ($files as $handle) {
-				fclose($handle);
-			}
-		}
-
-		$fieldWidth = intdiv($width, 4);
-		$fieldHeight = intdiv($fieldWidth, 2);
-		$reach = deg2rad(self::BALANCE_REACH);
-		$thetaMax = $lenses['thetaMax'];
-		// The full output's feather, so the share matches the mask.
-		$feather = deg2rad(min(self::FEATHER_DEGREES, max(1.5, 4.0 * 180.0 / intdiv($width, 2))));
-		$m = $orientation;
-		$files = [
-			'fx' => self::open("$directory/fx.pgm", "P5 $fieldWidth $fieldHeight 65535\n"),
-			'fy' => self::open("$directory/fy.pgm", "P5 $fieldWidth $fieldHeight 65535\n"),
-		];
-		try {
-			for ($py = 0; $py < $fieldHeight; ++$py) {
-				$latitude = M_PI / 2 - ($py + 0.5) / $fieldHeight * M_PI;
-				$rows = ['fx' => [], 'fy' => []];
-				for ($px = 0; $px < $fieldWidth; ++$px) {
-					$longitude = ($px + 0.5) / $fieldWidth * 2 * M_PI - M_PI;
-					$ox = cos($latitude) * sin($longitude);
-					$oy = sin($latitude);
-					$oz = cos($latitude) * cos($longitude);
-					// The transpose, as in write(): the camera-frame direction.
-					$x = $m[0][0] * $ox + $m[1][0] * $oy + $m[2][0] * $oz;
-					$y = $m[0][1] * $ox + $m[1][1] * $oy + $m[2][1] * $oz;
-					$z = $m[0][2] * $ox + $m[1][2] * $oy + $m[2][2] * $oz;
-					$azimuth = atan2($y, $x);
-					$k = (int)floor(($azimuth < 0 ? $azimuth + 2 * M_PI : $azimuth) / (2 * M_PI) * self::STRIP_AROUND);
-					$fade = max(0.0, 1.0 - abs(acos(max(-1.0, min(1.0, $z))) - M_PI / 2) / $reach);
-					$weight = $fade * (1.0 - 2.0 * self::through($lenses, $plan, $x, $y, $z, $feather)[2]);
-					$row = (int)round(($weight + 1.0) / 2.0 * (self::LADDER - 1));
-					$rows['fx'][] = min(self::STRIP_AROUND - 1, $k);
-					$rows['fy'][] = max(0, min(self::LADDER - 1, $row));
-				}
-				fwrite($files['fx'], pack('n*', ...$rows['fx']));
-				fwrite($files['fy'], pack('n*', ...$rows['fy']));
-			}
-		} finally {
-			foreach ($files as $handle) {
-				fclose($handle);
-			}
-		}
+		return $share - ($share - $wide) * $rim;
 	}
 
 	/** The pair's geometry at $lensSize, each lens in its own frame. */
@@ -352,13 +269,14 @@ final class RemapTables {
 	}
 
 	/**
-	 * Where camera-frame direction (x, y, z) lands in each lens, and how much
-	 * of it comes from lens 1: as render.remap_tables(), with or without a
+	 * Where camera-frame direction (x, y, z) lands in each lens, how much of
+	 * it comes from lens 1, and how far past the hand-over it is (in the
+	 * measure the feather is in): as render.remap_tables(), with or without a
 	 * clip's seam plan. With one, each lens looks at the planned parallax and
 	 * the hand-over follows the planned route; the weights are a photo's
 	 * routed seam's.
 	 *
-	 * @return array{array{float, float}, array{array{float, float}, array{float, float}}, float}
+	 * @return array{array{float, float}, array{array{float, float}, array{float, float}}, float, float}
 	 */
 	private static function through(array $lenses, ?SeamPlan $plan, float $x, float $y, float $z, float $feather): array {
 		$thetaMax = $lenses['thetaMax'];
@@ -378,9 +296,12 @@ final class RemapTables {
 			$coords[$index] = [$u, $v];
 		}
 		if ($plan === null) {
-			return [$thetas, $coords, self::share($thetas, $thetaMax, $feather)];
+			$across = min($thetas[0], $thetaMax + $feather) - min($thetas[1], $thetaMax + $feather);
+
+			return [$thetas, $coords, self::share($thetas, $thetaMax, $feather), $across];
 		}
-		$toFirst = max(0.0, min(1.0, ($feather - ($d - Seam::offsetAt($plan->offset, $phi))) / (2.0 * $feather)));
+		$across = $d - Seam::offsetAt($plan->offset, $phi);
+		$toFirst = max(0.0, min(1.0, ($feather - $across) / (2.0 * $feather)));
 		$weights = [];
 		foreach ($thetas as $index => $theta) {
 			$weights[$index] = $theta > $thetaMax ? 0.0
@@ -388,7 +309,7 @@ final class RemapTables {
 		}
 		$total = $weights[0] + $weights[1];
 
-		return [$thetas, $coords, $total > 0.0 ? $weights[1] / $total : 0.0];
+		return [$thetas, $coords, $total > 0.0 ? $weights[1] / $total : 0.0, $across];
 	}
 
 	/**
