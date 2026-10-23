@@ -422,6 +422,11 @@ class SphereView(QOpenGLWidget):
                 if pinch.state() in (Qt.GestureState.GestureFinished, Qt.GestureState.GestureCanceled):
                     self._pinch_fov = None
                 return True
+        if (watched is self and event.type() == QEvent.Type.NativeGesture
+                and event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture):
+            # A touchpad's pinch: Qt sends it as steps of scale, not as a QPinchGesture.
+            self.turn(zoom=1.0 / (1.0 + event.value()))
+            return True
         return super().eventFilter(watched, event)
 
     def _sample(self, event) -> None:
