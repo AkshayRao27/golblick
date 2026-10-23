@@ -91,14 +91,10 @@ uniform float parallax[256];                // degrees per column round the lens
 uniform vec3 baseline;                      // lens 0 to lens 1, camera frame
 uniform int shutterCount;                   // 0: no rolling shutter to undo
 uniform vec4 shutter[5];                    // the frame's turns across its readout, (x, y, z, w)
-uniform int balanced;                       // 1: a video, its lenses evened out by the balance texture
-uniform sampler2D balance;                  // per strip column round the seam, 0.5 + levels * BALANCE_SCALE / 255
 varying vec2 ndc;
 const float PI = 3.14159265358979;
 const float DEPTH_INNER = 4.0;                // render._DEPTH_INNER
 const float DEPTH_OUTER = 12.0;               // render._DEPTH_OUTER
-const float BALANCE_REACH = 60.0;             // render.BALANCE_REACH
-const float BALANCE_SCALE = 6.0;              // _BALANCE_SCALE
 
 float corrected(float theta) {
     if (radialCount < 2) return theta;
@@ -220,14 +216,6 @@ void main() {
         vec3 lowB = blurredAt(lens1, chroma1, b.xy, coarseLevel - levelB);
         float rim = clamp((thetaMax - max(ta, tb)) / feather, 0.0, 1.0);
         colour = clamp(colour + (fine - wide) * (lowA - lowB) * rim, 0.0, 1.0);
-    }
-    // render.balance_field: half the lenses' difference, added to lens 0 and
-    // taken from lens 1 by their shares, fading out away from the seam.
-    if (balanced == 1 && total > 0.0) {
-        float fade = max(0.0, 1.0 - abs(acos(clamp(ray.z, -1.0, 1.0)) - PI / 2.0) / radians(BALANCE_REACH));
-        float around = mod(atan(ray.y, ray.x), 2.0 * PI) / (2.0 * PI);
-        vec3 lift = (texture2D(balance, vec2(around, 0.5)).rgb - 0.5) / BALANCE_SCALE;
-        colour = clamp(colour + lift * fade * (1.0 - 2.0 * wb / total), 0.0, 1.0);
     }
     gl_FragColor = vec4(colour, 1.0);
 }
@@ -401,8 +389,6 @@ class SphereView(QOpenGLWidget):
         for k, (w, x, y, z) in enumerate(turns):
             program.setUniformValue(uniform(f"shutter[{k}]"), x, y, z, w)
         program.setUniformValue1i(uniform("shutterCount"), len(turns))
-        program.setUniformValue1i(uniform("balance"), 4)
-        program.setUniformValue1i(uniform("balanced"), 1 if self._bind_balance(4) else 0)
         self._vao.bind()
         gl.glDrawArrays(0x0005, 0, 4)  # GL_TRIANGLE_STRIP
         self._vao.release()
@@ -410,10 +396,6 @@ class SphereView(QOpenGLWidget):
     def _world(self):
         """Rows of the rotation from the viewer's world to the camera frame, for what's drawn now."""
         return self._scene.camera_from_world
-
-    def _bind_balance(self, unit: int) -> bool:
-        """Bind the lens balance to ``unit`` if there is one; a photo has none."""
-        return False
 
     def _shutter(self):
         """The turns across the readout of what's drawn now, or None: a photo has none."""
@@ -526,9 +508,6 @@ _MATRICES = {
     "smpte170m": ((1.0, 0.0, 1.402), (1.0, -0.344136, -0.714136), (1.0, 1.772, 0.0)),
 }
 _MATRICES["bt470bg"] = _MATRICES["smpte170m"]
-#: Byte steps per level in the lens balance texture: a sixth of a level each,
-#: and scene.BALANCE_LIMIT's 20 levels either way still fit in a byte.
-_BALANCE_SCALE = 6.0
 
 
 class _Speaker:
@@ -634,8 +613,6 @@ class VideoView(SphereView):
         self._target = 0                              # the frame the last seek asked for
         self._pending: int | None = None              # a seek asked for while another was starting
         self._frame: playback.Frame | None = None   # waiting to be uploaded
-        self._balance: scenes.LensBalance | None = None
-        self._balance_texture: QOpenGLTexture | None = None
         self._shown = 0                               # index of the frame on screen
         self._held: playback.Frame | None = None      # a catch-up's first frame, early for the clock
         self._gpu: bool | None = None                 # False once the card has failed on this clip
@@ -658,14 +635,7 @@ class VideoView(SphereView):
         if self.video is None or video.clip is not self.video.clip:
             return
         self.video = video
-        self._balance = self._balancer(video)
         self.show_scene(video.scene)
-
-    def _balancer(self, video: scenes.VideoScene) -> scenes.LensBalance | None:
-        if video.strips is None:
-            return None
-        low, gain, matrix = self._colour
-        return scenes.LensBalance(video.strips, video.size, low, gain, matrix)
 
     def show_video(self, video: scenes.VideoScene) -> None:
         self.video = video
@@ -673,7 +643,6 @@ class VideoView(SphereView):
         threading.Thread(target=self._read_keyframes, args=(video.clip,), daemon=True).start()
         low, gain = _RANGES.get(video.clip.colour_range, _RANGES["pc"])
         self._colour = (low, gain, _MATRICES.get(video.clip.colour_space, _MATRICES["bt709"]))
-        self._balance = self._balancer(video)
         self.show_scene(video.scene)
         self.seek(0)
         self.play()
@@ -911,38 +880,6 @@ class VideoView(SphereView):
                                          bytes(luma))
             self._textures[2 + lens].setData(QOpenGLTexture.PixelFormat.RG, QOpenGLTexture.PixelType.UInt8,
                                              bytes(chroma))
-        if self._balance is not None:
-            import numpy
-
-            levels = self._balance.update(frame)
-            row = numpy.empty((len(levels), 4), numpy.uint8)
-            row[:, :3] = numpy.clip(numpy.rint(127.5 + levels * _BALANCE_SCALE), 0, 255)
-            row[:, 3] = 255
-            if self._balance_texture is None or self._balance_texture.width() != len(levels):
-                if self._balance_texture is not None:
-                    self._balance_texture.destroy()
-                texture = QOpenGLTexture(QOpenGLTexture.Target.Target2D)
-                texture.setSize(len(levels), 1)
-                texture.setFormat(QOpenGLTexture.TextureFormat.RGBA8_UNorm)
-                texture.setMinMagFilters(QOpenGLTexture.Filter.Linear, QOpenGLTexture.Filter.Linear)
-                texture.setWrapMode(QOpenGLTexture.CoordinateDirection.DirectionS, QOpenGLTexture.WrapMode.Repeat)
-                texture.setWrapMode(QOpenGLTexture.CoordinateDirection.DirectionT, QOpenGLTexture.WrapMode.ClampToEdge)
-                texture.allocateStorage()
-                self._balance_texture = texture
-            self._balance_texture.setData(QOpenGLTexture.PixelFormat.RGBA, QOpenGLTexture.PixelType.UInt8, row.tobytes())
-
-    def _release(self) -> None:
-        if self._balance_texture is not None:
-            self.makeCurrent()
-            self._balance_texture.destroy()
-            self._balance_texture = None
-        super()._release()
-
-    def _bind_balance(self, unit: int) -> bool:
-        if self._balance is None or self._balance_texture is None:
-            return False
-        self._balance_texture.bind(unit)
-        return True
 
     def paintGL(self) -> None:
         if self._frame is not None:

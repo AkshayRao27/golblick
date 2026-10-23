@@ -27,14 +27,6 @@ from pathlib import Path
 #: Output width the background seam is decided at; see render.seam_columns.
 SEAM_WIDTH = 2048
 
-#: Frames a lens balance is averaged over, and the most it moves a channel in
-#: 8-bit levels: the stitch's own (``video._balance``), so a clip looks the
-#: same played as stitched.
-BALANCE_FRAMES = 9
-BALANCE_LIMIT = 20.0
-#: Strip columns a lens balance is box-blurred over round the seam, either
-#: side, twice: ``video._balance``'s avgblur.
-BALANCE_BLUR = 12
 #: Degrees a video's lenses hand over across in their blurred band: a
 #: brightness step the balance leaves fades over this instead of the 1.5-degree
 #: cross-fade, inside the narrowest overlap (an X3's, 6 degrees either side).
@@ -184,8 +176,6 @@ class VideoScene:
     headings: tuple[float, ...] | None = None
     #: Per frame the turns across its readout, stabilise.shutter's; None, rolling shutter not corrected.
     shutter: tuple | None = None
-    #: Where each lens sees the strip round the seam that the lenses are evened out from (render.balance_strips).
-    strips: dict | None = field(default=None, compare=False)
 
     def camera_from_world(self, k: int, steady: bool = True, lock: bool = False) -> tuple[tuple[float, float, float], ...]:
         """The shader's rows for frame ``k``: the turn after the levelled, faced opening."""
@@ -255,7 +245,6 @@ def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
         notes.append(f"steadying      not steadied: {exc}")
     read, line = video.shutter(vendor, path, motion)
     notes.append(line)
-    strips = render.balance_strips(built, size, field_of_view)
     scene = Scene(
         jpeg=b"", width=2 * size, height=size,
         lenses=tuple(_shader_lens(lens, index, render) for index, lens in enumerate(built)),
@@ -268,7 +257,7 @@ def video_scene(path: str | Path, size: int | None = None) -> VideoScene:
     return VideoScene(scene, clip, size, _rows(orientation),
                       None if turns is None else tuple(tuple(float(v) for v in q) for q in turns),
                       None if headings is None else tuple(float(h) for h in headings),
-                      None if read is None else tuple(read), strips)
+                      None if read is None else tuple(read))
 
 
 def refine_video(path: str | Path, video: VideoScene) -> VideoScene:
@@ -280,7 +269,6 @@ def refine_video(path: str | Path, video: VideoScene) -> VideoScene:
     """
     import numpy
 
-    from . import render
     from . import video as videos
     from .vendors import detect
 
@@ -289,8 +277,6 @@ def refine_video(path: str | Path, video: VideoScene) -> VideoScene:
     info = vendor.describe(path)
     calibration, _ = videos.video_calibration(info["calibrations"][5], info.get("sensor_crop"))
     field_of_view, seam, notes = videos.decide(vendor, path, video.clip, calibration)
-    profile = vendor.lens_profile(path) if hasattr(vendor, "lens_profile") else None
-    built = render.lenses_from_calibration(calibration, 2 * video.size, profile.radial if profile is not None else ())
     scene = replace(
         video.scene, theta_max=float(numpy.deg2rad(field_of_view / 2)),
         seam=None if seam is None or seam.offset is None else tuple(float(v) for v in seam.offset),
@@ -298,60 +284,7 @@ def refine_video(path: str | Path, video: VideoScene) -> VideoScene:
         baseline=None if seam is None or seam.parallax is None else tuple(float(v) for v in seam.direction),
         notes=(*video.scene.notes, *notes),
     )
-    return replace(video, scene=scene, strips=render.balance_strips(built, video.size, field_of_view))
-
-
-class LensBalance:
-    """Evens out a playing clip's two lenses the way its stitched copy does (``video._balance``).
-
-    The camera leaves a video's lenses unmatched, and not by one factor, so
-    each frame the strip round the seam is read from both lenses, turned into
-    RGB as the shader does, and lens 1 less lens 0 averaged across it, leaving
-    out a channel at white in either.  That is smoothed round the seam and over
-    the last :data:`BALANCE_FRAMES` frames.  :meth:`update` gives half of it per
-    strip column, clipped to :data:`BALANCE_LIMIT`, which the shader adds to
-    lens 0 and takes from lens 1, fading out ``render.BALANCE_REACH`` degrees
-    from the seam.
-    """
-
-    def __init__(self, strips: dict, size: int, low, gain, matrix):
-        import numpy
-
-        self._at = [(numpy.asarray(strips[f"s{lens}y"]), numpy.asarray(strips[f"s{lens}x"])) for lens in (0, 1)]
-        self._size = size
-        self._low = numpy.asarray(low, numpy.float32)
-        self._gain = numpy.asarray(gain, numpy.float32)
-        self._matrix = numpy.asarray(matrix, numpy.float32)
-        self._recent: list = []
-        self._last: int | None = None
-
-    def _rgb(self, frame, lens: int):
-        import numpy
-
-        luma, chroma = frame.planes(lens)
-        y, x = self._at[lens]
-        luma = numpy.frombuffer(luma, numpy.uint8).reshape(self._size, self._size)
-        chroma = numpy.frombuffer(chroma, numpy.uint8).reshape(self._size // 2, self._size // 2, 2)
-        yuv = numpy.concatenate([luma[y, x][..., None], chroma[y // 2, x // 2]], -1) / numpy.float32(255)
-        return numpy.clip((yuv - self._low) * self._gain @ self._matrix.T, 0.0, 1.0) * 255
-
-    def update(self, frame):
-        """Frame ``frame``'s correction, ``(columns, 3)`` levels; the average restarts after a seek."""
-        import numpy
-
-        # Skipped frames, as when the player catches up, don't matter; a seek does.
-        if self._last is None or not 0 < frame.index - self._last <= BALANCE_FRAMES:
-            self._recent = []
-        self._last = frame.index
-        first, second = self._rgb(frame, 0), self._rgb(frame, 1)
-        difference = numpy.where((first >= 250) | (second >= 250), 0.0, second - first).mean(0)
-        box = 2 * BALANCE_BLUR + 1
-        for _ in range(2):
-            wrapped = numpy.concatenate([difference[-BALANCE_BLUR:], difference, difference[:BALANCE_BLUR]])
-            summed = numpy.cumsum(numpy.concatenate([numpy.zeros((1, 3)), wrapped]), 0)
-            difference = (summed[box:] - summed[:-box]) / box
-        self._recent = (self._recent + [difference])[-BALANCE_FRAMES:]
-        return numpy.clip(numpy.mean(self._recent, 0) / 2, -BALANCE_LIMIT, BALANCE_LIMIT)
+    return replace(video, scene=scene)
 
 
 def _shader_lens(lens, index: int, render) -> Lens:
