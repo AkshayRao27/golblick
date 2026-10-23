@@ -5,9 +5,10 @@ so the pair can't drift apart: the filter graph only emits a frame when it
 has both.  Frames come out as NV12, which the player's shader turns into
 colour, so each lens is two contiguous slices of the buffer (luma, then
 chroma at half size) and uploads without a copy.  The decoder runs on the
-GPU when ffmpeg can (NVDEC), which is what makes full-size playback possible:
-on a desktop GPU both 2880-pixel lenses decode at about 4x real time, on the
-CPU at about 0.6x.
+graphics card when ffmpeg can, which is what makes full-size playback
+possible: NVDEC on an NVIDIA card, VA-API on AMD and Intel.  On a desktop
+NVIDIA card both 2880-pixel lenses of an X5 clip decode at about 5x real
+time, on an 8-core CPU at about 0.6x.
 
 Each frame is handed over with its index, so the player knows exactly which
 frame it is drawing and steadies it with that frame's turn.
@@ -21,6 +22,7 @@ Qt-free; needs ffmpeg.
 from __future__ import annotations
 
 import functools
+import os
 import queue
 import subprocess
 import threading
@@ -30,6 +32,11 @@ from .video import Clip, binaries
 
 #: Frames decoded ahead of the one on screen.
 AHEAD = 4
+
+#: Seconds a graphics card has to produce a clip's first frame.  Some drivers
+#: hang on a clip they can't decode instead of failing (NVIDIA's VA-API driver
+#: does on small test clips), and the decoder falls back only from a failure.
+STALL = 15.0
 
 #: The sound as handed to a player, whatever the clip recorded: 16-bit stereo at 48 kHz.
 SAMPLE_RATE = 48000
@@ -54,18 +61,42 @@ class Frame:
                 view[2 * luma + lens * chroma:2 * luma + (lens + 1) * chroma])
 
 
-@functools.cache
-def hardware() -> bool:
-    """Whether ffmpeg here can decode on an NVIDIA graphics card (NVDEC).
+#: Ways to decode, best first.  "vaapi" decodes and scales on the card; "vaapi-decode" decodes there and
+#: scales on the CPU, for a VA-API driver that can't scale (NVIDIA's, which only decodes).
+METHODS = ("cuda", "vaapi", "vaapi-decode", "cpu")
 
-    Opens the device rather than reading ``-hwaccels``, which lists what
-    ffmpeg was built with whether or not there is a card to use it.
+#: What a decoder tries next when ``method`` fails on a clip before its first frame.
+FALLBACK = {"cuda": "cpu", "vaapi": "vaapi-decode", "vaapi-decode": "cpu"}
+
+
+@functools.cache
+def hardware() -> str:
+    """The best of :data:`METHODS` that works here, or the one ``GOLBLICK_DECODE`` names.
+
+    Opens each device rather than reading ``-hwaccels``, which lists what
+    ffmpeg was built with whether or not there is a card to use it.  Whether
+    the card takes a clip's codec is only known from the clip, so a decoder
+    falls back from there (:data:`FALLBACK`).
     """
+    chosen = os.environ.get("GOLBLICK_DECODE", "").strip().lower()
+    if chosen in METHODS:
+        return chosen
+    if _runs(["-init_hw_device", "cuda"]):
+        return "cuda"
+    if _runs(["-init_hw_device", "vaapi=va", "-filter_hw_device", "va"],
+             "format=nv12,hwupload,scale_vaapi=w=32:h=32:format=nv12,hwdownload,format=nv12"):
+        return "vaapi"
+    if _runs(["-init_hw_device", "vaapi"]):
+        return "vaapi-decode"
+    return "cpu"
+
+
+def _runs(device: list[str], filters: str = "null") -> bool:
+    """Whether ffmpeg opens ``device`` and turns one blank frame through ``filters``."""
     ffmpeg, _ = binaries()
     try:
-        probe = subprocess.run([ffmpeg, "-v", "error", "-nostdin", "-init_hw_device", "cuda", "-f", "lavfi",
-                                "-i", "nullsrc=s=16x16", "-frames:v", "1", "-f", "null", "-"],
-                               capture_output=True, timeout=20)
+        probe = subprocess.run([ffmpeg, "-v", "error", "-nostdin", *device, "-f", "lavfi", "-i", "nullsrc=s=64x64",
+                                "-vf", filters, "-frames:v", "1", "-f", "null", "-"], capture_output=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return False
     return probe.returncode == 0
@@ -81,8 +112,8 @@ def _decoders() -> frozenset[str]:
     return frozenset(line.split()[1] for line in listed.stdout.splitlines() if len(line.split()) > 1)
 
 
-def command(clip: Clip, size: int, start: int, gpu: bool) -> list[str]:
-    """The ffmpeg command that decodes ``clip`` from frame ``start``, each lens at ``size`` square."""
+def command(clip: Clip, size: int, start: int, method: str) -> list[str]:
+    """The ffmpeg command that decodes ``clip`` from frame ``start`` by ``method``, each lens at ``size`` square."""
     ffmpeg, _ = binaries()
     at = f"{start / clip.rate:.6f}"
     cmd = [ffmpeg, "-v", "error", "-nostdin"]
@@ -93,18 +124,21 @@ def command(clip: Clip, size: int, start: int, gpu: bool) -> list[str]:
     for file, _ in clip.lenses:
         if file not in inputs:
             inputs.append(file)
-            if gpu:
+            if method == "cuda":
                 cmd += ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
                 if cuvid in _decoders():
                     cmd += ["-c:v", cuvid]
+            elif method in ("vaapi", "vaapi-decode"):
+                # Frames stay on the card, so a codec it can't decode fails
+                # here instead of ffmpeg quietly decoding it on the CPU.
+                cmd += ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"]
             cmd += ["-ss", at, "-i", str(file)]
-    graph = []
-    for name, (file, stream) in zip("ab", clip.lenses, strict=True):
-        source = f"[{inputs.index(file)}:v:{stream}]"
-        if gpu:
-            graph.append(f"{source}scale_cuda={size}:{size},hwdownload,format=nv12[{name}]")
-        else:
-            graph.append(f"{source}scale={size}:{size}:flags=area,format=nv12[{name}]")
+    scale = {"cuda": f"scale_cuda={size}:{size},hwdownload,format=nv12",
+             "vaapi": f"scale_vaapi=w={size}:h={size}:format=nv12,hwdownload,format=nv12",
+             "vaapi-decode": f"hwdownload,format=nv12,scale={size}:{size}:flags=area,format=nv12",
+             }.get(method, f"scale={size}:{size}:flags=area,format=nv12")
+    graph = [f"[{inputs.index(file)}:v:{stream}]{scale}[{name}]"
+             for name, (file, stream) in zip("ab", clip.lenses, strict=True)]
     graph.append("[a][b]vstack=inputs=2:shortest=1,format=nv12[out]")   # a _00_ file can hold one frame more than its _10_
     return cmd + ["-filter_complex", ";".join(graph), "-map", "[out]", "-an",
                   "-f", "rawvideo", "-pix_fmt", "nv12", "pipe:1"]
@@ -150,14 +184,15 @@ class Decoder:
     """Decodes ``clip`` from a frame onwards in a background thread, a few frames ahead.
 
     If the graphics card fails on the clip before its first frame (a codec or
-    size its decoder doesn't take, a driver fault), it decodes on the CPU
-    instead; ``gpu`` then reads False and ``fell_back`` holds the card's error,
-    so a player can start its later seeks on the CPU.
+    size its decoder doesn't take, a driver fault), it tries the next way down
+    (:data:`FALLBACK`), ending on the CPU; ``method`` then reads where it
+    landed and ``fell_back`` holds the card's error, so a player can start
+    its later seeks there.
     """
 
-    def __init__(self, clip: Clip, size: int, start: int = 0, gpu: bool | None = None):
+    def __init__(self, clip: Clip, size: int, start: int = 0, method: str | None = None):
         self.clip, self.size, self.start = clip, size, start
-        self.gpu = hardware() if gpu is None else gpu
+        self.method = method or hardware()
         self.fell_back: str | None = None
         self.frames: queue.Queue[Frame | None] = queue.Queue(AHEAD)
         self.error: str | None = None
@@ -168,18 +203,19 @@ class Decoder:
         self._thread.start()
 
     def _spawn(self) -> subprocess.Popen:
-        return subprocess.Popen(command(self.clip, self.size, self.start, self.gpu), stdout=subprocess.PIPE,
+        return subprocess.Popen(command(self.clip, self.size, self.start, self.method), stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, bufsize=0)
 
     def _read(self) -> None:
         index = self._decode()
-        if index == self.start and self.gpu and self.error and not self._stop.is_set():
+        while index == self.start and self.method in FALLBACK and self.error and not self._stop.is_set():
             with self._lock:
                 if self._stop.is_set():
                     return
-                self.fell_back, self.error, self.gpu = self.error, None, False
+                self.fell_back = self.fell_back or self.error
+                self.error, self.method = None, FALLBACK[self.method]
                 self._process = self._spawn()
-            self._decode()
+            index = self._decode()
         # The end of the clip, or a failure.  Waits for room: a full queue
         # at the end is the usual case when the player is keeping up.
         while not self._stop.is_set():
@@ -193,7 +229,19 @@ class Decoder:
         """Hand over frames until ffmpeg stops; the index after the last one, with ``error`` set if it failed."""
         length = self.size * self.size * 3   # two lenses, NV12: 1.5 bytes a pixel each
         index = self.start
-        stream = self._process.stdout
+        process = self._process
+        stream = process.stdout
+        first, stalled = threading.Event(), threading.Event()
+
+        def stall() -> None:
+            if not first.is_set():
+                stalled.set()
+                process.kill()
+
+        watch = threading.Timer(STALL, stall) if self.method in FALLBACK else None
+        if watch is not None:
+            watch.daemon = True
+            watch.start()
         try:
             while not self._stop.is_set():
                 buffer = bytearray(length)
@@ -205,6 +253,7 @@ class Decoder:
                     got += read
                 if got < length:
                     break
+                first.set()
                 frame = Frame(index, self.size, bytes(buffer))
                 while not self._stop.is_set():
                     try:
@@ -214,8 +263,11 @@ class Decoder:
                         continue
                 index += 1
         finally:
-            if not self._stop.is_set() and self._process.wait() not in (0, None):
-                self.error = self._process.stderr.read().decode(errors="replace").strip()[-300:] or "ffmpeg failed"
+            if watch is not None:
+                watch.cancel()
+            if not self._stop.is_set() and process.wait() not in (0, None):
+                self.error = (f"the graphics card gave no frame in {STALL:g} s" if stalled.is_set() else
+                              process.stderr.read().decode(errors="replace").strip()[-300:] or "ffmpeg failed")
         return index
 
     def next(self, timeout: float | None = None) -> Frame | None:

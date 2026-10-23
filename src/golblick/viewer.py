@@ -615,7 +615,7 @@ class VideoView(SphereView):
         self._frame: playback.Frame | None = None   # waiting to be uploaded
         self._shown = 0                               # index of the frame on screen
         self._held: playback.Frame | None = None      # a catch-up's first frame, early for the clock
-        self._gpu: bool | None = None                 # False once the card has failed on this clip
+        self._method: str | None = None               # how to decode once the card has failed on this clip
         self._startup = 0.5                           # how long decoding last took to start, seconds
         self._restarted = 0.0                         # when it last started, by time.monotonic()
         self._timing = False                          # its first frame hasn't come yet
@@ -731,7 +731,7 @@ class VideoView(SphereView):
         self._held = None
         self._restarted = time.monotonic()
         self._timing = True
-        self._decoder = playback.Decoder(self.video.clip, self.video.size, frame, self._gpu)
+        self._decoder = playback.Decoder(self.video.clip, self.video.size, frame, self._method)
         if self.video.clip.audio:
             try:
                 self._speaker = _Speaker(self.video.clip, frame, 0.0 if self.muted else self.volume)
@@ -798,9 +798,10 @@ class VideoView(SphereView):
             # Behind the clock, frames are skipped rather than shown late.
             latest, self._shown = frame, frame.index
         if latest is not None:
-            if decoder.fell_back and self._gpu is None:
-                self._gpu = False
-                self.notice.emit("Decoding on the CPU: the graphics card couldn't decode this clip")
+            if decoder.fell_back and self._method is None:
+                self._method = decoder.method
+                if decoder.method == "cpu":
+                    self.notice.emit("Decoding on the CPU: the graphics card couldn't decode this clip")
             if self._waiting:
                 self._waiting = False
                 if self._pending is not None:
@@ -846,7 +847,7 @@ class VideoView(SphereView):
         self._stop_decoding()
         self._restarted = time.monotonic()
         self._timing = True
-        self._decoder = playback.Decoder(self.video.clip, self.video.size, target, self._gpu)
+        self._decoder = playback.Decoder(self.video.clip, self.video.size, target, self._method)
 
     def _stop_decoding(self) -> None:
         if self._decoder is not None:

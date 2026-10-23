@@ -40,7 +40,7 @@ def _greys(frame):
 
 
 def test_frames_come_in_order_with_both_lenses_from_the_same_moment(clip):
-    decoder = playback.Decoder(clip, SIZE, 0, gpu=False)
+    decoder = playback.Decoder(clip, SIZE, 0, method="cpu")
     try:
         for k in range(10):
             frame = decoder.next(timeout=20)
@@ -54,7 +54,7 @@ def test_frames_come_in_order_with_both_lenses_from_the_same_moment(clip):
 
 def test_a_seek_lands_on_the_frame_it_is_labelled_with(clip):
     """Steadying turns each frame by its own index, so a label one off tilts the picture."""
-    decoder = playback.Decoder(clip, SIZE, 17, gpu=False)
+    decoder = playback.Decoder(clip, SIZE, 17, method="cpu")
     try:
         frame = decoder.next(timeout=20)
         assert frame.index == 17
@@ -64,7 +64,7 @@ def test_a_seek_lands_on_the_frame_it_is_labelled_with(clip):
 
 
 def test_the_end_of_the_clip_is_a_none(clip):
-    decoder = playback.Decoder(clip, SIZE, FRAMES - 2, gpu=False)
+    decoder = playback.Decoder(clip, SIZE, FRAMES - 2, method="cpu")
     try:
         assert decoder.next(timeout=20).index == FRAMES - 2
         assert decoder.next(timeout=20).index == FRAMES - 1
@@ -74,19 +74,39 @@ def test_the_end_of_the_clip_is_a_none(clip):
         decoder.close()
 
 
-def test_ffmpeg_built_with_cuda_but_without_a_card_decodes_on_the_processor(monkeypatch):
+def test_ffmpeg_built_with_cuda_but_without_a_card_does_not_choose_it(monkeypatch):
     """Most packaged ffmpeg builds list cuda whether or not there is a card."""
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
-    assert playback.hardware.__wrapped__() is False
+    monkeypatch.delenv("GOLBLICK_DECODE", raising=False)
+    assert playback.hardware.__wrapped__() in ("vaapi", "vaapi-decode", "cpu")
+
+
+def test_the_decode_method_can_be_named(monkeypatch):
+    monkeypatch.setenv("GOLBLICK_DECODE", "CPU")
+    assert playback.hardware.__wrapped__() == "cpu"
+    monkeypatch.setenv("GOLBLICK_DECODE", "no such way")
+    assert playback.hardware.__wrapped__() in playback.METHODS
 
 
 def test_the_gpu_command_scales_on_the_gpu_and_stacks_lens_0_on_top(clip):
-    command = playback.command(clip, 1440, 30, gpu=True)
+    command = playback.command(clip, 1440, 30, "cuda")
     graph = command[command.index("-filter_complex") + 1]
     assert command.count("-hwaccel") == 1           # one file holds both lenses
     assert "[0:v:0]scale_cuda=1440:1440" in graph and "[0:v:1]scale_cuda=1440:1440" in graph
     assert "[a][b]vstack" in graph
     assert command[command.index("-ss") + 1] == "3.000000"
+
+
+def test_vaapi_keeps_frames_on_the_card_and_scales_there_or_after_downloading(clip):
+    """Frames left on the card make a codec it can't decode fail, rather than decode on the CPU unannounced."""
+    for method, lens in (("vaapi", "[0:v:0]scale_vaapi=w=1440:h=1440:format=nv12,hwdownload,format=nv12[a]"),
+                         ("vaapi-decode", "[0:v:0]hwdownload,format=nv12,scale=1440:1440:flags=area,format=nv12[a]")):
+        command = playback.command(clip, 1440, 30, method)
+        assert command[command.index("-hwaccel") + 1] == "vaapi"
+        assert command[command.index("-hwaccel_output_format") + 1] == "vaapi"
+        assert lens in command[command.index("-filter_complex") + 1]
+    cpu = playback.command(clip, 1440, 30, "cpu")
+    assert "-hwaccel" not in cpu and "[0:v:0]scale=1440:1440:flags=area,format=nv12[a]" in cpu[cpu.index("-filter_complex") + 1]
 
 
 def test_a_video_scene_turns_each_frame_after_the_opening():
@@ -161,7 +181,7 @@ def test_a_video_scene_locks_by_turning_back_each_frame_heading():
 
 def test_the_end_still_arrives_when_the_player_is_slow(clip):
     """The decoder fills its queue and finishes before anything is read; the end must not be dropped."""
-    decoder = playback.Decoder(clip, SIZE, FRAMES - playback.AHEAD, gpu=False)
+    decoder = playback.Decoder(clip, SIZE, FRAMES - playback.AHEAD, method="cpu")
     try:
         time.sleep(1.0)
         got = [decoder.next(timeout=20) for _ in range(playback.AHEAD + 1)]
@@ -171,23 +191,39 @@ def test_the_end_still_arrives_when_the_player_is_slow(clip):
         decoder.close()
 
 
+def _card_fails(real, failing):
+    def command(clip, size, start, method):
+        if method != "cpu":
+            return failing
+        return real(clip, size, start, method)
+    return command
+
+
 def test_a_card_that_fails_on_the_clip_hands_it_to_the_cpu(clip, monkeypatch):
     """Before its first frame: the same frames, from the CPU, and the card's error kept to say why."""
-    real = playback.command
+    failing = [playback.binaries()[0], "-v", "error", "-nostdin", "-init_hw_device", "nosuchdevice", "-f", "null", "-"]
+    monkeypatch.setattr(playback, "command", _card_fails(playback.command, failing))
+    for method in ("cuda", "vaapi"):            # VA-API by way of decoding there and scaling on the CPU
+        decoder = playback.Decoder(clip, SIZE, 5, method)
+        try:
+            first = decoder.next(timeout=30)
+        finally:
+            decoder.close()
+        assert first is not None and first.index == 5
+        assert decoder.method == "cpu" and "nosuchdevice" in decoder.fell_back and decoder.error is None
 
-    def card_fails(clip, size, start, gpu):
-        if gpu:
-            return [playback.binaries()[0], "-v", "error", "-nostdin", "-init_hw_device", "nosuchdevice", "-f", "null", "-"]
-        return real(clip, size, start, gpu)
 
-    monkeypatch.setattr(playback, "command", card_fails)
-    decoder = playback.Decoder(clip, SIZE, 5, gpu=True)
+def test_a_card_that_hangs_on_the_clip_hands_it_to_the_cpu(clip, monkeypatch):
+    monkeypatch.setattr(playback, "STALL", 0.5)
+    monkeypatch.setattr(playback, "command", _card_fails(playback.command, ["sleep", "60"]))
+    decoder = playback.Decoder(clip, SIZE, 5, "vaapi-decode")
+    started = time.monotonic()
     try:
         first = decoder.next(timeout=30)
     finally:
         decoder.close()
-    assert first is not None and first.index == 5
-    assert decoder.gpu is False and decoder.fell_back and decoder.error is None
+    assert first is not None and first.index == 5 and time.monotonic() - started < 10
+    assert decoder.method == "cpu" and "no frame" in decoder.fell_back
 
 
 def test_the_blurred_band_stays_inside_every_camera_s_overlap():
