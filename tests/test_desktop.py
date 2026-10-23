@@ -35,11 +35,14 @@ def test_install_registers_insp_and_insv_as_kinds_of_jpeg_and_mp4_and_opens_them
     # A path with a space has to be quoted for the Exec key.
     assert 'Exec="/opt/my tools/golblick" open %f' in entry
     assert "MimeType=image/x-insta360-insp;video/x-insta360-insv;\n" in entry
+    # The icon is found by name in the user's own hicolor theme.
+    assert "Icon=golblick\n" in entry
+    assert (tmp / "data/icons/hicolor/scalable/apps/golblick.svg").read_text().startswith("<svg")
     assert ["xdg-mime", "default", "golblick-open.desktop", "image/x-insta360-insp", "video/x-insta360-insv"] in ran
     assert any("default" in line for line in done)
 
 
-def test_uninstall_removes_both_files(home):
+def test_uninstall_removes_what_install_wrote(home):
     tmp, _ = home
     desktop.install("/usr/bin/golblick")
 
@@ -47,6 +50,7 @@ def test_uninstall_removes_both_files(home):
 
     assert not (tmp / "data/mime/packages/golblick.xml").exists()
     assert not (tmp / "data/applications/golblick-open.desktop").exists()
+    assert not (tmp / "data/icons/hicolor/scalable/apps/golblick.svg").exists()
 
 
 def test_the_mime_types_do_not_claim_plain_jpegs_or_mp4s():
