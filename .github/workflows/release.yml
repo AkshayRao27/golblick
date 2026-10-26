@@ -1,0 +1,56 @@
+name: Release
+
+# Publishing a GitHub release uploads the Python package to PyPI. PyPI trusts
+# this workflow by name (a trusted publisher), so no token is stored anywhere.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: The tag names the version being built
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          case "${GITHUB_REF_NAME#v}" in
+            "$version" | "$version"-*) ;;
+            *) echo "Tag $GITHUB_REF_NAME doesn't match version $version in pyproject.toml"; exit 1 ;;
+          esac
+      - name: Point the README's relative links at GitHub, for the PyPI page
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'EOF'
+          import pathlib, re, sys
+          tag = sys.argv[1]
+          repo = "https://github.com/AkshayRao27/golblick"
+          readme = pathlib.Path("README.md")
+          text = readme.read_text()
+          text = re.sub(r'src="(?!https?:)([^"]+)"', rf'src="https://raw.githubusercontent.com/AkshayRao27/golblick/{tag}/\1"', text)
+          text = re.sub(r"\]\((?!https?:|#|mailto:)([^)]+)\)", rf"]({repo}/blob/{tag}/\1)", text)
+          readme.write_text(text)
+          EOF
+      - run: uv build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/golblick/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
