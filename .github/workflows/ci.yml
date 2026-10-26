@@ -21,7 +21,7 @@ jobs:
         extra: ["", "render"]
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --group dev ${{ matrix.extra && format('--extra {0}', matrix.extra) || '' }}
