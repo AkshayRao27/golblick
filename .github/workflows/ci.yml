@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    # Both ways: the core has to pass with numpy absent, and with numpy
+    # present a wrongly skipped test would be invisible.
+    name: Python ${{ matrix.python }}${{ matrix.extra && format(' + {0}', matrix.extra) || '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.14"]
+        extra: ["", "render"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --group dev ${{ matrix.extra && format('--extra {0}', matrix.extra) || '' }}
+      - run: uv run --no-sync pytest -q
+      - run: uv run --no-sync ruff check src tests
+
+  nextcloud-app:
+    name: Nextcloud app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nextcloud-app
+    steps:
+      - uses: actions/checkout@v7
+      - name: PHP lint
+        run: find lib -name '*.php' -print0 | xargs -0 -n1 php -l
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: nextcloud-app/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Built js/ matches the source
+        run: test -z "$(git status --porcelain -- js)" || { git status --short -- js; exit 1; }
