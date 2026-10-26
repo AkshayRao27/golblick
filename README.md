@@ -81,20 +81,20 @@ What I can say, however, is that
 
 ## Quick start
 
-golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+You need Python 3.10 or newer and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
-uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'
+uv tool install 'golblick[render]'
 golblick render IMG_20260314_090809_00_007.insp -o pano.jpg
 golblick triage ~/Photos
 ```
 
-`uv tool upgrade golblick` updates it later. Without `[render]` everything except rendering still works, with no dependencies at all. Each [release](https://github.com/AkshayRao27/golblick/releases) also has a wheel to install from, and the Nextcloud app.
+`uv tool upgrade golblick` updates it later. Without `[render]` everything except rendering still works, with no dependencies at all. `pip install 'golblick[render]'` works too. Each [release](https://github.com/AkshayRao27/golblick/releases) also has the Nextcloud app, and `uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'` installs the latest code from GitHub instead of the last release.
 
 To open photos and videos by double-clicking them, install `[desktop]` instead, which adds the viewer window (Qt, about 100 MB), and register it once:
 
 ```sh
-uv tool install 'golblick[desktop] @ git+https://github.com/AkshayRao27/golblick'
+uv tool install 'golblick[desktop]'
 golblick desktop install
 ```
 

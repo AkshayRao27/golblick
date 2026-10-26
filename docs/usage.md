@@ -1,12 +1,12 @@
 # Using the CLI
 
-Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra, and also [ffmpeg](https://ffmpeg.org/) for a video, and `open`, which needs the `desktop` extra. golblick isn't on PyPI, so it installs straight from GitHub. You need Python 3.10 or newer, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Everything here works on a plain Python install with no dependencies, except `render`, which needs numpy from the optional `render` extra, and also [ffmpeg](https://ffmpeg.org/) for a video, and `open`, which needs the `desktop` extra. You need Python 3.10 or newer and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
-uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'   # with panorama rendering
-uv tool install 'golblick @ git+https://github.com/AkshayRao27/golblick'           # without it, no dependencies
-uv tool install 'golblick[desktop] @ git+https://github.com/AkshayRao27/golblick'  # rendering and the viewer window
-uv tool upgrade golblick                                                            # later, to update
+uv tool install 'golblick[render]'    # with panorama rendering
+uv tool install golblick              # without it, no dependencies
+uv tool install 'golblick[desktop]'   # rendering and the viewer window
+uv tool upgrade golblick              # later, to update
 ```
 
 For a video, `render` stitches the whole clip into a 360 MP4, steadied; see [Stitch a video](#stitch-a-video).

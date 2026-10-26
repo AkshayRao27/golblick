@@ -1,6 +1,6 @@
 [project]
 name = "golblick"
-version = "0.8.0"
+version = "0.8.1"
 description = "Read, inspect and render 360 camera files on Linux"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,6 +8,7 @@ license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 keywords = ["360", "equirectangular", "fisheye", "panorama", "insta360", "nextcloud"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Programming Language :: Python :: 3",
@@ -23,6 +24,11 @@ render = ["numpy>=1.24", "pillow>=10.0"]
 # The 360 viewer window (golblick open). PySide6's wheels carry Qt itself, so
 # it installs the same way on any glibc distribution and desktop.
 desktop = ["numpy>=1.24", "pillow>=10.0", "pyside6>=6.6"]
+
+[project.urls]
+Homepage = "https://github.com/AkshayRao27/golblick"
+Issues = "https://github.com/AkshayRao27/golblick/issues"
+Releases = "https://github.com/AkshayRao27/golblick/releases"
 
 [project.scripts]
 golblick = "golblick.cli:main"

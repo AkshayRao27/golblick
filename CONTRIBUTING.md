@@ -8,7 +8,7 @@ This is the most useful contribution right now. Everything has been tested on ph
 
 If you have a different 360 camera, please try this:
 
-1. Install with rendering support. golblick isn't on PyPI; with Python 3.10 or newer, git and [uv](https://docs.astral.sh/uv/getting-started/installation/), run `uv tool install 'golblick[render] @ git+https://github.com/AkshayRao27/golblick'`.
+1. Install with rendering support. With Python 3.10 or newer and [uv](https://docs.astral.sh/uv/getting-started/installation/), run `uv tool install 'golblick[render]'`.
 2. Run `golblick report <file>` on a few stills. It prints a summary that is safe to paste into an issue: it leaves out the file's name, its folder and the camera's serial number. If something fails, the report says where, and carries on. It also prints a link that opens the issue with the report filled in.
 3. Run `golblick render <file> -o test.jpg` and look at the result in a 360 viewer, or as a flat image. Check that it is upright and not mirrored (text in the scene is the easiest tell), that horizons and straight lines continue across the seam where the two lenses meet, and what the *lens agreement* line says. Around +0.7 to +0.9 is a correct projection, and near +0.02 means the geometry is wrong.
 4. If `golblick preview <file>` reports an equirectangular preview, your camera embeds its own stitch, and comparing the two is very helpful.
