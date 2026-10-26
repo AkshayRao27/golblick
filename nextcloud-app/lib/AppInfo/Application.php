@@ -31,7 +31,7 @@ final class Application extends App implements IBootstrap {
 		// The regex is deliberately longer than core's for the same mimetype;
 		// see OCA\Golblick\Preview\Insta360 for why that matters.
 		$context->registerPreviewProvider(Insta360::class, '/^image\/jpeg$/');
-		$context->registerPreviewProvider(Insta360Video::class, '/^application\/x-insta360-insv$/');
+		$context->registerPreviewProvider(Insta360Video::class, Insta360Video::MIME_PATTERN);
 		$context->registerPreviewProvider(SphericalCopy::class, '/^video\/mp4$/');
 
 		// Global, because the response it rewrites belongs to Memories.

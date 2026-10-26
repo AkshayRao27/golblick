@@ -18,6 +18,7 @@ use OCA\Golblick\Service\VideoRenderer;
 use OCA\Golblick\Service\VideoStore;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
+use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\Files\Config\IUserMountCache;
 use OCP\Files\File;
 use OCP\Files\IMimeTypeLoader;
@@ -387,7 +388,7 @@ final class VideoRender extends TimedJob {
 			->from('filecache')
 			->where($qb->expr()->iLike('name', $qb->createNamedParameter('%.insv')))
 			->andWhere($qb->expr()->like('path', $qb->createNamedParameter('files/%')))
-			->andWhere($qb->expr()->eq('mimetype', $qb->createNamedParameter($this->mimeTypes->getId(Insta360Video::MIME))))
+			->andWhere($qb->expr()->in('mimetype', $qb->createNamedParameter($this->insvTypes(), IQueryBuilder::PARAM_INT_ARRAY)))
 			->orderBy('mtime', 'DESC')
 			->addOrderBy('fileid', 'DESC');
 		$result = $qb->executeQuery();
@@ -409,6 +410,23 @@ final class VideoRender extends TimedJob {
 
 			return $row;
 		}, $rows);
+	}
+
+	/**
+	 * The ids of the .insv types already in the database. getId() would add
+	 * a type that isn't, so another app's type is only looked up.
+	 *
+	 * @return list<int>
+	 */
+	private function insvTypes(): array {
+		$ids = [$this->mimeTypes->getId(Insta360Video::MIME)];
+		foreach (array_slice(Insta360Video::MIMES, 1) as $mime) {
+			if ($this->mimeTypes->exists($mime)) {
+				$ids[] = $this->mimeTypes->getId($mime);
+			}
+		}
+
+		return $ids;
 	}
 
 	/**

@@ -124,7 +124,10 @@ final class SetupCheck {
 
 		$written = false;
 		if (isset($map[$extension])) {
-			if (($map[$extension][0] ?? null) !== $mime) {
+			$existing = $map[$extension][0] ?? null;
+			if ($extension === 'insv' && in_array($existing, Insta360Video::MIMES, true)) {
+				$mime = $existing;
+			} elseif ($existing !== $mime) {
 				throw new \RuntimeException('config/' . self::MAPPING_FILE . " already maps .{$extension} to " . json_encode($map[$extension], JSON_UNESCAPED_SLASHES) . '. Change it manually if you want this app to handle them; it was left untouched.');
 			}
 		} else {
@@ -154,8 +157,8 @@ final class SetupCheck {
 	}
 
 	/** Files with this extension that do (or don't) have the type golblick registers for it. */
-	private function rows(string $extension, bool $registered): int {
-		$type = $this->mimeTypes->getId(self::MAPPINGS[$extension]);
+	private function rows(string $extension, bool $registered, ?string $mime = null): int {
+		$type = $this->mimeTypes->getId($mime ?? self::MAPPINGS[$extension]);
 		$qb = $this->db->getQueryBuilder();
 		$qb->select($qb->func()->count('fileid'))
 			->from('filecache')
@@ -176,15 +179,19 @@ final class SetupCheck {
 	 * and stay out of Memories and the Viewer until golblick can play them.
 	 */
 	private function videoChecks(): array {
-		$mapped = $this->detector->detectPath('x.insv') === self::MAPPINGS['insv'];
+		$type = $this->detector->detectPath('x.insv');
+		$mapped = in_array($type, Insta360Video::MIMES, true);
 		$ffmpeg = $this->decoder->binary();
 		$checks = [];
 		if (!$mapped) {
 			$checks[] = $this->item('video_mapping', 'info', '.insv videos are not registered',
 				'Optional. "Register .insv files" below gives Insta360 videos a panoramic thumbnail of their opening frame in Files. They don\'t appear in Memories or play in the image viewer yet: played as they are, they would show the raw fisheye.');
-		} elseif (($wrong = $this->rows('insv', false)) > 0) {
+		} elseif (($wrong = $this->rows('insv', false, $type)) > 0) {
 			$checks[] = $this->item('video_mapping', 'warn', "$wrong .insv files still have an old file type",
 				'The mapping is in place, but these files were indexed before it was. "Register .insv files" updates them.');
+		} elseif ($type !== self::MAPPINGS['insv']) {
+			$checks[] = $this->item('video_mapping', 'ok', ".insv videos are registered as $type",
+				$this->rows('insv', true, $type) . " .insv files are known to Nextcloud. That's the type 360 Raw Viewer (files_360viewer) registers, and golblick works with it too, so there's nothing to change. They don't appear in Memories yet.");
 		} else {
 			$checks[] = $this->item('video_mapping', 'ok', '.insv videos get a thumbnail in Files',
 				$this->rows('insv', true) . ' .insv files are known to Nextcloud. They don\'t appear in Memories yet.');

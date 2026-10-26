@@ -34,6 +34,8 @@ use Psr\Log\LoggerInterface;
  * the first of two on an X5. So these files get a type nothing else claims:
  * they show this thumbnail in Files, nothing tries to play them, and the
  * stitched copy (VideoStore) is what plays. The setup check registers the mapping.
+ * files_360viewer maps .insv to video/x-insv, which Memories and the Viewer
+ * leave alone just the same, so that type is accepted too.
  *
  * Where the picture comes from, by camera (docs/formats/insta360-agent-notes.md):
  * - X5: record 0x0200 is the camera's own stitched, levelled panorama of the
@@ -48,6 +50,11 @@ use Psr\Log\LoggerInterface;
 final class Insta360Video implements IProviderV2 {
 	public const MIME = 'application/x-insta360-insv';
 
+	/** Every type an .insv may be registered as, golblick's first. */
+	public const MIMES = [self::MIME, 'video/x-insv'];
+
+	public const MIME_PATTERN = '/^(application\/x-insta360-insv|video\/x-insv)$/';
+
 	private const MAX_WIDTH = 4096;
 
 	public function __construct(
@@ -56,7 +63,7 @@ final class Insta360Video implements IProviderV2 {
 	}
 
 	public function getMimeType(): string {
-		return '/^application\/x-insta360-insv$/';
+		return self::MIME_PATTERN;
 	}
 
 	public function isAvailable(FileInfo $file): bool {

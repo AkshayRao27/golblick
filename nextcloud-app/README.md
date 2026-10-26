@@ -167,6 +167,10 @@ Things close to the camera, within a metre or two, can show a visible break wher
 
 [files_photospheres](https://apps.nextcloud.com/apps/files_photospheres) can be installed alongside this app; tested with 1.33.1 on Nextcloud 33 and 1.35.0 on Nextcloud 35. It doesn't generate previews, so `.insp` thumbnails still come from here. It shows its sphere button only for files that carry panorama metadata, which `.insp` files don't, so it doesn't offer its button for them; use golblick's **View as sphere** instead. Adding the metadata wouldn't help: files_photospheres wraps the downloaded original around the sphere, and for a `.insp` that is the two fisheye circles. A panorama made with `golblick render` does carry the metadata, and files_photospheres opens it as a sphere you can drag around.
 
+## Using it with 360 Raw Viewer
+
+[360 Raw Viewer](https://apps.nextcloud.com/apps/files_360viewer) (`files_360viewer`) plays `.insv` videos too, and registers them as `video/x-insv` instead of golblick's own type. golblick works with either, so with 360 Raw Viewer installed there's no need to register `.insv` here: the setup check shows which type is in place. With both installed, `.insv` thumbnails in Files come from golblick, and clicking a clip opens it in 360 Raw Viewer; golblick's **Play as sphere** is in the clip's actions menu. Tested with 0.1.91 on Nextcloud 35.
+
 ## How it works
 
 The app reads the camera's data from the end of each file. Photo previews are rendered in plain PHP with the GD library Nextcloud already requires: no Python, no external programs. Videos need ffmpeg, both for the opening-frame thumbnails of OneR and X3 clips and for stitching. The sphere view runs in the browser. [AGENT-NOTES.md](AGENT-NOTES.md), written mainly for coding agents, has the implementation details: performance, memory use, and how it shares JPEG previews with Nextcloud's own provider.
