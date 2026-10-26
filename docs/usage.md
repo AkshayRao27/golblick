@@ -205,7 +205,7 @@ VID_20260126_115034_00_011.360.mp4
   done: 14.8 MiB in 2:41
 ```
 
-The stitch is the one the [Nextcloud app](../nextcloud-app/README.md#videos) makes: the same lens model, one seam chosen for the whole clip, and the two lenses' brightness evened out along it. The steadying is applied in the same pass, so the picture is resampled only once. The same pass also undoes the rolling shutter, the stretch and squeeze a fast turn leaves in each frame because the sensor reads it a row at a time. `--no-steady` gives the plain stitch, levelled at the start only, and `--lock` keeps the direction the clip opens in instead of following the camera's turns. The default size is 2880 × 1440; `-w` changes it.
+The stitch is the one the [Nextcloud app](../nextcloud-app/README.md#videos) makes: the same lens model, one seam chosen for the whole clip, and the lenses' brightness blended across a wider band than their detail, so a difference between them fades in over a few degrees. The steadying is applied in the same pass, so the picture is resampled only once. The same pass also undoes the rolling shutter, the stretch and squeeze a fast turn leaves in each frame because the sensor reads it a row at a time. `--no-steady` gives the plain stitch, levelled at the start only, and `--lock` keeps the direction the clip opens in instead of following the camera's turns. The default size is 2880 × 1440; `-w` changes it.
 
 It is slow, because every frame gets its own projection. On a desktop with 16 threads, at 2880, each second of video took 8 to 11 seconds on OneR and X3 clips and 19 on an X5 clip. The work is spread over half the machine's threads, fewer if memory is short, and `--jobs` sets the number.
 
