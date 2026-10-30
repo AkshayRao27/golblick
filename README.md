@@ -1,6 +1,4 @@
-<img src="src/golblick/golblick.svg" alt="" width="88" align="right">
-
-# Golblick
+# <img src="src/golblick/golblick.svg" alt="" width="44" align="right"> Golblick
 
 **Read, inspect and render 360-camera files on Linux.**
 
@@ -10,10 +8,6 @@
 <dt><b>blick</b> &nbsp;/blɪk/ &nbsp;<i>verb</i></dt>
 <dd>German, the singular imperative of <i>blicken</i>: to look, usually in a certain direction or toward something.</dd>
 </dl>
-
-https://github.com/user-attachments/assets/e18cc01d-8c78-4fe8-8672-1a00d5c73245
-
-*`golblick open` playing an Insta360 X5 clip. Drag to look around.*
 
 ---
 
@@ -31,6 +25,9 @@ But Slopinators exist now, so I asked one to help me.
 An Insta360 `.insp` opens in any image viewer on Linux, but as two fisheye circles side by side. Turns out that everything you need to turn those circles into a panorama is in a trailer at the end of the file, in plain ASCII and protobuf, readable without any of the vendor's code.
 
 Golblick reads that trailer and renders a levelled panorama that any 360 viewer will open as a sphere. A companion Nextcloud app shows them as panoramas in Nextcloud Files, Photos and Memories, with a button to look around each one as a sphere.
+
+
+https://github.com/user-attachments/assets/60cfc859-e7f0-4d17-9321-0f0ac0c8ee87
 
 ---
 
