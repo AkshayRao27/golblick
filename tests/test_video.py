@@ -182,9 +182,10 @@ def _pattern(direction):
 @pytest.mark.skipif(shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None, reason="needs ffmpeg")
 def test_a_whole_clip_stitches_to_the_scene_its_lenses_recorded(tmp_path):
     """The whole video path, file to file: a synthetic X5-style clip (both
-    lenses as streams of one MP4, a trailer with the calibration), through
-    video.stitch, compared with the scene the lenses were painted from -- the
-    pattern's own formula, not anything the renderer computes."""
+    lenses as streams of one MP4, lens 1 first as field 80 says, a trailer
+    with the calibration), through video.stitch, compared with the scene the
+    lenses were painted from -- the pattern's own formula, not anything the
+    renderer computes."""
     from conftest import build_trailer
     from PIL import Image
 
@@ -196,8 +197,8 @@ def test_a_whole_clip_stitches_to_the_scene_its_lenses_recorded(tmp_path):
         Image.fromarray(image[:, index * SIZE:(index + 1) * SIZE]).save(tmp_path / f"lens{index}.png")
     clip = tmp_path / "VID_20260101_120000_00_001.insv"
     subprocess.run(["ffmpeg", "-v", "error", "-y",
-                    "-loop", "1", "-framerate", "10", "-t", "1", "-i", str(tmp_path / "lens0.png"),
                     "-loop", "1", "-framerate", "10", "-t", "1", "-i", str(tmp_path / "lens1.png"),
+                    "-loop", "1", "-framerate", "10", "-t", "1", "-i", str(tmp_path / "lens0.png"),
                     "-map", "0:v", "-map", "1:v", "-c:v", "libx264", "-crf", "4", "-pix_fmt", "yuv444p",
                     "-f", "mp4", str(clip)], check=True)
 
@@ -215,7 +216,8 @@ def test_a_whole_clip_stitches_to_the_scene_its_lenses_recorded(tmp_path):
     calibration = (f"2_{SIZE / 2 - 2}_{c}_{c}_0_0_90_{SIZE / 2 - 2}_{SIZE + c}_{c}_0_0_90"
                    f"_{2 * SIZE}_{SIZE}_100").encode()
     with clip.open("ab") as handle:
-        handle.write(build_trailer([(METADATA, text(2, b"Insta360 Test") + text(5, calibration))]))
+        track_order = b"\x80\x05\x01"   # field 80 = 1, as on every X5 clip
+        handle.write(build_trailer([(METADATA, text(2, b"Insta360 Test") + text(5, calibration) + track_order)]))
 
     vendor = detect(str(clip))
     output = tmp_path / "stitched.360.mp4"

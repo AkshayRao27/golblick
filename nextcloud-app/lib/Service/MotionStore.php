@@ -33,8 +33,11 @@ use Psr\Log\LoggerInterface;
  * under 100 MB for a half-hour clip, a fraction of a second for a short one.
  */
 final class MotionStore {
-	/** Bump when the algorithm changes, so tracks made by the old one are not served; and motionUrl's v in src/overlay.ts with it. */
-	private const VERSION = 6;
+	/**
+	 * Bump when the algorithm changes, so tracks made by the old one are not served; and motionUrl's v in src/overlay.ts with it.
+	 * 7: an X5's tracks paired by field 80, so its record is read with the photo axes.
+	 */
+	private const VERSION = 7;
 
 	public function __construct(
 		private IAppData $appData,
@@ -154,7 +157,7 @@ final class MotionStore {
 			}
 			[$fields, $model, $record, $stride, $frames] = $read;
 			// The orientation VideoRenderer::geometry renders the copy with.
-			$reference = Orientation::level(Imu::gravityUp($record, $model, Imu::OPENING_SAMPLES, true));
+			$reference = Orientation::level(Imu::gravityUp($record, $model, Imu::OPENING_SAMPLES));
 			$track = Stabilise::track($record, $stride, Imu::motionAxes($model), Imu::gains($fields, $stride), $frames, $reference);
 		} catch (FormatError|\InvalidArgumentException $e) {
 			$this->logger->debug('golblick: no stabilisation for ' . $clip->getName() . ': ' . $e->getMessage());

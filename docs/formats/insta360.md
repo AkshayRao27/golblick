@@ -42,12 +42,12 @@ Some differences that matter in practice:
 - **Most OneR photos have no motion sensor reading of their own.** In bursts and brackets the camera writes the reading to one frame, and golblick borrows it from another photo taken in the same shutter press.
 - **The calibration doesn't say everything.** It doesn't say how wide each lens sees, or how far the lens departs from an ideal fisheye. Both were measured per camera and are built into golblick. The X5 is the exception for the lens shape: its files carry a richer calibration that describes it, which brings renders to within about 0.4° of the camera's own panorama.
 - **The sensors are mounted at different angles.** A OneR's sensor sits 90° round from an X3's or X5's. The calibration records this, and without it every OneR panorama would come out on its side.
+- **An X5 video records the second lens first.** Its first video track holds lens 1 of the calibration, and the file says so (metadata field 80). golblick read them the other way round until 0.9; the camera's low-resolution copy, which holds both lenses side by side, shows which is which.
 - **In video, the two lenses don't match.** In a photo the camera has evened out the two lenses' brightness and colour. In video it hasn't, and with the sun on one lens they can differ by up to 40% along the sky, so a stitch has to hide the difference itself.
 
 ## What isn't known yet
 
 - Video. `probe` reads videos from all three cameras. `render` and the Nextcloud app stitch whole clips, steadied, and the viewer window plays them steadied without stitching first. X5 videos lay out their trailer differently, with an index of where each block sits, and several of those blocks aren't identified.
-- Which of an X5 video's two streams holds which lens isn't settled. Swapping them changes the picture by a fraction of a degree at the seam.
 - Two record types in photos, `0x0900` and `0x0b00`, appear in most files and aren't identified.
 - Three of the four calibration types. Only the simplest one is understood, and it's the one every camera stores. The others have a known number of values but not a known meaning, so golblick gives them to you as raw numbers.
 

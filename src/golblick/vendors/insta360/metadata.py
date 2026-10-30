@@ -32,6 +32,7 @@ READOUT = 25                    # video: ms the sensor takes to read a frame, to
 FRAME_OFFSET = 28               # video: ms from the frame clock to when a frame was seen (56-byte form)
 SENSOR_CROP = 27                # video: the part of each lens's sensor the frame keeps
 FULL_SCALE = 65                 # the inertial sensors' ranges: {1: g, 2: degrees per second}
+TRACK_ORDER = 80                # video with both lenses in one file: which lens the first track holds
 CALIBRATION_POLY = 53
 CALIBRATION_MEI = 54
 CALIBRATION_MEI_EXTENDED = 111  # X5 only; see docs/formats/insta360-agent-notes.md
@@ -214,6 +215,14 @@ def sensor_crop(grouped: dict[int, list[Field]]) -> tuple[int, int, int, int, in
                 break
         else:
             return tuple(values)
+    return None
+
+
+def track_order(grouped: dict[int, list[Field]]) -> int | None:
+    """Field TRACK_ORDER as a number, or None if absent.  1 means track 0 holds lens 1."""
+    for field in grouped.get(TRACK_ORDER, ()):
+        if isinstance(field.value, int):
+            return field.value
     return None
 
 

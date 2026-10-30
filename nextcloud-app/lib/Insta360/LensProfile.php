@@ -25,17 +25,9 @@ final class LensProfile {
 	/**
 	 * Where a still opens, in the render's frame: PHOTO_FORWARD in the
 	 * library's insta360 module, which has the measurements against Insta360
-	 * Studio's exports. The same on the OneR, X3 and X5.
+	 * Studio's exports. The same on the OneR, X3 and X5, and for their videos.
 	 */
 	public const PHOTO_FORWARD = [0.0, 0.0, -1.0];
-
-	/** Where a video opens, per model where it differs from a photo: VIDEO_FORWARD in the library. */
-	public const VIDEO_FORWARD = ['Insta360 X5' => [0.0, 0.0, 1.0]];
-
-	/** @return array{float, float, float} */
-	public static function videoForward(?string $model): array {
-		return self::VIDEO_FORWARD[$model ?? ''] ?? self::PHOTO_FORWARD;
-	}
 
 	/**
 	 * model => [field of view, radial, lens guard divisor (or null)]. See

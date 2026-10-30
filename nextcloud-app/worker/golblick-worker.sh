@@ -24,7 +24,7 @@
 # worker is there and what it can do.
 
 set -u
-VERSION=3
+VERSION=4
 JOBS=${1:?usage: golblick-worker.sh JOBS_DIR [DATA_DIR]}
 DATA=${2:-/data}
 KERNEL="$(cd "$(dirname "$0")" && pwd)/steady.cl"
@@ -143,6 +143,10 @@ stitch() {
 	# Optional: each frame's turns across its readout, to undo rolling shutter.
 	shutter=$(text "$dir/job" shutter '[0-9][0-9]*x[0-9][0-9]*'); samples=$(value "$dir/job" samples)
 	[ -n "$shutter" ] && [ -n "$samples" ] && [ -r "$dir/shutter.p016" ] || { shutter=; samples=0; }
+	# With both lenses in one file: lens 0's stream, then lens 1's. An X5 puts
+	# lens 1 first; a job from before the app said so was made for "0 1".
+	local streams
+	streams=$(text "$dir/job" streams '[01] [01]'); streams=${streams:-0 1}
 	local inputs=()
 	while IFS= read -r path; do
 		# Only files under the data directory, named the way the app names them.
@@ -167,7 +171,7 @@ stitch() {
 	if [ "${#inputs[@]}" = 2 ]; then
 		args=("${decode[@]}" -i "${inputs[0]}" "${decode[@]}" -i "${inputs[1]}"); a='[0:v:0]'; b='[1:v:0]'
 	else
-		args=("${decode[@]}" -i "${inputs[0]}"); a='[0:v:0]'; b='[0:v:1]'
+		args=("${decode[@]}" -i "${inputs[0]}"); a="[0:v:${streams%% *}]"; b="[0:v:${streams##* }]"
 	fi
 	local n=${#inputs[@]} t size f
 	declare -A at

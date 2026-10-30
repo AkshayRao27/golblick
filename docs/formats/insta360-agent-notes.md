@@ -394,6 +394,25 @@ What it changed: on a OneR video the seam fell about 4.7° short of the true hal
 
 ⚠️ Blind spots: the fit compares against Studio's stitch, so it shares any error Studio makes in the one lens measured. And a radius error and a field-of-view error are the same thing to it. Only centred square crops are understood; anything else is refused.
 
+### Which track holds which lens (X5 video)
+
+✅ **Settled 2026-10-30: track 0 of an X5 video holds lens 1, the second lens of the calibration strings, and track 1 holds lens 0.** golblick paired them the other way round until then. Two half turns in its X5 video handling, a separate inertial axis map for video and a video that opened on +z, were that swap seen from two sides; both are gone. freeKC found it first ([raw360-formats, "Which track holds which lens"](https://github.com/freeKC/raw360-formats/blob/main/docs/insta360.md#which-track-holds-which-lens), and in [pulsejet/memories#1739](https://github.com/pulsejet/memories/issues/1739)), on X4 and X5 files of their own. Checked again here on the 44 X5 videos in one library (firmware 1.7.43 to 1.11.10):
+
+| Evidence | Result |
+|---|---|
+| Field 80 (track order) and 131 (stream layout) | 1 and 4 on all 44; "track 0 holds lens 1" in the reading of insta360-rs and GyroView |
+| The proxy (`LRV`), frame 0: grey correlation of each half with each track, at 480 px | left half = track 1, right half = track 0 on all 32 proxies that ffmpeg reads and whose video is still beside them: 0.987–1.000; the crossed pairs 0.36–0.86 |
+| Gravity: the axis map that levels the opening frame against the camera's own stitch | with track 1 as lens 0, the X5's photo map (median 2.8° from the stitch, p90 13.4°); with track 0 as lens 0, only that map turned half a turn (3.5°, 13.5°) |
+| The camera's own stitch of frame 0 (record `0x0200`): one rotation fitted to the whole sphere, then each lens alone | ⛔ no verdict: the whole-sphere score favours track 1 as lens 0 on 26 of 44 clips (median +0.0015), the per-lens split on 20 of 44 |
+
+The proxy is the direct evidence. It holds both lenses in one frame, side by side as on the calibration's canvas, and the calibration puts lens 0's centre in the left half, so the proxy can only be read with these strings if its left half is lens 0. ⚠️ That the proxy really is laid out that way was checked on X3 proxies (freeKC: the left half matches the `_00_` file), not on an X5's. The gravity row adds that one map then serves an X5's photos and videos, as it does on the OneR and X3; it can't prove the pairing by itself, since a map turned half a turn fits the other pairing equally well.
+
+🔴 **The stitch can't tell the pairings apart here, though the first clips looked as if it could.** Swapping two back-to-back lenses is close to a half turn of the sphere, and a fitted rotation absorbs a half turn. What is left is the small difference between the lenses: on the X5 their calibrated centres sit 1.1 video pixels apart and their tilts under a degree each. The first six clips all favoured the file's pairing on both measures, and the whole library came out even. freeKC's seam test does separate them, but only at the exact radial scale of field 27 and with the roll mirrored; golblick's lens model is neither. The 3% to 5% seam margin recorded under "Which way a levelled panorama faces" was the same noise.
+
+What changed in the output, on one clip (011), stitched by the old and the new code: the same picture a constant 1.8° apart in pitch and 0.6° in yaw at every time sampled, the two lenses' tilts now applied to the right pictures. Against the camera's stitch the new one is tilted 3.0° to 3.2°, the old 4.9°. That is one clip.
+
+`lens_streams` reads field 80 and refuses a two-track file that doesn't say 1, since no other value has been seen. ⚠️ The X5 clip in "Lens brightness in video" was measured with the tracks crossed, so its lens 1 / lens 0 there is the inverse.
+
 ### What is *not* verified
 
 Field 5's six per-lens values *are* identified: radius, centre x, centre y, roll, pitch, yaw. The convention for roll and pitch is still open, as noted above.
@@ -812,6 +831,8 @@ n = 25, of which 14 upright and 11 tilted.
 
 🔴 **The mapping is per camera and is never borrowed.** Upright, an X5 reads gravity along −x and a OneR along +x. Those are opposite signs on the same axis, so applying one camera's mapping to the other hangs the panorama upside down. `imu.gravity_up` **refuses** a model it has not measured.
 
+✅ **Resolved 2026-10-30: there is one map per camera.** The separate X5 video map below was golblick pairing an X5 video's tracks with the wrong lenses, which turns the render frame half a turn about the vertical; paired by field 80, the photo map levels video too ("Which track holds which lens"). The measurement is kept as it was.
+
 🔴 **It is also per kind of file: an X5 video uses a different map from an X5 still** (measured 2026-10-08). The first stitched X5 video came out 127° off level with the still map. Fitting frame 0 of every X5 video in the library (44, both lens streams decoded, unlevelled render) to the camera's own stitch of it (record `0x0200`), and comparing the up direction that implies with the accelerometer's median over the first 1,500 samples:
 
 ```
@@ -961,6 +982,8 @@ Video opening frames, levelled the same way, were also about half a turn off on 
 | X5 | 3 | 147° to 180° off | −31.6° to 2.8° |
 
 Against the unstabilised exports of the same X5 clips the levelled render is −12°, 0° and −2.5° off. So an X5 video opens on +z (`VIDEO_FORWARD`), a half turn from an X5 photo. Which X5 clip the earlier paragraph used isn't recorded, and it can't be checked again. ⚠️ Not settled: whether this is how the camera and Studio centre an X5 video, or golblick pairing the X5's two video streams with the wrong lenses, which would look the same, since swapping the lenses is a half turn. Seam agreement slightly favours the current pairing on all three clips (3% to 5%), but the OneR, whose pairing can't be wrong, separates by the same small margin, so that isn't evidence either way.
+
+✅ **Resolved 2026-10-30: it was the pairing.** An X5 video's track 0 holds lens 1; with the tracks paired by field 80 an X5 video opens on −z like everything else, and `VIDEO_FORWARD` is gone ("Which track holds which lens").
 
 ## Lens brightness in video
 

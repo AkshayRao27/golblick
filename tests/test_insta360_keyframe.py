@@ -93,12 +93,17 @@ def test_a_missing_second_lens_file_is_refused_not_stitched_from_one_lens(tmp_pa
         lens_streams(renamed)
 
 
-def test_an_x5_clip_has_both_lenses_in_one_file_and_a_proxy_is_refused(tmp_path):
+def test_an_x5_clip_has_both_lenses_in_one_file_in_the_order_it_states_and_a_proxy_is_refused(tmp_path):
     from golblick.vendors.insta360 import lens_streams
 
-    x5 = write_file(tmp_path / "VID_20260126_115034_00_011.insv", [(0x0200, b"\x01" * 40 + b"nv12")],
+    stitch = (0x0200, b"\x01" * 40 + b"nv12")
+    x5 = write_file(tmp_path / "VID_20260126_115034_00_011.insv", [stitch, (0x0101, b"\x80\x05\x01")],
                     leading=b"mp4")
-    assert lens_streams(x5) == [(x5, 0), (x5, 1)]
+    assert lens_streams(x5) == [(x5, 1), (x5, 0)]   # field 80 = 1: track 0 holds lens 1
+    unstated = write_file(tmp_path / "VID_20260126_115034_00_012.insv", [stitch, (0x0101, b"\x10\x02")],
+                          leading=b"mp4")
+    with pytest.raises(FormatError, match="field 80 is None"):
+        lens_streams(unstated)
     proxy = _master(tmp_path / "LRV_20200809_163437_01_026.lrv", layout=DUAL_FISHEYE)
     with pytest.raises(FormatError, match="low-resolution copy"):
         lens_streams(proxy)

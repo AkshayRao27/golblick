@@ -48,9 +48,21 @@ final class StitchQueue {
 	) {
 	}
 
-	/** Whether a live worker can stitch, and sees all of $inputs (local paths). */
-	public function canStitch(array $inputs): bool {
-		return ($this->bake->worker()['stitch'] ?? false) && ($this->bake->worker()['alive'] ?? false)
+	/**
+	 * The first worker that reads `streams`. An older one takes the first
+	 * track of an X5 for lens 0, so it isn't given one.
+	 */
+	private const STREAMS_VERSION = 4;
+
+	/**
+	 * Whether a live worker can stitch, and sees all of $inputs (local paths).
+	 *
+	 * @param list<array{int, int}> $lenses [input, stream] for lens 0, then lens 1
+	 */
+	public function canStitch(array $inputs, array $lenses): bool {
+		$worker = $this->bake->worker();
+		return ($worker['stitch'] ?? false) && ($worker['alive'] ?? false)
+			&& ($lenses[0] === [0, 0] || ($worker['version'] ?? 0) >= self::STREAMS_VERSION)
 			&& \count(array_filter($inputs, fn (string $path): bool => $this->workerPath($path) === null)) === 0;
 	}
 
@@ -58,14 +70,15 @@ final class StitchQueue {
 	 * Write the job for $name from the tables RemapTables wrote into $tables.
 	 *
 	 * @param list<string> $inputs local paths, as VideoRenderer reads them
+	 * @param list<array{int, int}> $lenses [input, stream] for lens 0, then lens 1
 	 * @param array{rate: string, matrix: string, range: string, duration: float, created: ?string} $probe
 	 * @param array|null $track the steadying track to bake in (MotionStore::track), or null for none
 	 * @param string|null $shutter each frame's turns across its readout (MotionStore::shutter), or null to
 	 *        leave the rolling shutter in. Optional for the worker: one that predates it ignores it
 	 * @throws FormatError with nothing left behind
 	 */
-	public function start(string $name, string $tables, array $inputs, int $lensSize, int $width, int $bitrate,
-		array $probe, ?array $track, ?string $shutter = null): void {
+	public function start(string $name, string $tables, array $inputs, array $lenses, int $lensSize, int $width,
+		int $bitrate, array $probe, ?array $track, ?string $shutter = null): void {
 		// Written beside and renamed into place, so the worker never sees a
 		// job half written, or rewritten under it: a table that changes while
 		// the worker reads it puts a band across every frame of the copy.
@@ -91,6 +104,7 @@ final class StitchQueue {
 				'rate' => $probe['rate'],
 				'duration' => sprintf('%.3f', $probe['duration']),
 				'track' => $trackSize,
+				'streams' => $lenses[0][1] . ' ' . $lenses[1][1],
 			] + ($probe['created'] === null ? [] : ['created' => $probe['created']]);
 			if ($shutter !== null) {
 				$job['shutter'] = GpuTables::writeTrack($shutter, BakeQueue::COLUMNS, "$dir/shutter.p016");

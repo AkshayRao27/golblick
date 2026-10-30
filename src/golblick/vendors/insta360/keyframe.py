@@ -30,7 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...errors import FormatError
-from .trailer import read_trailer
+from . import metadata
+from .trailer import METADATA, read_trailer
 
 LENS_0 = 0x0200
 LENS_1 = 0x0500
@@ -105,13 +106,14 @@ def lens_streams(path: str | Path) -> list[tuple[Path, int]]:
     refused: it is not what to stitch from.
 
     Raises :class:`FormatError` when the second file is missing or the name
-    gives no way to find it, rather than stitching one lens.
+    gives no way to find it, rather than stitching one lens; and for two
+    streams in one file that don't say which lens is which.
     """
     path = Path(path)
     try:
         keyframes = extract(path)
     except FormatError:
-        return [(path, 0), (path, 1)]   # an X5: the streams are checked when the video is opened
+        return _tracks(path)   # an X5: the streams are checked when the video is opened
     if keyframes.layout == DUAL_FISHEYE:
         raise FormatError(f"{path}: a low-resolution copy; stitch the clip's _00_ file instead")
     match = re.match(r"^(.+_\d{8}_\d{6})_00_(\d+\.insv)$", path.name, re.IGNORECASE)
@@ -121,6 +123,20 @@ def lens_streams(path: str | Path) -> list[tuple[Path, int]]:
     if not partner.is_file():
         raise FormatError(f"{path}: the second lens file, {partner.name}, is not next to it")
     return [(path, 0), (partner, 0)]
+
+
+def _tracks(path: Path) -> list[tuple[Path, int]]:
+    """Both lenses as streams of one file, lens 0 first, in the order the file states.
+
+    Every X5 clip measured sets field 80 to 1, track 0 holding lens 1, and the
+    camera's own stitch agrees: format notes, "Which track holds which lens".
+    No other value has been seen, so none is read.
+    """
+    record = read_trailer(path).get(METADATA)
+    order = None if record is None else metadata.track_order(metadata.by_number(record.data))
+    if order != 1:
+        raise FormatError(f"{path}: two lens streams, and the file doesn't say which lens is which in a way golblick has checked (field 80 is {order})")
+    return [(path, 1), (path, 0)]
 
 
 def lead_file(path: str | Path) -> Path | None:

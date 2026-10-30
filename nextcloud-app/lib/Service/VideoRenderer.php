@@ -121,7 +121,6 @@ final class VideoRenderer {
 		$inputs = $this->inputs($file);
 		$probe = $this->probe($ffmpeg, $inputs[0]);
 		$streams = $probe['streams'];
-		$lenses = \count($inputs) === 2 ? [[0, 0], [1, 0]] : [[0, 0], [0, 1]];
 		if (\count($inputs) === 1 && \count($streams) < 2) {
 			throw new FormatError('the video has one picture stream and no second lens file');
 		}
@@ -131,7 +130,18 @@ final class VideoRenderer {
 			throw new FormatError('not enough free space in the data directory');
 		}
 
-		[$calibration, $model, $orientation, $baseline] = $this->geometry($file);
+		[$calibration, $model, $orientation, $baseline, $trackOrder] = $this->geometry($file);
+		// [input, stream] for lens 0, then lens 1. An X5 says which track holds
+		// which lens (field 80), and so far always puts lens 1 first: format
+		// notes, "Which track holds which lens".
+		if (\count($inputs) === 2) {
+			$lenses = [[0, 0], [1, 0]];
+		} elseif ($trackOrder === 1) {
+			$lenses = [[0, 1], [0, 0]];
+		} else {
+			throw new FormatError(sprintf("two lens streams, and the file doesn't say which lens is which in a way this app has checked (field 80 is %s)",
+				$trackOrder ?? 'missing'));
+		}
 		$guards = $this->lensGuards($inputs, $lenses, $calibration, $model, $probe['duration']);
 		[$plan, $seam] = $this->seamPlan($inputs, $lenses, $calibration, $model, $guards, $baseline, $probe['duration']);
 		$lensSize = RemapTables::lensSizeFor($calibration, $native, $width, $model, $guards);
@@ -142,10 +152,10 @@ final class VideoRenderer {
 		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
 
 		$bitrate = self::bitrate($width);
-		if ($gpu && $this->stitch->canStitch($inputs)) {
+		if ($gpu && $this->stitch->canStitch($inputs, $lenses)) {
 			$track = $this->settings->flag('video_bake') ? $this->motion->track($file) : null;
 			try {
-				$this->stitch->start($name, $tables, $inputs, $lensSize, $width, $bitrate, $probe, $track,
+				$this->stitch->start($name, $tables, $inputs, $lenses, $lensSize, $width, $bitrate, $probe, $track,
 					$this->motion->shutter($file, $orientation));
 				VideoStore::removeDirectory($tables);
 
@@ -587,7 +597,7 @@ final class VideoRenderer {
 		return $out;
 	}
 
-	/** @return array{Calibration, ?string, array, ?array} the last is lens 1's offset from lens 0, if stated */
+	/** @return array{Calibration, ?string, array, ?array, ?int} then lens 1's offset from lens 0 and field 80, if stated */
 	private function geometry(File $file): array {
 		$handle = $file->fopen('r');
 		if ($handle === false) {
@@ -619,12 +629,12 @@ final class VideoRenderer {
 		$imu = $trailer->get(Trailer::IMU);
 		if ($imu !== null && $model !== null) {
 			try {
-				$orientation = Orientation::level(Imu::gravityUp($imu, $model, Imu::OPENING_SAMPLES, true));
+				$orientation = Orientation::level(Imu::gravityUp($imu, $model, Imu::OPENING_SAMPLES));
 			} catch (FormatError $e) {
 				// An unmeasured camera: the mounting angle still applies.
 			}
 		}
 
-		return [$calibration, $model, $orientation, $baseline];
+		return [$calibration, $model, $orientation, $baseline, Protobuf::firstInt($fields, Protobuf::TRACK_ORDER)];
 	}
 }

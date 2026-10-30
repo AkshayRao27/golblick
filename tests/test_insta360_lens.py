@@ -77,18 +77,6 @@ def test_lens_guards_change_the_angle_only_where_measured():
     assert oner.field_of_view_for(guards=True) == oner.field_of_view
 
 
-def test_the_preview_provider_opens_videos_the_same_way():
-    """Where a clip opens is restated in PHP for the Nextcloud player."""
-    from golblick.vendors import insta360
-
-    php = (Path(__file__).parents[1] / "nextcloud-app/lib/Insta360/LensProfile.php").read_text()
-    match = re.search(r"VIDEO_FORWARD = \[(.*)\];", php)
-    assert match, "VIDEO_FORWARD missing from LensProfile.php"
-    restated = {model: tuple(float(v) for v in values.split(","))
-                for model, values in re.findall(r"'([^']+)' => \[([^\]]*)\]", match.group(1))}
-    assert restated == insta360.VIDEO_FORWARD
-
-
 # A two-lens MEI string shaped like an X5's: xi fx fy cx cy yaw pitch roll tx ty tz k1 k2 k3 p1 p2 w h type per lens,
 # then one global.  Synthesised, not a camera's.
 MEI = "_".join(["2"] + [f"{v:g}" for v in (2.0, 4275, 4275, 2690, 2690, -0.9, 0.1, 90.0, 0, 0, 0, 0.18, 2.1, -3.25,

@@ -149,10 +149,14 @@ final class VideoStore {
 	 * the GPU (worker/stitch.cl), '-e' the X3's too and the 56-byte form's
 	 * frames timed by field 28 (Imu::frameTimes), '-f' the two-band hand-over
 	 * with no lens balance (RemapTables), the gyroscope read at its full scale,
-	 * the X5's rolling shutter and the X5's lens curve from its calibration;
+	 * the X5's rolling shutter and the X5's lens curve from its calibration,
+	 * '-g' an X5's tracks paired with its lenses by field 80 (VideoRenderer);
 	 * AGENT-NOTES.md, "Video spheres" (Re-stitching after a geometry change).
 	 */
-	public const VERSION = '-f';
+	public const VERSION = '-g';
+
+	/** Earlier VERSIONs, newest first, whose copies still play until a clip is remade. */
+	private const EARLIER = ['-f', '-e', '-d', '-c', ''];
 
 	public function nameOf(File $file): string {
 		return self::nameFor($file->getId(), $file->getEtag(), $this->settings->videoWidth());
@@ -195,8 +199,9 @@ final class VideoStore {
 			return null;
 		}
 		$name = $this->nameOf($file);
+		$base = substr($name, 0, -\strlen(self::VERSION));
 		// The current copy, or else one from before VERSION while it's remade.
-		foreach ([$name, substr($name, 0, -\strlen(self::VERSION))] as $candidate) {
+		foreach ([$name, ...array_map(fn (string $earlier): string => $base . $earlier, self::EARLIER)] as $candidate) {
 			if (is_file("$root/$candidate.mp4")) {
 				return "$root/$candidate.mp4";
 			}

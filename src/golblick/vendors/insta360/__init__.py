@@ -31,10 +31,6 @@ DESCRIPTION = "Insta360 .insp / .insv / .lrv"
 #: docs/formats/insta360-agent-notes.md, "Which way a levelled panorama faces".
 PHOTO_FORWARD = (0.0, 0.0, -1.0)
 
-#: Where a video opens, per model where it differs from a photo: an X5 video
-#: faces half a turn from its photos.  Same section of the format notes.
-VIDEO_FORWARD = {"Insta360 X5": (0.0, 0.0, 1.0)}
-
 __all__ = [
     "DESCRIPTION",
     "EXTENSIONS",
@@ -45,7 +41,6 @@ __all__ = [
     "Motion",
     "NAME",
     "PHOTO_FORWARD",
-    "VIDEO_FORWARD",
     "Preview",
     "Record",
     "Source",
@@ -88,8 +83,8 @@ def matches(path: str | Path) -> bool:
 
 
 def video_forward(path: str | Path) -> tuple[float, float, float]:
-    """Where a video from the camera that wrote ``path`` opens; see VIDEO_FORWARD."""
-    return VIDEO_FORWARD.get(describe(path)["model"], PHOTO_FORWARD)
+    """Where a video from the camera that wrote ``path`` opens: as a photo does, on every model measured."""
+    return PHOTO_FORWARD
 
 
 def describe(path: str | Path) -> dict:

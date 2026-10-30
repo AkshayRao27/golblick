@@ -52,6 +52,7 @@ final class BakeQueue {
 			'device' => (string)($data['device'] ?? ''),
 			'encoder' => (string)($data['encoder'] ?? ''),
 			'stitch' => ($data['stitch'] ?? false) === true,
+			'version' => \is_int($data['version'] ?? null) ? $data['version'] : 0,
 		];
 	}
 

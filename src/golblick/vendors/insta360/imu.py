@@ -184,7 +184,8 @@ def gravity(path) -> tuple[float, float, float]:
 #: format notes, "Route 2 — the gravity vector from the IMU" and the sections
 #: after it.
 _AXES = {
-    # up_render = (-az, -ax, -ay); measured against the stitch the X5 embeds.
+    # up_render = (-az, -ax, -ay); measured against the stitch the X5 embeds,
+    # in its photos and in its videos' opening frames.
     "Insta360 X5": ((0.0, 0.0, -1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
     # up_render = (-ax, -az, ay); measured against Insta360 Studio's levelled
     # exports of every OneR still that carries a record.  Not against the
@@ -193,14 +194,6 @@ _AXES = {
     # up_render = (-az, -ax, -ay), the X5's map; measured against Insta360
     # Studio's levelled exports, 38 stills.
     "Insta360 X3": ((0.0, 0.0, -1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
-}
-
-#: Where a camera's VIDEO record differs from its stills'.  Others use _AXES.
-_VIDEO_AXES = {
-    # up_render = (az, -ax, ay): the still map turned 180 degrees about the
-    # vertical.  Measured on 44 X5 videos against the camera's own stitch of
-    # frame 0; OneR and X3 videos keep their still maps.
-    "Insta360 X5": ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
 }
 
 
@@ -274,7 +267,7 @@ def gravity_up(path) -> tuple[float, float, float]:
     from . import describe  # circular at import time, fine at call time
 
     model = describe(path)["model"]
-    axes = (_VIDEO_AXES.get(model) if is_video(path) else None) or _AXES.get(model)
+    axes = _AXES.get(model)
     if axes is None:
         raise FormatError(
             f"{path}: the inertial axis mapping for {model!r} has not been measured, only {sorted(_AXES)}; levelling it would be a guess"
@@ -424,7 +417,7 @@ def motion(path) -> Motion:
     if not is_video(path):
         raise FormatError(f"{path}: not a video")
     model = describe(path)["model"]
-    axes = _VIDEO_AXES.get(model) or _AXES.get(model)
+    axes = _AXES.get(model)
     if axes is None:
         raise FormatError(
             f"{path}: the inertial axis mapping for {model!r} has not been measured, only {sorted(_AXES)}; stabilising it would be a guess"

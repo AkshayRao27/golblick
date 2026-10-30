@@ -309,18 +309,15 @@ def test_a_video_levels_its_opening_frame_from_the_start_of_the_record(tmp_path)
     assert imu.gravity(still) == pytest.approx((0.0, -1.0, 0.0))
 
 
-def test_an_x5_video_has_its_own_axes(tmp_path):
-    """Its record is stated in a frame turned half way round from its stills'."""
+def test_an_x5_video_shares_its_stills_axes(tmp_path):
+    """Once its tracks are paired by field 80, an X5 video levels with the map its stills use."""
     payload = b"".join(biased(i, LEVEL_X5) for i in range(1, 6))
     records = [(METADATA, model_record("Insta360 X5")), (IMU, payload)]
     still = write_file(tmp_path / "IMG_20260126_115034_00_011.insp", records)
     video = write_file(tmp_path / "VID_20260126_115034_00_011.insv", records,
                        leading=b"\x00\x00\x00\x18ftypisom")
 
-    up_still, up_video = imu.gravity_up(still), imu.gravity_up(video)
-
-    assert up_still[1] == pytest.approx(up_video[1])
-    assert up_still[0] == pytest.approx(-up_video[0]) and up_still[2] == pytest.approx(-up_video[2])
+    assert imu.gravity_up(video) == pytest.approx(imu.gravity_up(still))
 
 
 def video_metadata(model, first_frame=None, readout=None, offset=None, full_scale=None):

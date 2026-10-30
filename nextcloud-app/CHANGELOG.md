@@ -4,6 +4,15 @@ The Nextcloud app's changes. Versions before 0.8.1 are in the [releases on GitHu
 
 ## [Unreleased]
 
+### Fixed
+
+- X5 videos were stitched with the two lenses' calibrations crossed. An X5 records lens 1 in its first video track, and its files say so; the app now reads that, so each lens's calibration is applied to its own picture. The difference is small, a degree or two in how the copy is levelled. Every clip is stitched once more after the upgrade, newest first, which puts X5 clips near the front; copies from other cameras come out the same. Until an X5 clip's new copy is done, its old copy opens facing backwards and the player steadies it wrongly, and a view you chose on an X5 clip is half a turn out once it's remade.
+- After an upgrade that re-stitches clips, the previous copy now keeps playing until the new one is done. Since 0.8 it didn't, unless a copy was saved next to the clip.
+
+### Changed
+
+- The GPU worker is version 4, which reads which track holds which lens. It restarts on the new version by itself after the upgrade; until it has, X5 clips are stitched on the server's CPU.
+
 ## 0.8.1 - 2026-10-26
 
 ### Changed

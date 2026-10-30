@@ -69,15 +69,6 @@ final class Imu {
 	];
 
 	/**
-	 * Where a camera's VIDEO record differs from its stills': imu.py's
-	 * _VIDEO_AXES, which has the measurement (44 X5 videos against the
-	 * camera's own stitch, 3.7 degrees median; the still map scores 87).
-	 */
-	private const VIDEO_AXES = [
-		'Insta360 X5' => [[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-	];
-
-	/**
 	 * Seconds per raw timecode unit, by entry stride: imu.py's _CLOCK, which
 	 * says how it was measured. Milliseconds in the 56-byte form,
 	 * microseconds in the 20-byte one.
@@ -144,7 +135,7 @@ final class Imu {
 	 * @return array<int, array<int, float>>
 	 */
 	public static function motionAxes(string $model): array {
-		$axes = self::VIDEO_AXES[$model] ?? self::AXES[$model] ?? null;
+		$axes = self::AXES[$model] ?? null;
 		if ($axes === null) {
 			throw new FormatError(sprintf(
 				'the inertial axis mapping for "%s" has not been measured; stabilising it would be a guess', $model));
@@ -296,8 +287,8 @@ final class Imu {
 	 * @param string $model  the camera model, from the metadata record
 	 * @return array{float, float, float}
 	 */
-	public static function gravityUp(string $record, string $model, ?int $first = null, bool $video = false): array {
-		$axes = ($video ? (self::VIDEO_AXES[$model] ?? null) : null) ?? self::AXES[$model] ?? null;
+	public static function gravityUp(string $record, string $model, ?int $first = null): array {
+		$axes = self::AXES[$model] ?? null;
 		if ($axes === null) {
 			throw new FormatError(sprintf(
 				'the inertial axis mapping for "%s" has not been measured (only %s); levelling it would be a guess',

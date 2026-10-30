@@ -31,6 +31,8 @@ final class Protobuf {
 	public const SENSOR_CROP = 27;
 	/** The inertial sensors' ranges, {1: g, 2: degrees per second}, which the 20-byte form counts 1/32768ths of. */
 	public const FULL_SCALE = 65;
+	/** In a video with both lenses in one file, which lens the first track holds: 1 means lens 1. */
+	public const TRACK_ORDER = 80;
 	public const CALIBRATION_POLY = 53;
 	public const CALIBRATION_MEI = 54;
 
@@ -135,6 +137,16 @@ final class Protobuf {
 			$degrees = $inner[2][0] ?? null;
 			if (\is_int($g) && \is_int($degrees) && $g > 0 && $degrees > 0) {
 				return [$g, $degrees];
+			}
+		}
+
+		return null;
+	}
+
+	public static function firstInt(array $fields, int $number): ?int {
+		foreach ($fields[$number] ?? [] as $value) {
+			if (\is_int($value)) {
+				return $value;
 			}
 		}
 
