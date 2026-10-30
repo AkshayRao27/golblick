@@ -24,6 +24,7 @@ Optionally, it stitches `.insv` videos too, in the background with ffmpeg, into 
     <website>https://github.com/AkshayRao27/golblick</website>
     <bugs>https://github.com/AkshayRao27/golblick/issues</bugs>
     <repository type="git">https://github.com/AkshayRao27/golblick.git</repository>
+    <screenshot>https://raw.githubusercontent.com/AkshayRao27/golblick/main/nextcloud-app/screenshots/memories.jpg</screenshot>
     <dependencies>
         <php min-version="8.1"/>
         <lib>gd</lib>
