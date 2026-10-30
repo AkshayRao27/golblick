@@ -11,6 +11,10 @@
 <dd>German, the singular imperative of <i>blicken</i>: to look, usually in a certain direction or toward something.</dd>
 </dl>
 
+https://github.com/user-attachments/assets/e18cc01d-8c78-4fe8-8672-1a00d5c73245
+
+*`golblick open` playing an Insta360 X5 clip. Drag to look around.*
+
 ---
 
 ## Why?
