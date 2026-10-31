@@ -14,7 +14,7 @@ import { getRequestToken } from '@nextcloud/auth';
 import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
 
-import type { Motion, SphereView } from './sphere';
+import type { Motion, Shutter, SphereView } from './sphere';
 
 /** Which buttons to add, and the token when this page is a public share link. */
 export const config = loadState<{ files: boolean; viewer: boolean; memories: boolean; share: string | null }>(
@@ -85,6 +85,25 @@ async function loadMotion(fileId: number, etag: string): Promise<Motion | null> 
     const turn = int16(data.turn ?? '');
     return q.length >= 4 * data.frames && turn.length >= data.frames && data.period > 0
       ? { period: data.period, frames: data.frames, q, turn } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keyed by the copy, which is what it belongs to; v is the format's version. */
+const shutterUrl = (fileId: number, videoEtag: string) => generateUrl(config.share
+  ? `/apps/golblick/s/${config.share}/shutter/${fileId}` : `/apps/golblick/shutter/${fileId}`) + `?etag=${encodeURIComponent(videoEtag)}&v=1`;
+
+/** What undoes a copy's rolling shutter, or null for a copy that has none to undo (VideoStore::shutter). */
+async function loadShutter(fileId: number, videoEtag: string): Promise<Shutter | null> {
+  try {
+    const response = await fetch(shutterUrl(fileId, videoEtag), { credentials: 'same-origin' });
+    if (!response.ok) return null;
+    const data = await response.json() as { samples: number; turns: string; width: number; height: number; rows: string };
+    const turns = new Uint16Array(int16(data.turns).buffer);
+    const rows = Uint8Array.from(atob(data.rows), (c) => c.charCodeAt(0));
+    return data.samples >= 2 && turns.length >= 4 * data.samples && rows.length === data.width * data.height
+      ? { samples: data.samples, turns, width: data.width, height: data.height, rows } : null;
   } catch {
     return null;
   }
@@ -303,6 +322,9 @@ export async function openSphere(fileId: number, etag: string, name = '', isVide
         return player.play();
       }).catch(() => {});
     }, { once: true });
+    void loadShutter(fileId, answer.videoEtag).then((shutter) => {
+      if (!closed && shutter && view) view.setShutter(shutter);
+    });
     // Steadying arrives separately and switches on when it does; the video
     // doesn't wait for it, since a long clip takes the server a few seconds
     // the first time.

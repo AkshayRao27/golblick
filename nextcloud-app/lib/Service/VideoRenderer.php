@@ -20,6 +20,7 @@ use OCA\Golblick\Render\FrameCode;
 use OCA\Golblick\Render\Orientation;
 use OCA\Golblick\Render\RemapTables;
 use OCA\Golblick\Render\SeamPlan;
+use OCA\Golblick\Render\Stabilise;
 use OCP\Files\File;
 use OCP\Files\Folder;
 use OCP\IUser;
@@ -149,7 +150,7 @@ final class VideoRenderer {
 		if (!is_dir($tables) && !mkdir($tables, 0770, true)) {
 			throw new FormatError('could not create the table directory');
 		}
-		RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
+		$rows = RemapTables::write($tables, $calibration, $lensSize, $width, $orientation, $model, $guards, $plan);
 
 		$bitrate = self::bitrate($width);
 		if ($gpu && $this->stitch->canStitch($inputs, $lenses)) {
@@ -165,6 +166,8 @@ final class VideoRenderer {
 				$this->logger->warning("golblick: stitching $name on the CPU: could not hand it to the GPU worker: " . $e->getMessage(), ['app' => 'golblick']);
 			}
 		}
+
+		$this->writeShutter($name, $file, $orientation, $rows);
 
 		// Memory, not speed, sets the thread counts: with ffmpeg's defaults a
 		// render peaked at 4 GB, and an AIO host may have 4 GB for everything.
@@ -209,6 +212,33 @@ final class VideoRenderer {
 		// Twelve times the clip's length, an hour at least: four cores run at about a fifth of real time.
 		return ['name' => $name, 'deadline' => time() + max(3600, (int)(12 * $probe['duration'])), 'guards' => $guards,
 			'seam' => $seam, 'duration' => (float)$probe['duration'], 'gpu' => false, 'steadied' => false];
+	}
+
+	/**
+	 * What the player needs to undo the rolling shutter of a copy stitched on
+	 * the CPU, written beside it as <name>.shutter: each frame's turns across
+	 * its readout, in the tables' frame (Stabilise::shutterFor, the same input
+	 * the GPU stitch takes), and when each direction was read (RemapTables::write).
+	 * The CPU stitch can't apply them itself: ffmpeg's remap takes one table
+	 * for the whole clip. Nothing for a camera whose readout isn't known.
+	 */
+	private function writeShutter(string $name, File $file, array $orientation, string $rows): void {
+		$path = $this->store->root() . "/$name.shutter";
+		$turns = $this->motion->shutter($file, $orientation);
+		if ($turns === null) {
+			@unlink($path);
+			return;
+		}
+		$written = file_put_contents($path, json_encode([
+			'samples' => Stabilise::SHUTTER_SAMPLES,
+			'turns' => base64_encode($turns),
+			'width' => RemapTables::ROWS_WIDTH,
+			'height' => intdiv(RemapTables::ROWS_WIDTH, 2),
+			'rows' => base64_encode($rows),
+		], JSON_UNESCAPED_SLASHES));
+		if ($written === false) {
+			$this->logger->warning("golblick: $name will play with its rolling shutter left in: could not write $path", ['app' => 'golblick']);
+		}
 	}
 
 	/**
@@ -384,6 +414,7 @@ final class VideoRenderer {
 		}
 		if ($withVideo) {
 			@unlink("$base.part.mp4");
+			@unlink("$base.shutter");
 		}
 		VideoStore::removeDirectory("$base.tables");
 	}

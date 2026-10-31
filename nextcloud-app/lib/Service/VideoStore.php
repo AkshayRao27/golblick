@@ -25,7 +25,9 @@ use OCP\IConfig;
  * Names are <fileid>-<etag>-<width><VERSION>.mp4, so a changed file gets a
  * new entry, as the panorama cache does, and so does every clip when the
  * stitch itself changes. Work in progress sits next to them under the
- * same name with .part, .log, .status, .pid and a .tables directory.
+ * same name with .part, .log, .status, .pid and a .tables directory, and a
+ * copy stitched on the CPU keeps a .shutter beside it for the player
+ * (VideoRenderer::writeShutter), also when the copy itself moves out.
  *
  * With "save next to the clip" on, a finished copy is moved out of here into
  * the clip's own folder as <clip>.360.mp4 (BESIDE), an ordinary file that
@@ -198,10 +200,8 @@ final class VideoStore {
 		if ($root === null) {
 			return null;
 		}
-		$name = $this->nameOf($file);
-		$base = substr($name, 0, -\strlen(self::VERSION));
 		// The current copy, or else one from before VERSION while it's remade.
-		foreach ([$name, ...array_map(fn (string $earlier): string => $base . $earlier, self::EARLIER)] as $candidate) {
+		foreach ($this->candidates($file) as $candidate) {
 			if (is_file("$root/$candidate.mp4")) {
 				return "$root/$candidate.mp4";
 			}
@@ -209,6 +209,44 @@ final class VideoStore {
 		$beside = self::beside($file);
 
 		return $beside === null ? null : self::localPath($beside);
+	}
+
+	/** The names $file's copy may have, newest first. @return list<string> */
+	private function candidates(File $file): array {
+		$name = $this->nameOf($file);
+		$base = substr($name, 0, -\strlen(self::VERSION));
+
+		return [$name, ...array_map(fn (string $earlier): string => $base . $earlier, self::EARLIER)];
+	}
+
+	/**
+	 * A local path to what the player needs to undo the rolling shutter of
+	 * the copy playable() serves for $file, or null: a copy stitched on the
+	 * GPU has it undone already, and one from before the player could do it
+	 * has nothing to undo it with.
+	 */
+	public function shutter(File $file): ?string {
+		$root = $this->root();
+		$isClip = strcasecmp($file->getExtension(), 'insv') === 0;
+		$master = $isClip ? self::master($file) : MotionStore::clipFor($file);
+		if ($root === null || $master === null) {
+			return null;
+		}
+		$path = $isClip ? $this->ready($master) : null;
+		$name = null;
+		if ($path !== null && \dirname($path) === $root) {
+			$name = basename($path, '.mp4');
+		} elseif ($path !== null || !$isClip) {
+			// The copy saved next to the clip: the newest one marked as such.
+			foreach ($this->candidates($master) as $candidate) {
+				if (is_file("$root/$candidate.beside")) {
+					$name = $candidate;
+					break;
+				}
+			}
+		}
+
+		return $name !== null && is_file("$root/$name.shutter") ? "$root/$name.shutter" : null;
 	}
 
 	/**
@@ -259,7 +297,8 @@ final class VideoStore {
 			// Keep the GPU worker's heartbeat: without it the settings page
 			// says no worker has been seen.
 			if (($keep !== null && str_starts_with(basename($path), $keep . '.')) || str_ends_with($path, '.beside')
-				|| basename($path) === 'worker.json') {
+				|| basename($path) === 'worker.json'
+				|| (str_ends_with($path, '.shutter') && is_file(substr($path, 0, -\strlen('.shutter')) . '.beside'))) {
 				continue;
 			}
 			if (is_dir($path)) {
@@ -285,6 +324,11 @@ final class VideoStore {
 				@unlink($path);
 			}
 		}
+		foreach (glob(($this->root() ?? '/nonexistent') . "/$fileId-*.shutter") ?: [] as $path) {
+			if (basename($path, '.shutter') !== $keep) {
+				@unlink($path);
+			}
+		}
 	}
 
 	/** How many copies are marked as saved next to their clips. */
@@ -296,6 +340,7 @@ final class VideoStore {
 	public function dropMarkers(int $fileId): void {
 		foreach (glob(($this->root() ?? '/nonexistent') . "/$fileId-*.beside") ?: [] as $path) {
 			@unlink($path);
+			@unlink(substr($path, 0, -\strlen('.beside')) . '.shutter');
 		}
 	}
 

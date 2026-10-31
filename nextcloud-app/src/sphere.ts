@@ -18,14 +18,18 @@ import {
   Mesh,
   MeshBasicMaterial,
   NearestFilter,
+  LinearFilter,
   PerspectiveCamera,
   RGBAFormat,
+  RedFormat,
+  RepeatWrapping,
   SRGBColorSpace,
   Scene,
   ShaderChunk,
   SphereGeometry,
   type Texture,
   TextureLoader,
+  UnsignedByteType,
   VideoTexture,
   WebGLRenderer,
 } from 'three';
@@ -37,6 +41,15 @@ import {
  * scaled by 32767 / pi); turning back by it locks the direction.
  */
 export type Motion = { period: number; frames: number; q: Int16Array; turn: Int16Array };
+
+/**
+ * What undoes the rolling shutter of a copy stitched on the CPU
+ * (VideoRenderer::writeShutter): `samples` turns across each frame's readout,
+ * w, x, y, z as (c + 1) / 2 * 65535, in the copy's own frame; and when each
+ * direction of the copy was read, as a fraction of the readout, one byte a
+ * cell, `width` by `height`, top row first.
+ */
+export type Shutter = { samples: number; turns: Uint16Array; width: number; height: number; rows: Uint8Array };
 
 /** Rows of the track texture: 4096 frames a row. WebGL2 only promises 2048, though desktop GPUs allow 4096 or more. */
 const TRACK_WIDTH = 4096;
@@ -61,13 +74,16 @@ uniform float uCodeRow;
 uniform float uStripTop;
 uniform highp sampler2D uTrack;
 uniform highp sampler2D uBakedTrack;
+uniform int uShutterFrames;
 varying float vStripTop;
+flat varying int vShutterFrame;
 vec3 turnBy(vec4 q, vec3 v) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
 `;
 const CODE_VERTEX_BODY = `
 vStripTop = 0.0;
+vShutterFrame = -1;
 vec4 steadyTurn = vec4(0.0, 0.0, 0.0, 1.0);
 if (uCoded) {
   float frameNumber = 0.0;
@@ -88,9 +104,51 @@ if (uCoded) {
     int k = min(int(frameNumber), size.x * size.y - 1);
     ivec2 at = ivec2(k % size.x, k / size.x);
     steadyTurn = baked ? texelFetch(uBakedTrack, at, 0) : texelFetch(uTrack, at, 0);
+    if (!baked && int(frameNumber) < uShutterFrames) vShutterFrame = int(frameNumber);
   }
 }
 transformed = turnBy(steadyTurn, transformed);
+`;
+
+/**
+ * The copy's own rolling shutter, undone as the GPU stitch does it
+ * (worker/stitch.cl, when_read): each direction is turned by the camera's
+ * turn to the moment its lens row was read, and looked up again where that
+ * lands, twice, because the turn moves the row. The copy is already blended,
+ * so the row is the two lenses' averaged across the hand-over
+ * (RemapTables::write). All in golblick's frame and equirectangular
+ * convention (render._rays), whose v runs down where three's runs up.
+ */
+const SHUTTER_FRAGMENT_HEAD = `
+varying float vStripTop;
+flat varying int vShutterFrame;
+uniform highp sampler2D uTurns;
+uniform sampler2D uRows;
+uniform int uSamples;
+vec3 shutterTurn(vec4 q, vec3 v) {
+  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}
+vec2 shutterAround(vec3 s) {
+  return vec2((atan(s.x, s.z) + PI) / PI2, (PI_HALF - asin(clamp(s.y, -1.0, 1.0))) / PI);
+}
+vec2 shutterUv(vec2 uv) {
+  if (vShutterFrame < 0) return vec2(uv.x, max(uv.y, vStripTop));
+  float lon = uv.x * PI2 - PI;
+  float lat = (uv.y - 0.5) * PI;
+  vec3 s = vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon));
+  vec3 t = s;
+  int width = textureSize(uTurns, 0).x;
+  for (int n = 0; n < 2; n++) {
+    float at = clamp(texture(uRows, shutterAround(t)).r, 0.0, 1.0) * float(uSamples - 1);
+    int j = min(int(floor(at)), uSamples - 2);
+    int k = uSamples * vShutterFrame + j;
+    vec4 a = texelFetch(uTurns, ivec2(k % width, k / width), 0);
+    vec4 b = texelFetch(uTurns, ivec2((k + 1) % width, (k + 1) / width), 0);
+    t = normalize(mix(shutterTurn(a, s), shutterTurn(b, s), at - float(j)));
+  }
+  vec2 g = shutterAround(t);
+  return vec2(g.x, max(1.0 - g.y, vStripTop));
+}
 `;
 
 export class SphereView {
@@ -120,6 +178,10 @@ export class SphereView {
     uStripTop: { value: 0 },
     uTrack: { value: SphereView.unturned },
     uBakedTrack: { value: SphereView.unturned },
+    uShutterFrames: { value: 0 },
+    uTurns: { value: SphereView.unturned },
+    uRows: { value: SphereView.unturned as Texture },
+    uSamples: { value: 2 },
   };
 
   /** Current view direction and vertical field of view, degrees. */
@@ -170,9 +232,9 @@ export class SphereView {
       // The code is never shown: the strip's rows sample the row above instead,
       // which smears a cap 2 degrees across under the camera.
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vStripTop;')
+        .replace('#include <common>', `#include <common>\n${SHUTTER_FRAGMENT_HEAD}`)
         .replace('#include <map_fragment>', ShaderChunk.map_fragment.replace(
-          'texture2D( map, vMapUv )', 'texture2D( map, vec2( vMapUv.x, max( vMapUv.y, vStripTop ) ) )'));
+          'texture2D( map, vMapUv )', 'texture2D( map, shutterUv( vMapUv ) )'));
     };
     const mesh = new Mesh(geometry, material);
     scene.add(mesh);
@@ -283,6 +345,7 @@ export class SphereView {
       material.map?.dispose();
       material.dispose();
       this.disposeTracks();
+      this.setShutter(null);
       renderer.dispose();
     });
   }
@@ -526,6 +589,33 @@ export class SphereView {
   private disposeTracks() {
     for (const texture of Object.values(this.tracks ?? {})) texture.dispose();
     this.tracks = null;
+  }
+
+  /** Undo the copy's rolling shutter with this; null to leave it in. */
+  public setShutter(shutter: Shutter | null) {
+    const uniforms = this.steadying;
+    if (uniforms.uTurns.value !== SphereView.unturned) uniforms.uTurns.value.dispose();
+    if (uniforms.uRows.value !== SphereView.unturned) uniforms.uRows.value.dispose();
+    uniforms.uTurns.value = SphereView.unturned;
+    uniforms.uRows.value = SphereView.unturned;
+    uniforms.uShutterFrames.value = 0;
+    if (shutter !== null) {
+      const count = shutter.turns.length / 4;
+      const turns = new Float32Array(4 * count);
+      for (let i = 0; i < count; i++) {
+        const [w, x, y, z] = Array.from(shutter.turns.subarray(4 * i, 4 * i + 4), (c) => c / 65535 * 2 - 1);
+        turns.set([x, y, z, w], 4 * i);
+      }
+      const rows = new DataTexture(shutter.rows, shutter.width, shutter.height, RedFormat, UnsignedByteType);
+      rows.minFilter = rows.magFilter = LinearFilter;
+      rows.wrapS = RepeatWrapping;
+      rows.needsUpdate = true;
+      uniforms.uTurns.value = SphereView.trackTexture(turns, count);
+      uniforms.uRows.value = rows;
+      uniforms.uSamples.value = shutter.samples;
+      uniforms.uShutterFrames.value = Math.floor(count / shutter.samples);
+    }
+    this.invalidate?.();
   }
 
   public setSteady(on: boolean) {

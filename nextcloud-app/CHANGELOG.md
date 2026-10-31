@@ -11,6 +11,7 @@ The Nextcloud app's changes. Versions before 0.8.1 are in the [releases on GitHu
 
 ### Changed
 
+- Copies stitched on the server's CPU now play without the wobble that fast movement leaves within each frame: the player takes it out as it plays, as the GPU worker does when it stitches. It applies to copies made from this version on, which after the upgrade is every clip as it's stitched again.
 - The GPU worker is version 4, which reads which track holds which lens. It restarts on the new version by itself after the upgrade; until it has, X5 clips are stitched on the server's CPU.
 
 ## 0.8.1 - 2026-10-26

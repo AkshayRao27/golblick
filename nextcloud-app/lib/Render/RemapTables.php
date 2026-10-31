@@ -50,6 +50,9 @@ final class RemapTables {
 	private const BAND_ACROSS = 13;
 	private const BAND_DEGREES = 6.0;
 
+	/** The width of write()'s map of when each direction was read; about 0.7 degrees a cell. */
+	public const ROWS_WIDTH = 512;
+
 	/**
 	 * How big to scale each lens before remapping to $width.
 	 *
@@ -71,11 +74,18 @@ final class RemapTables {
 	}
 
 	/**
+	 * Returns when each direction was read, for the player to undo the rolling
+	 * shutter of a copy stitched on the CPU (Stabilise::shutter has the turns;
+	 * the GPU stitch undoes it per lens instead): the lens row it comes from,
+	 * as a fraction of the lens's height, averaged across the hand-over by
+	 * lens 1's share, which keeps the correction continuous through the seam.
+	 * One byte a cell, ROWS_WIDTH by half that, top row first.
+	 *
 	 * @param array $orientation 3x3, as for Equirectangular::fromLensPair
 	 * @param int $lensSize the size each lens is scaled to before remapping
 	 */
 	public static function write(string $directory, Calibration $calibration, int $lensSize, int $width,
-		array $orientation, ?string $model, bool $guards = false, ?SeamPlan $plan = null): void {
+		array $orientation, ?string $model, bool $guards = false, ?SeamPlan $plan = null): string {
 		$height = intdiv($width, 2);
 		$lenses = self::lenses($calibration, $lensSize, $model, $guards);
 		$thetaMax = $lenses['thetaMax'];
@@ -90,6 +100,9 @@ final class RemapTables {
 		$files['mask'] = self::open("$directory/mask.pgm", "P5 $width $height 255\n");
 		$files['wide'] = self::open("$directory/wide.pgm", "P5 $width $height 255\n");
 		$last = $lensSize - 1;
+		$cells = self::ROWS_WIDTH;
+		$when = array_fill(0, $cells * intdiv($cells, 2), 0.0);
+		$counts = $when;
 
 		try {
 			for ($py = 0; $py < $height; ++$py) {
@@ -99,6 +112,7 @@ final class RemapTables {
 				$rows = ['x0' => [], 'y0' => [], 'x1' => [], 'y1' => []];
 				$mask = '';
 				$wide = '';
+				$cellRow = intdiv($py * intdiv($cells, 2), $height) * $cells;
 				for ($px = 0; $px < $width; ++$px) {
 					$longitude = ($px + 0.5) / $width * 2 * M_PI - M_PI;
 					$ox = $cosLat * sin($longitude);
@@ -117,6 +131,10 @@ final class RemapTables {
 						$rows['x' . $index][] = $seen ? max(0, min($last, (int)round($coords[$index][0]))) : 0;
 						$rows['y' . $index][] = $seen ? max(0, min($last, (int)round($coords[$index][1]))) : 0;
 					}
+					$read = ($share < 1.0 ? (1.0 - $share) * $coords[0][1] : 0.0) + ($share > 0.0 ? $share * $coords[1][1] : 0.0);
+					$cell = $cellRow + intdiv($px * $cells, $width);
+					$when[$cell] += max(0.0, min(1.0, $read / $lensSize));
+					++$counts[$cell];
 					$mask .= \chr((int)round(255.0 * $share));
 					$wide .= \chr((int)round(255.0 * self::wide($share, $across, $thetas, $thetaMax, $feather, $coarse)));
 				}
@@ -131,6 +149,12 @@ final class RemapTables {
 				fclose($handle);
 			}
 		}
+		$map = '';
+		foreach ($when as $cell => $sum) {
+			$map .= \chr($counts[$cell] > 0 ? (int)round(255.0 * $sum / $counts[$cell]) : 0);
+		}
+
+		return $map;
 	}
 
 	/**

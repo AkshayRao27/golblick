@@ -193,6 +193,27 @@ final class SphereController extends Controller {
 		return $response;
 	}
 
+	/**
+	 * What the player needs to undo the rolling shutter of a copy stitched on
+	 * the CPU (VideoStore::shutter). 404 for any other video: its copy is
+	 * corrected already, or can't be. The client puts the copy's etag in the URL.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/shutter/{fileId}', requirements: ['fileId' => '\d+'])]
+	public function shutter(int $fileId): Response {
+		$file = $this->file($fileId);
+		$path = $file === null ? null : $this->videos->shutter($file);
+		$json = $path === null ? false : @file_get_contents($path);
+		if ($json === false) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		$response = new DataDisplayResponse($json, Http::STATUS_OK, ['Content-Type' => 'application/json']);
+		$response->cacheFor(3600 * 24, false, false);
+
+		return $response;
+	}
+
 	/** The full-size panorama, the same image Memories gets on zoom. */
 	#[NoAdminRequired]
 	#[NoCSRFRequired]

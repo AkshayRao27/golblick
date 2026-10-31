@@ -144,6 +144,24 @@ final class PublicSphereController extends PublicShareController {
 		return $response;
 	}
 
+	/** What the player needs to undo a copy's rolling shutter (VideoStore::shutter), by the same rule as video(). */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/shutter/{fileId}', requirements: ['fileId' => '\d+'])]
+	public function shutter(string $token, int $fileId): Response {
+		[$file] = $this->file($fileId);
+		$allowed = $file !== null && (strcasecmp($file->getExtension(), 'insv') !== 0 || $this->masterShared($file));
+		$path = $allowed ? $this->videos->shutter($file) : null;
+		$json = $path === null ? false : @file_get_contents($path);
+		if ($json === false) {
+			return new JSONResponse([], Http::STATUS_NOT_FOUND);
+		}
+		$response = new DataDisplayResponse($json, Http::STATUS_OK, ['Content-Type' => 'application/json']);
+		$response->cacheFor(3600 * 24, false, false);
+
+		return $response;
+	}
+
 	#[PublicPage]
 	#[NoCSRFRequired]
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/sphere/{fileId}', requirements: ['fileId' => '\d+'])]
