@@ -854,9 +854,24 @@ def _open(args: argparse.Namespace, desktop) -> int:
     try:
         from . import viewer
     except ImportError as exc:
-        raise MissingDependency(
-            "the viewer window needs PySide6, which the 'desktop' extra installs: pip install 'golblick[desktop]'") from exc
+        raise _viewer_unavailable(exc) from exc
     return viewer.run(path)
+
+
+def _viewer_unavailable(exc: ImportError) -> MissingDependency:
+    """Say why the viewer can't load: PySide6 absent, or present without what it needs.
+
+    An installed PySide6 also fails to import when the system lacks a library
+    Qt links (libGL, libglib), and advising an install of PySide6 then
+    sends people the wrong way.
+    """
+    if isinstance(exc, ModuleNotFoundError) and exc.name == "PySide6":
+        return MissingDependency(
+            "the viewer window needs PySide6, which the 'desktop' extra installs: pip install 'golblick[desktop]'")
+    hint = ""
+    if "shared object" in str(exc):
+        hint = "; a system library Qt needs is missing, so install it with your distribution's package manager"
+    return MissingDependency(f"the viewer window couldn't load Qt: {exc}{hint}")
 
 
 def _notify(summary: str, body: str) -> None:

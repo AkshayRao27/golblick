@@ -116,6 +116,20 @@ def test_the_shader_lens_numbers_land_where_render_projects():
         assert numpy.allclose(shader.centre_y - r * numpy.sin(phi), v, atol=1e-6)
 
 
+def test_the_viewer_error_names_the_missing_library_rather_than_asking_for_pyside6():
+    absent = cli._viewer_unavailable(ModuleNotFoundError("No module named 'PySide6'", name="PySide6"))
+    assert "pip install 'golblick[desktop]'" in str(absent)
+
+    no_gl = cli._viewer_unavailable(ImportError("libGL.so.1: cannot open shared object file: No such file or directory"))
+    assert "libGL.so.1" in str(no_gl) and "package manager" in str(no_gl)
+    assert "golblick[desktop]" not in str(no_gl)
+
+    # PySide6 there but missing one of its modules: not "install PySide6" either.
+    partial = cli._viewer_unavailable(
+        ModuleNotFoundError("No module named 'PySide6.QtMultimedia'", name="PySide6.QtMultimedia"))
+    assert "PySide6.QtMultimedia" in str(partial) and "golblick[desktop]" not in str(partial)
+
+
 def test_an_opening_view_is_kept_by_name_and_size_and_can_be_forgotten(home, tmp_path):
     pytest.importorskip("PySide6")
     from golblick import viewer
