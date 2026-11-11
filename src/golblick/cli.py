@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -833,18 +832,34 @@ def cmd_open(args: argparse.Namespace) -> int:
     What a double-click on a .insp or .insv runs once ``golblick desktop install`` has
     made it the default (:mod:`golblick.desktop`).  Started from the desktop
     it has no terminal, so a failure is also shown as a notification.
-    """
-    from . import desktop
 
+    Without a file, as from a menu, it asks for one.  An AppImage started that
+    way first offers to set up double-click, which integrators such as Gear
+    Lever don't do: they add the menu entry but not the file types it lists.
+    """
     try:
-        return _open(args, desktop)
+        return _open(args)
     except GolblickError as exc:
-        _notify(f"golblick couldn't open {Path(args.file).name}", str(exc))
+        _notify(f"golblick couldn't open {Path(args.file).name}" if args.file else "golblick couldn't start", str(exc))
         raise
 
 
-def _open(args: argparse.Namespace, desktop) -> int:
+def _open(args: argparse.Namespace) -> int:
+    from . import desktop
+
     _require_render_extra()
+    if args.file is None:
+        try:
+            from . import viewer
+        except ImportError as exc:
+            raise _viewer_unavailable(exc) from exc
+        image = desktop.appimage()
+        if image and not desktop.is_installed(image) and viewer.asks_about_double_click():
+            viewer.offer_double_click(image)
+        chosen = viewer.choose_file()
+        if chosen is None:
+            return 0
+        args.file = str(chosen)
     path = Path(args.file)
     if not path.is_file():
         raise UnsupportedFile(f"{path}: no such file")
@@ -892,11 +907,7 @@ def cmd_desktop(args: argparse.Namespace) -> int:
     from . import desktop
 
     if args.action == "install":
-        executable = shutil.which("golblick") if args.executable is None else args.executable
-        if args.executable is None:
-            # The command running now: the one whose environment has the render extra.
-            here = Path(sys.argv[0]).resolve()
-            executable = str(here) if here.name == "golblick" else executable
+        executable = args.executable or desktop.this_command()
         if not executable:
             raise GolblickError("can't tell where the golblick command is; pass --executable")
         for line in desktop.install(executable):
@@ -1000,7 +1011,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="show a photo or play a video as a sphere in a viewer window",
         description="Shows the photo or plays the video as a sphere to look around in, projected by the GPU as it's drawn. A video also needs ffmpeg; on a OneR or X3 either of the clip's two files will do. Needs the 'desktop' extra.",
     )
-    view.add_argument("file")
+    view.add_argument("file", nargs="?", help="the photo or video; without one, golblick asks which")
     view.set_defaults(func=cmd_open)
 
     integrate = sub.add_parser(
@@ -1019,6 +1030,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv and not sys.stderr.isatty():
+        from . import desktop
+
+        # The AppImage file itself double-clicked: do what its menu entry does.
+        if desktop.appimage():
+            argv = ["open"]
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)

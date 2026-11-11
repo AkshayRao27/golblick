@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from importlib import resources
 from pathlib import Path
 
@@ -63,6 +64,38 @@ def data_home() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
 
 
+def appimage() -> str | None:
+    """The AppImage file this golblick runs from, or None outside one.
+
+    That file is what the desktop has to start: the directory golblick runs
+    in is a mount that goes away when it exits.  The AppImage runtime says
+    where both are in ``$APPIMAGE`` and ``$APPDIR``, but every process it
+    starts inherits them, so they are believed only when this interpreter is
+    inside ``$APPDIR``.  Otherwise a golblick installed with pip, run from a
+    terminal that some other AppImage opened, would register that one.
+    """
+    image, appdir = os.environ.get("APPIMAGE"), os.environ.get("APPDIR")
+    if not image or not appdir or not Path(image).is_file():
+        return None
+    try:
+        Path(sys.executable).resolve().relative_to(Path(appdir).resolve())
+    except ValueError:
+        return None
+    return image
+
+
+def this_command() -> str | None:
+    """The golblick command running now, the one whose environment has the extras.
+
+    The AppImage file when it is one, since the directory it runs in goes away.
+    """
+    image = appimage()
+    if image:
+        return image
+    here = Path(sys.argv[0]).resolve()
+    return str(here) if here.name == "golblick" else shutil.which("golblick")
+
+
 def install(executable: str, home: Path | None = None) -> list[str]:
     """Register ``.insp`` and ``.insv`` and make ``executable open`` their default application.
 
@@ -91,6 +124,21 @@ def install(executable: str, home: Path | None = None) -> list[str]:
     if _run(["xdg-mime", "default", DESKTOP_FILE, *MIME_TYPES]):
         done.append(f"made it the default for {', '.join(MIME_TYPES)}")
     return done
+
+
+def is_installed(executable: str, home: Path | None = None) -> bool:
+    """Whether :func:`install` has already been done for ``executable``, as this version does it.
+
+    Doesn't ask which application is the default: someone who has since
+    chosen another one keeps their choice.
+    """
+    home = home or data_home()
+    try:
+        return ((home / "applications" / DESKTOP_FILE).read_text(encoding="utf-8") == _desktop_entry(executable)
+                and (home / "mime" / "packages" / MIME_PACKAGE).read_text(encoding="utf-8") == MIME_XML
+                and _icon_path(home).is_file())
+    except OSError:
+        return False
 
 
 def uninstall(home: Path | None = None) -> list[str]:

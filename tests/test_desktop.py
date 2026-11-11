@@ -84,6 +84,216 @@ def test_desktop_install_from_the_cli_takes_the_given_command(home, capsys):
     assert "/usr/local/bin/golblick open" in capsys.readouterr().out
 
 
+@pytest.fixture
+def inside_appimage(tmp_path, monkeypatch):
+    """As the AppImage runtime starts golblick: its interpreter inside $APPDIR."""
+    image = tmp_path / "Apps" / "golblick.AppImage"
+    image.parent.mkdir()
+    image.write_bytes(b"x")
+    appdir = tmp_path / "mount"
+    (appdir / "usr/python/bin").mkdir(parents=True)
+    monkeypatch.setenv("APPIMAGE", str(image))
+    monkeypatch.setenv("APPDIR", str(appdir))
+    monkeypatch.setattr("sys.executable", str(appdir / "usr/python/bin/python3"))
+    return image
+
+
+def test_desktop_install_inside_an_appimage_registers_the_appimage_file(home, inside_appimage):
+    tmp, _ = home
+
+    assert cli.main(["desktop", "install"]) == 0
+
+    entry = (tmp / "data/applications/golblick-open.desktop").read_text()
+    assert f'Exec="{inside_appimage}" open %f' in entry
+
+
+def test_an_appimage_path_inherited_by_another_golblick_is_ignored(inside_appimage, monkeypatch):
+    assert desktop.appimage() == str(inside_appimage)
+    monkeypatch.setattr("sys.executable", "/usr/bin/python3")
+    assert desktop.appimage() is None
+
+
+class _Settings(dict):
+    """viewer.conf, in memory."""
+
+    def value(self, key, default=None):
+        return self.get(key, default)
+
+    setValue = dict.__setitem__
+
+
+@pytest.fixture
+def viewer_stand_in(monkeypatch):
+    """The viewer's question and file picker, recorded instead of shown, and its settings in memory."""
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    pytest.importorskip("PySide6")
+    from golblick import viewer
+
+    settings = _Settings()
+    monkeypatch.setattr(viewer, "_settings", lambda: settings)
+    offered = []
+
+    def offer(command, parent=None):
+        offered.append(command)
+        desktop.install(command)
+        return True
+
+    monkeypatch.setattr(viewer, "offer_double_click", offer)
+    monkeypatch.setattr(viewer, "choose_file", lambda: None)
+    monkeypatch.setattr(viewer, "run", lambda path: pytest.fail("a cancelled choice opened a window"))
+    return offered, settings
+
+
+def test_an_appimage_started_from_its_menu_entry_offers_double_click_once_then_asks_for_a_file(
+        home, inside_appimage, viewer_stand_in):
+    """Gear Lever's menu entry runs 'open' with no file, and adds no file types of its own."""
+    offered, _ = viewer_stand_in
+
+    assert cli.main(["open"]) == 0
+    assert offered == [str(inside_appimage)]
+
+    # Set up now, so the next start just asks for a file.
+    assert cli.main(["open"]) == 0
+    assert offered == [str(inside_appimage)]
+
+
+def test_an_appimage_told_not_to_ask_goes_straight_to_the_file(home, inside_appimage, viewer_stand_in):
+    offered, settings = viewer_stand_in
+    settings["desktop/ask"] = "false"   # as QSettings reads it back from the file
+
+    assert cli.main(["open"]) == 0
+    assert offered == []
+
+
+def test_a_file_opened_with_an_appimage_leaves_double_click_alone(home, inside_appimage, viewer_stand_in,
+                                                                  tmp_path, monkeypatch):
+    from golblick import viewer
+
+    offered, _ = viewer_stand_in
+    photo = tmp_path / "IMG_1.insp"
+    photo.write_bytes(b"x")
+    monkeypatch.setattr(cli, "detect", lambda path: object())
+    monkeypatch.setattr(cli, "_require_vendor", lambda name: None)
+    shown = []
+    monkeypatch.setattr(viewer, "run", lambda path: shown.append(path) or 0)
+
+    assert cli.main(["open", str(photo)]) == 0
+
+    assert shown == [photo] and offered == []
+
+
+def test_the_appimage_file_itself_double_clicked_does_what_its_menu_entry_does(home, inside_appimage, monkeypatch):
+    asked = []
+    monkeypatch.setattr(cli, "_open", lambda args: asked.append((args.command, args.file)) or 0)
+
+    assert cli.main([]) == 0
+
+    assert asked == [("open", None)]
+
+
+def test_golblick_with_no_arguments_outside_an_appimage_still_asks_for_a_command(home, monkeypatch):
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    with pytest.raises(SystemExit):
+        cli.main([])
+
+
+def test_open_with_no_file_outside_an_appimage_asks_for_one_and_offers_nothing(home, viewer_stand_in, monkeypatch):
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    offered, _ = viewer_stand_in
+
+    assert cli.main(["open"]) == 0
+    assert offered == []
+
+
+@pytest.fixture
+def qt(monkeypatch):
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    # Chosen, so golblick keeps it: a portal file dialog would open on the real desktop.
+    monkeypatch.setenv("QT_QPA_PLATFORMTHEME", "")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    from golblick import viewer
+
+    settings = _Settings()
+    monkeypatch.setattr(viewer, "_settings", lambda: settings)
+    return viewer, settings
+
+
+def _answer(button: str, tick: bool | None = None) -> None:
+    """Answer the question golblick is about to ask, once it is on screen."""
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+
+    def click() -> None:
+        box = QApplication.activeModalWidget()
+        if box is None:
+            QTimer.singleShot(10, click)
+            return
+        if tick is not None:
+            box.checkBox().setChecked(tick)
+        next(b for b in box.buttons() if b.text() == button).click()
+
+    QTimer.singleShot(0, click)
+
+
+def test_the_double_click_question_sets_up_only_on_yes_and_remembers_dont_ask(home, qt):
+    tmp, _ = home
+    viewer, settings = qt
+    entry = tmp / "data/applications/golblick-open.desktop"
+
+    _answer("Not now", tick=True)
+    assert viewer.offer_double_click("/opt/golblick.AppImage") is False
+    assert not entry.exists() and not viewer.asks_about_double_click()
+
+    # Asked again from the More menu, the box shows as ticked; cleared, the question at start comes back.
+    _answer("Not now", tick=False)
+    assert viewer.offer_double_click("/opt/golblick.AppImage") is False
+    assert viewer.asks_about_double_click()
+
+    _answer("Set up")
+    assert viewer.offer_double_click("/opt/golblick.AppImage") is True
+    assert desktop.is_installed("/opt/golblick.AppImage")
+
+
+def test_the_desktops_file_dialog_is_used_through_its_portal_only_when_qt_cant_load_the_desktops_theme(
+        qt, monkeypatch):
+    from PySide6.QtCore import QLibraryInfo
+
+    viewer, _ = qt
+    bundled = {}
+    viewer.prefer_portal_dialogs(bundled)   # this test run's PySide6 is a wheel, with Qt inside it
+    assert bundled == {"QT_QPA_PLATFORMTHEME": "xdgdesktopportal"}
+
+    chosen = {"QT_QPA_PLATFORMTHEME": "gtk3"}
+    viewer.prefer_portal_dialogs(chosen)
+    assert chosen == {"QT_QPA_PLATFORMTHEME": "gtk3"}
+
+    monkeypatch.setattr(QLibraryInfo, "path", staticmethod(lambda which: "/usr/lib/x86_64-linux-gnu/qt6/plugins"))
+    distribution = {}
+    viewer.prefer_portal_dialogs(distribution)
+    assert distribution == {}
+
+
+def test_the_file_picker_starts_where_the_last_file_came_from(tmp_path, qt, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    viewer, _ = qt
+    shown = []
+    trip = tmp_path / "trip"
+    trip.mkdir()
+
+    def dialog(parent, title, folder, filters, **options):
+        shown.append(folder)
+        return str(trip / "IMG_1.insp"), filters
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(dialog))
+
+    assert viewer.choose_file() == trip / "IMG_1.insp"
+    assert viewer.choose_file() == trip / "IMG_1.insp"
+    assert shown[1] == str(trip) and shown[0] != str(trip)
+
+
 def test_open_refuses_a_missing_file(home, capsys):
     pytest.importorskip("numpy")
     pytest.importorskip("PIL")

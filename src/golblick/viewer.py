@@ -1152,6 +1152,23 @@ def _controls(view: SphereView, path: Path, say) -> QWidget:
 
     here.triggered.connect(keep)
     reset.triggered.connect(forget)
+
+    # Shown until a double-click on a .insp opens this golblick: the way back
+    # to the question asked at start, after "Not now" or "Don't ask again".
+    from . import desktop
+
+    command = desktop.this_command()
+    if command and not desktop.is_installed(command):
+        line = menu.addSeparator()
+        double = menu.addAction(_icon("double_click"), "Set up double-click…")
+
+        def set_up() -> None:
+            if offer_double_click(command, view.window()):
+                line.setVisible(False)
+                double.setVisible(False)
+                say("Double-clicking a .insp or .insv opens it in golblick now.")
+
+        double.triggered.connect(set_up)
     for button in [*buttons, full, more]:
         row.addWidget(button)
     bar.adjustSize()
@@ -1532,13 +1549,123 @@ def open_window(path: str | Path) -> SphereView:
 IMAGE_LIMIT_MB = 1024
 
 
-def run(path: str | Path) -> int:
-    """Open the window and run until it is closed."""
+PORTAL_THEME = "xdgdesktopportal"
+
+
+def prefer_portal_dialogs(environ=os.environ) -> None:
+    """Have the desktop's own file dialog drawn, through its portal, when Qt can't load the desktop's theme.
+
+    The Qt in PySide6's wheels (the AppImage, a pip install) can't load
+    Plasma's theme plugin, which is built against the system's Qt, so it falls
+    back to Qt's own file dialog.  A Qt from the distribution can, and a theme
+    someone chose is theirs, so both are left alone.
+    """
+    import PySide6
+    from PySide6.QtCore import QLibraryInfo
+
+    if "QT_QPA_PLATFORMTHEME" in environ:
+        return
+    plugins = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)).resolve()
+    if plugins.is_relative_to(Path(PySide6.__file__).parent.resolve()):
+        environ["QT_QPA_PLATFORMTHEME"] = PORTAL_THEME
+
+
+def _await_portal(app: QApplication) -> None:
+    """Let the portal theme learn the file chooser's version before a file dialog opens.
+
+    Qt asks for it asynchronously at start (qxdgdesktopportaltheme.cpp, Qt
+    6.12) and a dialog opened before the reply is handled is Qt's own.  The
+    portal answers in order, so once a blocking call for the same property
+    returns, Qt's reply is in and one pass of events delivers it.
+    """
+    if os.environ.get("QT_QPA_PLATFORMTHEME") != PORTAL_THEME:
+        return
+    from PySide6.QtDBus import QDBus, QDBusConnection, QDBusMessage
+
+    message = QDBusMessage.createMethodCall(
+        "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+        "org.freedesktop.DBus.Properties", "Get")
+    message.setArguments(["org.freedesktop.portal.FileChooser", "version"])
+    QDBusConnection.sessionBus().call(message, QDBus.CallMode.Block, 2000)
+    app.processEvents()
+
+
+def _application() -> QApplication:
     from PySide6.QtGui import QImageReader
 
     QImageReader.setAllocationLimit(IMAGE_LIMIT_MB)
+    if QApplication.instance() is None:
+        prefer_portal_dialogs()
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("golblick")
     app.setDesktopFileName("golblick-open")
+    return app
+
+
+def choose_file() -> Path | None:
+    """Ask which photo or video to open, for golblick started from a menu with none; None if cancelled.
+
+    Starts in the folder the last one came from.
+    """
+    from PySide6.QtWidgets import QFileDialog
+
+    _await_portal(_application())
+    settings = _settings()
+    folder = str(settings.value("open/folder", "") or "")
+    if not folder or not Path(folder).is_dir():
+        folder = str(Path.home())
+    name, _ = QFileDialog.getOpenFileName(
+        None, "Open a 360 photo or video", folder,
+        "360 photos and videos (*.insp *.insv *.INSP *.INSV);;All files (*)",
+        options=QFileDialog.Option.HideNameFilterDetails)
+    if not name:
+        return None
+    settings.setValue("open/folder", str(Path(name).parent))
+    return Path(name)
+
+
+def asks_about_double_click() -> bool:
+    """Whether golblick, started from a menu, asks to set up double-click: until told not to."""
+    return _flag(_settings().value("desktop/ask", True))
+
+
+def offer_double_click(command: str, parent: QWidget | None = None) -> bool:
+    """Ask whether a double-click on a .insp or .insv should open it with ``command``; True if now it does.
+
+    Asked when an AppImage starts from a menu, unless "Don't ask again" was
+    ticked, and from the More menu, where answering with the box clear turns
+    the question at start back on.
+    """
+    from PySide6.QtWidgets import QCheckBox, QMessageBox
+
+    from . import desktop
+
+    _application()
+    box = QMessageBox(parent)
+    box.setWindowTitle("golblick")
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setText("Open 360 photos and videos in golblick when you double-click them?")
+    box.setInformativeText("golblick becomes the default application for .insp and .insv files, for your user account only. Other image viewers and video players can still open them.\n\nTo decide later, choose Set up double-click in the More menu (⋮) of golblick's window.")
+    yes = box.addButton("Set up", QMessageBox.ButtonRole.AcceptRole)
+    box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(yes)
+    never = QCheckBox("Don't ask again when golblick starts")
+    never.setChecked(not asks_about_double_click())
+    box.setCheckBox(never)
+    box.exec()
+    if box.clickedButton() is not yes:
+        _settings().setValue("desktop/ask", not never.isChecked())
+        return False
+    try:
+        desktop.install(command)
+    except OSError as exc:
+        QMessageBox.warning(parent, "golblick", f"Couldn't set up double-click: {exc}")
+        return False
+    return True
+
+
+def run(path: str | Path) -> int:
+    """Open the window and run until it is closed."""
+    app = _application()
     window = open_window(path)  # noqa: F841 - kept alive until exec returns
     return app.exec()
