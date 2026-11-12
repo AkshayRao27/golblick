@@ -73,6 +73,14 @@ What it doesn't cover, and why:
 - **Class and method names are not API.** If Memories renames them, the middleware stops matching and both zoom and Memories' sphere show the lens pair again.
 - ⚠️ When testing a redeploy, the official image runs `opcache.revalidate_freq=60`, and Apache's workers keep the old bootstrap: a newly registered middleware did nothing until `apachectl graceful`.
 
+## Memories' Android app (1.17 and later)
+
+From `android/1.17` (upstream `9f547dcd9`) the app serves the timeline from a local shell (`server/shell/ShellPage.kt`) built from `/api/describe?manifest=1`: a signed DSSE manifest of Memories' own scripts plus its stylesheets, under `script-src 'self' blob: 'nonce-…'`. Scripts added through the server's page template, `LoadSphereViewer` included, are never part of it, so no golblick front end runs in the app: no buttons, no auto-open preference, no video sphere. That is the design, not a markup change to follow.
+
+What still works is server-side. The app's API calls reach the server, so `MemoriesZoom` applies. "View panorama" (`Viewer.vue`, `if: isPanorama && !isVideo`, `isPanorama` = `pano > 0`) opens `PsPhotoSphere` on `/api/image/decodable/{id}` and switches the native image off while the sphere is open (`nxImageDisabled`). A `.insp` is `pano = 1`, so it waits for the button. Videos play in the native player (`viewVideoIsEnabled()`), and `PsPhotoSphere` skips videos, so a stitched `.360.mp4` plays flat although Memories stores it as `pano = 2`. Only upstream can change that: memories#1739.
+
+🔴 **`pano` has no backfill.** Migration `Version900004Date20261005000000` (Memories 10.0.0) adds the column with default 0, and `TimelineWrite` sets it only when a file is indexed; the indexer skips unchanged files. A library indexed before 10.0 keeps every row at 0, so "View panorama" appears nowhere. In the browser this was invisible, because golblick's own button shows exactly when `pano` is 0. Measured on one library after weeks on 10.x and 11.1.2: all 121,441 rows at 0, while files added since the upgrade had values. `occ memories:index -u <user> --force --path <folder>` over the 24 folders holding `.insp` set all 1,432 to 1 in about 6.5 minutes, and "View panorama" then opened them in the app with the stitched panorama.
+
 ## Sphere viewer (`src/`, built into `js/`)
 
 `lib/Listener/LoadSphereViewer.php` adds `js/golblick-main.mjs` to every logged-in page rendered for `files`, `photos` and `memories` (`BeforeTemplateRenderedEvent`). Nothing in those apps is configured or patched. The script adds a **View as sphere** entry in three places; all three open the same full-window overlay (`src/overlay.ts`), which starts on `/core/preview?…&x=2048` and swaps in `/apps/golblick/sphere/{id}` (the `PanoramaStore` render shared with `MemoriesZoom`). three.js loads as a separate chunk only when a sphere opens.

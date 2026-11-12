@@ -24,7 +24,7 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
 |---|---|
 | Cameras | Insta360 OneR, X3 and X5: photos (`.insp`) and videos (`.insv`) |
 | Nextcloud | 33 to 35. Photos tested on 33 and 35.0.0, videos on 35.0.0; 34 is assumed to work |
-| Memories | Tested with 9.0.1 and 10.0.0 |
+| Memories | Tested with 9.0.1, 10.0.0 and 11.1.2. In Memories' Android app, photos only: see [In the Memories Android app](#in-the-memories-android-app) |
 | PHP | Tested on 8.4 and 8.5 |
 | Server setups | Tested on the official `nextcloud` Docker image (Debian, Apache with PHP built in) and on Nextcloud AIO v14.2.0 (Alpine, PHP-FPM). On AIO, read [the note on RAW photos](#nextcloud-aio-and-raw-photos) |
 | For photos | Nothing beyond what Nextcloud already needs (PHP with GD) |
@@ -81,7 +81,7 @@ By default it faces the same way as the middle of Insta360 Studio's export of th
 
 A bar along the bottom turns the view, zooms and switches to full screen, for a touchscreen or anyone without a mouse wheel. To have the photo open somewhere else, look that way and choose **Open facing this way** from the bar's **⋮** menu. Everyone who opens it then starts there, in Memories' sphere view too, and **Reset point of view** in the same menu undoes it. It's kept in the app's data, not in the photo, and only someone who can change the file can set it. A video's opening view works the same way, set at the start of the video, and is shared by every file of the clip and its stitched copy. Memories may keep showing the old view for up to a day, because the browser keeps the image that long.
 
-The buttons in the image viewer and in Memories are a stopgap. Neither app has a way for other apps to add buttons, so golblick inserts them into the page itself. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and each app's button can be switched off on the settings page. Memories 10 has its own sphere view. On those, a `.insp` gets Memories' "View panorama" button instead of golblick's once it has been re-indexed (`occ memories:index --force`), and golblick makes that view show the stitched panorama.
+The buttons in the image viewer and in Memories are a stopgap. Neither app has a way for other apps to add buttons, so golblick inserts them into the page itself. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and each app's button can be switched off on the settings page. Memories 10 and later have their own sphere view. There, a `.insp` gets Memories' "View panorama" button instead of golblick's, and golblick makes that view show the stitched panorama. Memories only notices that a photo is a panorama when it indexes the file, and it doesn't go back over files it indexed before version 10. If you used Memories before 10, run `occ memories:index --force` once, with `--path` to limit it to the folders that hold your `.insp` photos if the whole library would take too long. Until then, a `.insp` gets no "View panorama" button in Memories' Android app.
 
 Visitors to a public share link get the Files and image viewer buttons too, as long as the share lets them see its files and, if it has a password, once they've entered it. The first time someone opens a photo as a sphere the server renders its full-size panorama, so a visitor can make it do that for every `.insp` in a shared folder. If that's a concern, switch it off under **Public share links** on the settings page.
 
@@ -116,7 +116,16 @@ With **Save each stitched copy next to its clip** on, each finished copy moves i
 
 The copies count against that folder's storage, about 125 MB for every GB of clips at 2880 wide and 220 MB at 3840, and are synced to desktop clients like any other file. On Windows and macOS, Insta360's own software plays the clips, so a desktop there doesn't need the copies: add `*.360.mp4` to the client's ignored files (**Edit Ignored Files** in the client's settings). A client that uses virtual files, as the macOS one does by default, only downloads a copy if it's opened. Insta360 has no software for Linux, so on a Linux desktop the copies are the way to watch the clips.
 
+In Memories' Android app the copies play flat; see the next section.
+
 When a copy is made again, the old one is replaced without being kept as a file version. Deleting a copy doesn't bring it back. To remove them all, use **Delete copies saved next to clips** in the Videos section: they go to the trash bin, and with stitching and saving still on they're made again. Changing the video size doesn't need it: each clip is stitched again at the new size and its copy replaced, and the old one plays until then.
+
+### In the Memories Android app
+
+Since version 1.17, Memories' Android app shows the timeline from its own copy of Memories and doesn't run scripts that other apps add to the page. None of golblick's buttons or players appear there, and the choices on golblick's personal settings page don't apply.
+
+- **Photos** open as a sphere from **View panorama** in the viewer's menu. That is Memories' own sphere, and golblick hands it the stitched panorama, so it needs Memories 10 or later and the re-index described in [Viewing a photo as a sphere](#viewing-a-photo-as-a-sphere). They don't open as a sphere by themselves.
+- **Videos** play flat. Memories can't play a video on a sphere yet ([memories#1739](https://github.com/pulsejet/memories/issues/1739)). In the phone's browser, golblick's player works as it does on a computer.
 
 ### Stitching on a GPU
 
@@ -149,7 +158,7 @@ Upgrading the app replaces its folder, and the worker's view of it with it. From
 - switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one
 - the Videos section: the switches described under [Videos](#videos), the video size, how far stitching has got, whether the GPU worker is running, **Delete stitched videos** and **Delete copies saved next to clips**
 
-**Personal settings → Golblick (360° Photos)** lets each user choose what happens when a 360° video or photo opens in Memories. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. In the sphere, the left and right arrow keys go on to the previous or next item.
+**Personal settings → Golblick (360° Photos)** lets each user choose what happens when a 360° video or photo opens in Memories in a browser. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. In the sphere, the left and right arrow keys go on to the previous or next item.
 
 ## Nextcloud AIO and RAW photos
 
