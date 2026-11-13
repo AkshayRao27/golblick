@@ -2,7 +2,7 @@
 
 The Nextcloud app's changes. Versions before 0.8.1 are in the [releases on GitHub](https://github.com/AkshayRao27/golblick/releases), which also cover the command-line tool and the desktop viewer.
 
-## Unreleased
+## 0.9.1 - 2026-11-13
 
 ### Added
 
