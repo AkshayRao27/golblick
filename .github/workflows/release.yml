@@ -3,15 +3,24 @@ name: Release
 # Publishing a GitHub release uploads the Python package to PyPI, and builds the
 # AppImage and attaches it to the release. PyPI trusts this workflow by name (a
 # trusted publisher), so no token is stored anywhere.
+#
+# Run by hand with a release's tag, it builds and attaches only the AppImage,
+# for a release whose AppImage failed or is missing.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the published release to attach the AppImage to
+        required: true
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -43,13 +52,26 @@ jobs:
 
   appimage:
     # After the version check in build, so a mismatched tag uploads nothing.
+    # Run by hand, build is skipped and the check below stands in for it.
     needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.build.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: astral-sh/setup-uv@v10.3.2
+      - name: The tag names the version being built
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          case "${TAG#v}" in
+            "$version" | "$version"-*) ;;
+            *) echo "Tag $TAG doesn't match version $version in pyproject.toml"; exit 1 ;;
+          esac
       - name: Libraries Qt needs to draw the icon offscreen
         run: sudo apt-get update -q && sudo apt-get install -y -q libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - run: packaging/appimage/build.sh
@@ -57,12 +79,12 @@ jobs:
         run: |
           image=$(ls build/appimage/out/*.AppImage)
           "$image" --appimage-extract-and-run vendors
-          "$image" --appimage-extract-and-run --appimage-extract >/dev/null
+          "$image" --appimage-extract >/dev/null
           QT_QPA_PLATFORM=offscreen squashfs-root/usr/python/bin/python3 -I -c "import golblick.viewer"
       - name: Attach it to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" build/appimage/out/*.AppImage build/appimage/out/*.zsync --clobber
+        run: gh release upload "$TAG" build/appimage/out/*.AppImage build/appimage/out/*.zsync --clobber
 
   pypi:
     needs: build
