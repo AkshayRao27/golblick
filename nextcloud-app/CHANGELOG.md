@@ -2,6 +2,16 @@
 
 The Nextcloud app's changes. Versions before 0.8.1 are in the [releases on GitHub](https://github.com/AkshayRao27/golblick/releases), which also cover the command-line tool and the desktop viewer.
 
+## Unreleased
+
+### Added
+
+- The setup check counts the `.insp` photos that Memories hasn't marked as panoramas. Memories 10 and later mark a photo when they index it and don't go back over photos indexed before the upgrade, so those have no "View panorama" until they're re-indexed, and in Memories' Android app that button is the only way to see them as a sphere. The check says which command fixes it.
+
+### Changed
+
+- The personal settings page says its choices apply in a browser. Memories' Android app, from version 1.17, doesn't run golblick's script: photos open as a sphere from Memories' own "View panorama", and videos play flat. See [In the Memories Android app](README.md#in-the-memories-android-app).
+
 ## 0.9.0 - 2026-11-01
 
 ### Fixed

@@ -15,7 +15,7 @@ const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices
   {
     name: 'open_video',
     title: '360° videos in Memories',
-    hint: 'Memories plays a 360° video as a flat, stretched rectangle. This applies to stitched copies and to any MP4 marked as 360° video.',
+    hint: 'Memories plays a 360° video as a flat, stretched rectangle. This applies to stitched copies and to any MP4 marked as 360° video, in a browser. Memories\' Android app always plays them flat.',
     choices: [
       ['sphere', 'Open as a sphere'],
       ['paused', 'Show flat, without playing; the sphere button plays it as a sphere'],
@@ -25,7 +25,7 @@ const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices
   {
     name: 'open_photo',
     title: '360° photos in Memories',
-    hint: 'Memories 10 also has its own "View panorama" button, which shows the same panorama.',
+    hint: 'Memories 10 also has its own "View panorama" button, which shows the same panorama. In Memories\' Android app, photos always open flat and that button is the way to the sphere.',
     choices: [
       ['flat', 'Show flat, with a sphere-viewer button'],
       ['sphere', 'Open as a sphere'],

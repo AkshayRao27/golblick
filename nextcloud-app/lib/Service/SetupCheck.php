@@ -77,6 +77,10 @@ final class SetupCheck {
 		}
 
 		$checks[] = $this->memoriesCheck();
+		$pano = $this->memoriesPanoCheck();
+		if ($pano !== null) {
+			$checks[] = $pano;
+		}
 
 		if (extension_loaded('imagick')) {
 			// Asking for the format list is safe without the RAW coder (it
@@ -220,6 +224,50 @@ final class SetupCheck {
 
 		return $this->item('memories', 'warn', "Memories $version: the zoom fix cannot attach",
 			"This Memories version no longer has the class or method the fix looks for ($class::decodable), so zooming in shows the fisheye pair. Previews are not affected.");
+	}
+
+	/**
+	 * Memories 10 added `pano` with a default of 0 and fills it in only when it
+	 * indexes a file, so a .insp indexed before the upgrade has no "View
+	 * panorama" until it is re-indexed. The Android app has no other way to show
+	 * it as a sphere. AGENT-NOTES § Memories' Android app.
+	 */
+	private function memoriesPanoCheck(): ?array {
+		if (!$this->appManager->isEnabledForAnyone('memories')
+			|| version_compare($this->appManager->getAppVersion('memories'), '10.0.0', '<')) {
+			return null;
+		}
+		try {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('m.pano')
+				->selectAlias($qb->func()->count('m.fileid'), 'n')
+				->from('memories', 'm')
+				->innerJoin('m', 'filecache', 'f', $qb->expr()->eq('f.fileid', 'm.fileid'))
+				->where($qb->expr()->iLike('f.name', $qb->createNamedParameter('%.insp')))
+				->groupBy('m.pano');
+			$result = $qb->executeQuery();
+			$indexed = 0;
+			$flat = 0;
+			while ($row = $result->fetch()) {
+				$indexed += (int)$row['n'];
+				if ((int)$row['pano'] === 0) {
+					$flat += (int)$row['n'];
+				}
+			}
+			$result->closeCursor();
+		} catch (\Throwable) {
+			return null;
+		}
+		if ($indexed === 0) {
+			return null;
+		}
+		if ($flat === 0) {
+			return $this->item('memories_pano', 'ok', "Memories offers \"View panorama\" for all $indexed .insp photos",
+				'That is also how they open as a sphere in Memories\' Android app.');
+		}
+
+		return $this->item('memories_pano', 'warn', "$flat of $indexed .insp photos have no \"View panorama\" in Memories",
+			'Memories marks a photo as a panorama when it indexes it, and doesn\'t go back over photos it indexed before version 10. Without the mark, Memories\' Android app can\'t show them as a sphere; in a browser, golblick\'s own button stands in. Re-index them with "occ memories:index --force". On a large library, add --user and --path to limit it to the folders that hold .insp photos.');
 	}
 
 	/** @return array{id: string, level: 'ok'|'warn'|'error'|'info', title: string, detail: string} */
