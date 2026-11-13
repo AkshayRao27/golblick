@@ -1,7 +1,8 @@
 name: Release
 
-# Publishing a GitHub release uploads the Python package to PyPI. PyPI trusts
-# this workflow by name (a trusted publisher), so no token is stored anywhere.
+# Publishing a GitHub release uploads the Python package to PyPI, and builds the
+# AppImage and attaches it to the release. PyPI trusts this workflow by name (a
+# trusted publisher), so no token is stored anywhere.
 on:
   release:
     types: [published]
@@ -39,6 +40,29 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  appimage:
+    # After the version check in build, so a mismatched tag uploads nothing.
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+      - name: Libraries Qt needs to draw the icon offscreen
+        run: sudo apt-get update -q && sudo apt-get install -y -q libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - run: packaging/appimage/build.sh
+      - name: The AppImage starts, and its viewer imports
+        run: |
+          image=$(ls build/appimage/out/*.AppImage)
+          "$image" --appimage-extract-and-run vendors
+          "$image" --appimage-extract-and-run --appimage-extract >/dev/null
+          QT_QPA_PLATFORM=offscreen squashfs-root/usr/python/bin/python3 -I -c "import golblick.viewer"
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" build/appimage/out/*.AppImage build/appimage/out/*.zsync --clobber
 
   pypi:
     needs: build

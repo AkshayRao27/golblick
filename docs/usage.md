@@ -183,7 +183,7 @@ To open photos and videos by double-clicking them, run this once:
 golblick desktop install
 ```
 
-It gives `.insp` and `.insv` files types of their own, as kinds of JPEG and MP4 so your other image viewers and video players still offer to open them, makes `golblick open` the default for both, and installs golblick's icon. Everything goes in your own `~/.local/share`, and `golblick desktop uninstall` removes it. Files are recognised by their extension; `open` checks the content and refuses anything that isn't an Insta360 photo or video. `.lrv` files are left as ordinary MP4s. If you ran `desktop install` before videos were added, or before it had an icon, run it again.
+It gives `.insp` and `.insv` files types of their own, as kinds of JPEG and MP4 so your other image viewers and video players still offer to open them, makes `golblick open` the default for both, and installs golblick's icon. Everything goes in your own `~/.local/share`, and `golblick desktop uninstall` removes it. Files are recognised by their extension; `open` checks the content and refuses anything that isn't an Insta360 photo or video. `.lrv` files are left as ordinary MP4s. If you ran `desktop install` before videos were added, or before it had an icon, run it again. From the AppImage, `golblick-<version>-x86_64.AppImage desktop install` registers the AppImage file itself, and an AppImage started without a file offers to do it; **Set up double-click** in the viewer's **⋮** menu asks again.
 
 Thumbnails come from your file manager, not from golblick. Because the files count as JPEGs and MP4s, a photo gets the small panorama the camera stores in it (the fisheye pair on a OneR or X3), and a video gets one lens's fisheye circle. In KDE's Dolphin both appear once previews are on.
 

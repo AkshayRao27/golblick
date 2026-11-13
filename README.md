@@ -99,6 +99,8 @@ uv tool install 'golblick[desktop]'
 golblick desktop install
 ```
 
+Or download `golblick-<version>-x86_64.AppImage` from the newest [release](https://github.com/AkshayRao27/golblick/releases): Python, the viewer and Qt in one file of about 100 MB, with nothing else to install. Started from the application menu, or by opening the file itself, it asks whether `.insp` and `.insv` files should open in golblick when double-clicked, then asks which file to open. [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) adds it to the menu and keeps it up to date from the releases. Videos still need ffmpeg installed.
+
 ## More
 
 - [docs/usage.md](docs/usage.md): every command, with example output
