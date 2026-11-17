@@ -72,7 +72,7 @@ if (config.files) registerFileAction({
   displayName: () => 'Play as sphere',
   iconSvgInline: () => svgIcon(mdiPanoramaSphereOutline),
   enabled: ({ nodes }) => nodes.length === 1 && nodes[0].fileid !== undefined
-    && (isInsv(nodes[0].basename) || isSphereCopy(nodes[0].basename) || isMarkedSphere(nodes[0].attributes?.[SPHERE_METADATA])),
+    && (isInsv(nodes[0].basename) || isSphereCopy(nodes[0].basename) || (isMarkedSphere(nodes[0].attributes?.[SPHERE_METADATA]) && nodes[0].mime?.startsWith('video/') === true)),
   exec: async ({ nodes }) => {
     const node = nodes[0];
     openSphere(Number(node.fileid), String(node.attributes?.etag ?? ''), node.basename, true);
