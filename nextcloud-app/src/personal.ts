@@ -30,7 +30,7 @@ const GROUPS: { title: string; hint?: string; questions: Question[] }[] = [
       {
         name: 'open_video',
         title: '360° videos',
-        hint: 'Memories plays a 360° video as a flat, stretched rectangle. This applies to stitched copies and to any MP4 marked as 360° video, in a browser. Memories\' Android app always plays them flat.',
+        hint: 'Memories plays a 360° video as a flat, stretched rectangle. This applies to any MP4 marked as 360° video, in a browser. Memories\' Android app always plays them flat.',
         choices: VIDEO_CHOICES,
       },
       {
@@ -43,7 +43,7 @@ const GROUPS: { title: string; hint?: string; questions: Question[] }[] = [
   },
   {
     title: 'On links you share from Memories',
-    hint: 'What someone who opens a link you made in Memories sees, signed in or not. A link shared from Files opens a 360° video as a sphere when it\'s clicked.',
+    hint: 'What someone who opens a link you made in Memories sees. A link shared from the "Files" app opens a 360° video as a sphere when it\'s clicked.',
     questions: [
       { name: 'share_video', title: '360° videos', choices: VIDEO_CHOICES },
       { name: 'share_photo', title: '360° photos', choices: PHOTO_CHOICES },
