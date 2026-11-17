@@ -80,7 +80,8 @@ final class PublicSphereController extends PublicShareController {
 
 	#[\Override]
 	protected function isPasswordProtected(): bool {
-		return $this->share?->isPasswordProtected() ?? false;
+		// Not IShare::isPasswordProtected(): that arrived in Nextcloud 35.
+		return $this->share?->getPassword() !== null;
 	}
 
 	/** As SphereController::info, plus the file's path in the share for its public preview. */
