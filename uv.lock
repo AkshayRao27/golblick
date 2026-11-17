@@ -30,7 +30,7 @@ wheels = [
 
 [[package]]
 name = "golblick"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "." }
 
 [package.optional-dependencies]
