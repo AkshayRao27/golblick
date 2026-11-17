@@ -43,6 +43,10 @@ const isInsp = (name: string | undefined) => !!name && name.toLowerCase().endsWi
 const isInsv = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.insv');
 // A clip's stitched copy saved next to it (VideoStore::BESIDE on the server).
 const isSphereCopy = (name: string | undefined) => !!name && name.toLowerCase().endsWith('.360.mp4');
+// Any other 360 MP4, such as a Studio export, as the server marked it in the
+// file's metadata (lib/Listener/MarkSphericalVideo.php), which init.ts asks Files to fetch.
+const SPHERE_METADATA = 'metadata-golblick-sphere';
+const isMarkedSphere = (value: unknown) => value === true || value === 1 || value === '1' || value === 'true';
 
 // ---- Files: a proper file action -------------------------------------------
 
@@ -61,14 +65,14 @@ if (config.files) registerFileAction({
 
 // Videos: the same sphere, playing. The default action for an .insv, so a
 // click plays it; nothing else in Nextcloud can (see Preview/Insta360Video.php).
-// Also for a stitched copy saved next to its clip, which the Viewer would
-// otherwise play flat.
+// Also for a stitched copy saved next to its clip, and any other 360 MP4,
+// which the Viewer would otherwise play flat.
 if (config.files) registerFileAction({
   id: 'golblick-video',
   displayName: () => 'Play as sphere',
   iconSvgInline: () => svgIcon(mdiPanoramaSphereOutline),
-  enabled: ({ nodes }) => nodes.length === 1 && (isInsv(nodes[0].basename) || isSphereCopy(nodes[0].basename))
-    && nodes[0].fileid !== undefined,
+  enabled: ({ nodes }) => nodes.length === 1 && nodes[0].fileid !== undefined
+    && (isInsv(nodes[0].basename) || isSphereCopy(nodes[0].basename) || isMarkedSphere(nodes[0].attributes?.[SPHERE_METADATA])),
   exec: async ({ nodes }) => {
     const node = nodes[0];
     openSphere(Number(node.fileid), String(node.attributes?.etag ?? ''), node.basename, true);

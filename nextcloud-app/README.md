@@ -94,6 +94,18 @@ Each step is a switch on **Administration settings → Golblick (360° Photos)**
 3. **Save each stitched copy next to its clip**, to see the videos in Memories. See [In Memories](#in-memories).
 4. Optionally, **Bake steadying into each copy**, so the copies play steady in any player and when downloaded. That needs the GPU worker; see [Stitching on a GPU](#stitching-on-a-gpu).
 
+### 360° videos from other software
+
+A 360° MP4 that golblick didn't make, such as an export from Insta360 Studio, plays as a sphere too, from the sphere button in Memories and from **Play as sphere** in Files, which is also what clicking it does. It plays the file as it is, so a large export may need a moment to buffer.
+
+Files offers it once the server has read the video's header, which happens in a background job soon after the file is added. For videos that were already there before this version, run this once:
+
+```sh
+occ files:scan --all --generate-metadata=golblick-sphere
+```
+
+It looks at every file Nextcloud knows about, so on a large instance it can take a while, but it only opens MP4 and MOV files and doesn't touch other apps' metadata.
+
 ### Stitching
 
 On the server's CPU, stitching is slow, needs memory, and the copies are big. At the default 2880 × 1440, each second of video takes about 14 CPU-seconds, so a five-minute clip takes 15 minutes or more on four cores. A render needs about 1 GB of memory, and the copies take about 5 GB per hour of video. At 3840 × 1920, which you can pick under **Video size**, it's 18 to 25 CPU-seconds, 1.5 GB and 9 GB. 3840 looks sharper but is harder to play: in Firefox decoding video on the CPU, the sphere player managed about 19 frames a second of a 30 fps copy, against about 25 at 2880. A browser that decodes video on the graphics card plays 3840 more smoothly; on Linux, Firefox does that through VA-API when the graphics driver supports it, which the Snap build can't use with every driver. While a clip is being stitched, the rest of Nextcloud can feel slow on a small server, because stitching holds that memory and writes a lot to disk; the lowest priority only protects CPU time. The [GPU worker](#stitching-on-a-gpu) takes nearly all of that off the server.

@@ -4,6 +4,10 @@ The Nextcloud app's changes. Versions before 0.8.1 are in the [releases on GitHu
 
 ## Unreleased
 
+### Added
+
+- Files offers **Play as sphere** on any 360° MP4, such as an export from Insta360 Studio, not only on golblick's own copies, and clicking one plays it as a sphere. New uploads are picked up in the background; for videos already on the server, run `occ files:scan --all --generate-metadata=golblick-sphere` once. See [360° videos from other software](README.md#360-videos-from-other-software).
+
 ### Fixed
 
 - Links shared from Memories (`/apps/memories/s/…`) now get the sphere button in Memories' viewer, for visitors and signed-in users alike, under the same **Public share links** switch as Files' links. Before, golblick wasn't loaded on those pages at all. Memories' album links still get nothing.

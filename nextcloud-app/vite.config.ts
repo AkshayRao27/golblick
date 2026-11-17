@@ -46,8 +46,9 @@ export default defineConfig({
     minify: 'terser',
     lib: {
       // main: the sphere view, on Files, Photos and Memories pages.
+      // init: before Files' own code, so it lists 360 MP4s with their mark.
       // admin and personal: the two settings pages.
-      entry: { main: 'src/main.ts', admin: 'src/admin.ts', personal: 'src/personal.ts' },
+      entry: { main: 'src/main.ts', init: 'src/init.ts', admin: 'src/admin.ts', personal: 'src/personal.ts' },
       formats: ['es'],
       fileName: (_format, name) => `golblick-${name}.mjs`,
     },

@@ -152,6 +152,9 @@ final class LoadSphereViewer implements IEventListener {
 			return;
 		}
 		$this->initialState->provideInitialState('config', $config);
+		if ($config['files']) {
+			Util::addInitScript(Application::APP_ID, 'golblick-init');
+		}
 		Util::addScript(Application::APP_ID, 'golblick-main');
 	}
 }

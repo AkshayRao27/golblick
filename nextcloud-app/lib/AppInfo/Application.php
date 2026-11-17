@@ -10,6 +10,7 @@ namespace OCA\Golblick\AppInfo;
 
 use OCA\Files_Sharing\Event\BeforeTemplateRenderedEvent as PublicShareRenderedEvent;
 use OCA\Golblick\Listener\LoadSphereViewer;
+use OCA\Golblick\Listener\MarkSphericalVideo;
 use OCA\Golblick\Middleware\MemoriesZoom;
 use OCA\Golblick\Preview\Insta360;
 use OCA\Golblick\Preview\Insta360Video;
@@ -19,6 +20,9 @@ use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
+use OCP\FilesMetadata\Event\MetadataBackgroundEvent;
+use OCP\FilesMetadata\Event\MetadataLiveEvent;
+use OCP\FilesMetadata\Event\MetadataNamedEvent;
 
 final class Application extends App implements IBootstrap {
 	public const APP_ID = 'golblick';
@@ -39,6 +43,9 @@ final class Application extends App implements IBootstrap {
 
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, LoadSphereViewer::class);
 		$context->registerEventListener(PublicShareRenderedEvent::class, LoadSphereViewer::class);
+		$context->registerEventListener(MetadataLiveEvent::class, MarkSphericalVideo::class);
+		$context->registerEventListener(MetadataBackgroundEvent::class, MarkSphericalVideo::class);
+		$context->registerEventListener(MetadataNamedEvent::class, MarkSphericalVideo::class);
 	}
 
 	public function boot(IBootContext $context): void {
