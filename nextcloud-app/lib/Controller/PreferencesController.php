@@ -29,12 +29,17 @@ final class PreferencesController extends Controller {
 
 	#[NoAdminRequired]
 	#[FrontpageRoute(verb: 'PUT', url: '/preferences')]
-	public function save(?string $open_video = null, ?string $open_photo = null): JSONResponse {
+	public function save(
+		?string $open_video = null,
+		?string $open_photo = null,
+		?string $share_video = null,
+		?string $share_photo = null,
+	): JSONResponse {
 		if ($this->userId === null) {
 			return new JSONResponse([], Http::STATUS_UNAUTHORIZED);
 		}
 		try {
-			foreach (['open_video' => $open_video, 'open_photo' => $open_photo] as $name => $value) {
+			foreach (['open_video' => $open_video, 'open_photo' => $open_photo, 'share_video' => $share_video, 'share_photo' => $share_photo] as $name => $value) {
 				if ($value !== null) {
 					$this->preferences->set($this->userId, $name, $value);
 				}

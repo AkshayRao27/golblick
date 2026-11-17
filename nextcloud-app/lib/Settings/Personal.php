@@ -15,7 +15,7 @@ use OCP\AppFramework\Services\IInitialState;
 use OCP\Settings\ISettings;
 use OCP\Util;
 
-/** The personal page: what 360 photos and videos do when they open in Memories (`src/personal.ts`). */
+/** The personal page: what 360 photos and videos do when they open in Memories, and on links the user shares from it (`src/personal.ts`). */
 final class Personal implements ISettings {
 	public function __construct(
 		private Preferences $preferences,

@@ -2,14 +2,14 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * The personal settings page: what a 360 photo or video does when it opens in
- * Memories. Each choice saves as soon as it is made (lib/Controller/PreferencesController.php),
+ * Memories, for the user and on links they share from it. Each choice saves as soon as it is made (lib/Controller/PreferencesController.php),
  * and main.ts reads them from the page's initial state.
  */
 import { getRequestToken } from '@nextcloud/auth';
 import { loadState } from '@nextcloud/initial-state';
 import { generateUrl } from '@nextcloud/router';
 
-type Preferences = { open_video: string; open_photo: string };
+type Preferences = { open_video: string; open_photo: string; share_video: string; share_photo: string };
 
 const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices: [string, string][] }[] = [
   {
@@ -26,6 +26,25 @@ const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices
     name: 'open_photo',
     title: '360° photos in Memories',
     hint: 'Memories 10 also has its own "View panorama" button, which shows the same panorama. In Memories\' Android app, photos always open flat and that button is the way to the sphere.',
+    choices: [
+      ['flat', 'Show flat, with a sphere-viewer button'],
+      ['sphere', 'Open as a sphere'],
+    ],
+  },
+  {
+    name: 'share_video',
+    title: '360° videos on links you share from Memories',
+    hint: 'What someone who opens a link you made in Memories sees, signed in or not. A link shared from Files opens a 360° video as a sphere when it\'s clicked.',
+    choices: [
+      ['sphere', 'Open as a sphere'],
+      ['paused', 'Show flat, without playing; the sphere button plays it as a sphere'],
+      ['play', 'Play flat (Memories default)'],
+    ],
+  },
+  {
+    name: 'share_photo',
+    title: '360° photos on links you share from Memories',
+    hint: 'The same, for photos.',
     choices: [
       ['flat', 'Show flat, with a sphere-viewer button'],
       ['sphere', 'Open as a sphere'],
@@ -63,7 +82,7 @@ async function save(change: Partial<Preferences>, note: HTMLElement) {
 
 const root = document.getElementById('golblick-admin');
 if (root) {
-  const current = loadState<Preferences>('golblick', 'preferences', { open_video: 'sphere', open_photo: 'flat' });
+  const current = loadState<Preferences>('golblick', 'preferences', { open_video: 'sphere', open_photo: 'flat', share_video: 'sphere', share_photo: 'flat' });
   for (const question of QUESTIONS) {
     const note = el('p', { className: 'golblick-feedback', role: 'status' });
     const options = question.choices.map(([value, label]) => {

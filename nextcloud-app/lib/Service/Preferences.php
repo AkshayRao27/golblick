@@ -13,17 +13,24 @@ use OCP\Config\IUserConfig;
 
 /**
  * Each user's own choices, set on their personal settings page: what a 360
- * photo or video does when it opens in Memories.
+ * photo or video does when it opens in Memories, for them and for visitors
+ * on the links they share from Memories.
  *
  * Memories shows a 360 video as a flat, stretched rectangle and plays it
  * straight away, which is the least useful way to meet one, so videos open as
  * a sphere unless the user says otherwise. A 360 photo shown flat is still a
  * readable picture, so photos stay flat with the sphere button by default.
+ *
+ * The choices for shared links are separate because how someone likes to see
+ * their own library says little about how a link should greet the people it
+ * was sent to.
  */
 final class Preferences {
 	public const CHOICES = [
 		'open_video' => ['sphere', 'paused', 'play'],
 		'open_photo' => ['flat', 'sphere'],
+		'share_video' => ['sphere', 'paused', 'play'],
+		'share_photo' => ['flat', 'sphere'],
 	];
 
 	public function __construct(
@@ -31,7 +38,19 @@ final class Preferences {
 	) {
 	}
 
-	/** @return array{open_video: string, open_photo: string} */
+	/**
+	 * What a visitor on a link `$sharer` shared from Memories gets, under the
+	 * names main.ts reads.
+	 *
+	 * @return array{open_video: string, open_photo: string}
+	 */
+	public function forShare(string $sharer): array {
+		$all = $this->all($sharer);
+
+		return ['open_video' => $all['share_video'], 'open_photo' => $all['share_photo']];
+	}
+
+	/** @return array{open_video: string, open_photo: string, share_video: string, share_photo: string} */
 	public function all(string $user): array {
 		$out = [];
 		foreach (self::CHOICES as $name => $choices) {

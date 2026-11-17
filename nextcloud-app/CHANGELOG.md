@@ -10,7 +10,7 @@ The Nextcloud app's changes. Versions before 0.8.1 are in the [releases on GitHu
 
 ### Fixed
 
-- Links shared from Memories (`/apps/memories/s/…`) now get the sphere button in Memories' viewer, for visitors and signed-in users alike, under the same **Public share links** switch as Files' links. Before, golblick wasn't loaded on those pages at all. Memories' album links still get nothing.
+- Links shared from Memories (`/apps/memories/s/…`) now get the sphere button in Memories' viewer, for visitors and signed-in users alike, under the same **Public share links** switch as Files' links. Before, golblick wasn't loaded on those pages at all. A 360° video there opens straight into the sphere by default; the person who shares the link can change that, and the same for photos, on their personal settings page. Memories' album links still get nothing.
 - A 360° MP4 on a public share link, such as an export from Insta360 Studio, now plays in the sphere. It used to open as a still picture from its thumbnail.
 
 ## 0.9.1 - 2026-11-13

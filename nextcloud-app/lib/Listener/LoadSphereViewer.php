@@ -47,8 +47,8 @@ use OCP\Util;
  * (/apps/memories/a/<token>) aren't shares and get nothing.
  *
  * A signed-in user's choice of what 360 photos and videos do when they open
- * in Memories comes along too (Preferences); on a share link nobody's
- * choice applies, and photos and videos open as Memories shows them.
+ * in Memories comes along too (Preferences). On a link shared from Memories
+ * it's the choice the person who made the link set for its visitors.
  *
  * @template-implements IEventListener<Event>
  */
@@ -132,10 +132,14 @@ final class LoadSphereViewer implements IEventListener {
 			return;
 		}
 
+		$memories = $this->settings->flag('sphere_memories');
+		if ($memories) {
+			$this->initialState->provideInitialState('preferences', $this->preferences->forShare($share->getSharedBy()));
+		}
 		$this->load([
 			'files' => false,
 			'viewer' => false,
-			'memories' => $this->settings->flag('sphere_memories'),
+			'memories' => $memories,
 			'share' => $share->getToken(),
 		]);
 	}

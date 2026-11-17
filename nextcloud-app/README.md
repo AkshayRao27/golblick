@@ -83,7 +83,7 @@ A bar along the bottom turns the view, zooms and switches to full screen, for a 
 
 The buttons in the image viewer and in Memories are a stopgap. Neither app has a way for other apps to add buttons, so golblick inserts them into the page itself. If a later version of either app changes its layout, the button may stop appearing until golblick catches up; nothing else breaks, and each app's button can be switched off on the settings page. Memories 10 and later have their own sphere view. There, a `.insp` gets Memories' "View panorama" button instead of golblick's, and golblick makes that view show the stitched panorama. Memories only notices that a photo is a panorama when it indexes the file, and it doesn't go back over files it indexed before version 10. If you used Memories before 10, run `occ memories:index --force` once, with `--path` to limit it to the folders that hold your `.insp` photos if the whole library would take too long. Until then, a `.insp` gets no "View panorama" button in Memories' Android app.
 
-Visitors to a public share link get the Files and image viewer buttons too, and the button in Memories on a link shared from Memories, as long as the share lets them see its files and, if it has a password, once they've entered it. The first time someone opens a photo as a sphere the server renders its full-size panorama, so a visitor can make it do that for every `.insp` in a shared folder. If that's a concern, switch it off under **Public share links** on the settings page.
+Visitors to a public share link get the Files and image viewer buttons too, and Memories' button on a link shared from Memories, as long as the share lets them see its files and, if it has a password, once they've entered it. What a 360° video or photo does there when it opens is up to the person who shared the link (see [Settings](#settings)). The first time someone opens a photo as a sphere the server renders its full-size panorama, so a visitor can make it do that for every `.insp` in a shared folder. If that's a concern, switch it off under **Public share links** on the settings page.
 
 ## Videos
 
@@ -170,7 +170,7 @@ Upgrading the app replaces its folder, and the worker's view of it with it. From
 - switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one
 - the Videos section: the switches described under [Videos](#videos), the video size, how far stitching has got, whether the GPU worker is running, **Delete stitched videos** and **Delete copies saved next to clips**
 
-**Personal settings → Golblick (360° Photos)** lets each user choose what happens when a 360° video or photo opens in Memories in a browser. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. In the sphere, the left and right arrow keys go on to the previous or next item.
+**Personal settings → Golblick (360° Photos)** lets each user choose what happens when a 360° video or photo opens in Memories in a browser. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. The same two choices, set separately, decide what visitors see on links the user shares from Memories. In the sphere, the left and right arrow keys go on to the previous or next item.
 
 ## Nextcloud AIO and RAW photos
 
