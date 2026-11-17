@@ -351,7 +351,7 @@ function render(status: Status) {
   const publicNote = feedback('sphere_public');
 
   root.replaceChildren(
-    el('h2', {}, 'Golblick (360° Photos)'),
+    el('h2', {}, 'Golblick (360° Photos & Videos)'),
 
     el('h3', {}, 'Setup'),
     checks, actions, setupNote.node,
@@ -474,7 +474,7 @@ async function load(showLoading = true) {
   try {
     render(await api<Status>('GET', '/settings/status'));
   } catch (e) {
-    root.replaceChildren(el('h2', {}, 'Golblick (360° Photos)'),
+    root.replaceChildren(el('h2', {}, 'Golblick (360° Photos & Videos)'),
       el('p', { className: 'golblick-feedback', role: 'status' }, `Could not load the settings: ${(e as Error).message}`));
   }
 }

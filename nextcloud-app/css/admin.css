@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
-#golblick-admin h3 { margin-top: 24px; font-weight: bold; }
-#golblick-admin h4 { margin: 16px 0 0; font-weight: bold; color: var(--color-text-maxcontrast); }
+/* Below the section's 20px h2; left alone, the browser's sizes put both larger than it. */
+#golblick-admin h3 { margin-top: 24px; font-size: 17px; font-weight: bold; }
+#golblick-admin h4 { margin: 16px 0 0; font-size: var(--default-font-size, 15px); font-weight: bold; color: var(--color-text-maxcontrast); }
 #golblick-admin .settings-hint { max-width: 760px; }
 #golblick-admin select { min-width: 200px; }
 

@@ -4,5 +4,5 @@
  */
 ?>
 <div id="golblick-admin" class="section golblick-personal">
-	<h2>Golblick (360° Photos)</h2>
+	<h2>Golblick (360° Photos &amp; Videos)</h2>
 </div>

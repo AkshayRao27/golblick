@@ -49,7 +49,7 @@ The app needs one line added to Nextcloud's config, which tells Nextcloud that `
    sudo docker exec --user www-data nextcloud-aio-nextcloud php occ app:enable golblick
    ```
 
-2. Tell Nextcloud that `.insp` is a JPEG. The easiest way is **Administration settings → Golblick (360° Photos) → Register .insp files**. It adds this to `config/mimetypemapping.json`, keeping anything else already in the file, and updates the `.insp` files Nextcloud already knows about:
+2. Tell Nextcloud that `.insp` is a JPEG. The easiest way is **Administration settings → Golblick (360° Photos & Videos) → Register .insp files**. It adds this to `config/mimetypemapping.json`, keeping anything else already in the file, and updates the `.insp` files Nextcloud already knows about:
 
    ```json
    {
@@ -87,7 +87,7 @@ Visitors to a public share link get the Files and image viewer buttons too, and 
 
 ## Videos
 
-Each step is a switch on **Administration settings → Golblick (360° Photos)**, and each one builds on the one before. Stop at whichever step gives you what you want.
+Each step is a switch on **Administration settings → Golblick (360° Photos & Videos)**, and each one builds on the one before. Stop at whichever step gives you what you want.
 
 1. **Register .insv files**, in the setup check. Each `.insv` then shows a thumbnail of its opening frame as a panorama in Files. An X5 stores that frame stitched; a OneR or X3 stores both lenses' opening frame in the `_00_` file, and decoding it needs ffmpeg.
 2. **Stitch videos in the background**, in the Videos section. The server makes a stitched copy of each clip, newest first, one at a time: with ffmpeg at the lowest priority, or on the [GPU worker](#stitching-on-a-gpu) if one is running. Clicking a video in Files then plays that copy as a sphere you can look around in while it plays; until it's ready, you see the opening frame. Every file of a clip (`_00_`, `_10_` and the low-resolution `LRV_` copy) plays the same video.
@@ -162,7 +162,7 @@ Upgrading the app replaces its folder, and the worker's view of it with it. From
 
 ## Settings
 
-**Administration settings → Golblick (360° Photos)** has:
+**Administration settings → Golblick (360° Photos & Videos)** has:
 
 - a setup check: whether `.insp` is registered, whether `.insv` videos are (optional) and ffmpeg is installed, GD, PHP's memory limit, whether the Memories zoom fix can attach, and whether ImageMagick can read RAW files (see [Nextcloud AIO and RAW photos](#nextcloud-aio-and-raw-photos))
 - the size of the full-size panorama used for zooming and the sphere view, and a button to clear the ones already made
@@ -170,7 +170,7 @@ Upgrading the app replaces its folder, and the worker's view of it with it. From
 - switches for the Memories zoom fix and for each "View as sphere" button, in case an update to Memories or the image viewer breaks one
 - the Videos section: the switches described under [Videos](#videos), the video size, how far stitching has got, whether the GPU worker is running, **Delete stitched videos** and **Delete copies saved next to clips**
 
-**Personal settings → Golblick (360° Photos)** lets each user choose what happens when a 360° video or photo opens in Memories in a browser. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. The same two choices, set separately, decide what visitors see on links the user shares from Memories. In the sphere, the left and right arrow keys go on to the previous or next item.
+**Personal settings → Golblick (360° Photos & Videos)** lets each user choose what happens when a 360° video or photo opens in Memories in a browser. A video can open as a sphere (the default), show flat without playing, or play flat as Memories does on its own. A photo can show flat with the sphere button (the default) or open as a sphere. The same two choices, set separately, decide what visitors see on links the user shares from Memories. In the sphere, the left and right arrow keys go on to the previous or next item.
 
 ## Nextcloud AIO and RAW photos
 

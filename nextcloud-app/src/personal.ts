@@ -11,43 +11,42 @@ import { generateUrl } from '@nextcloud/router';
 
 type Preferences = { open_video: string; open_photo: string; share_video: string; share_photo: string };
 
-const QUESTIONS: { name: keyof Preferences; title: string; hint: string; choices: [string, string][] }[] = [
+type Question = { name: keyof Preferences; title: string; hint?: string; choices: [string, string][] };
+
+const VIDEO_CHOICES: [string, string][] = [
+  ['sphere', 'Open as a sphere'],
+  ['paused', 'Show flat, without playing; the sphere button plays it as a sphere'],
+  ['play', 'Play flat (Memories default)'],
+];
+const PHOTO_CHOICES: [string, string][] = [
+  ['flat', 'Show flat, with a sphere-viewer button'],
+  ['sphere', 'Open as a sphere'],
+];
+
+const GROUPS: { title: string; hint?: string; questions: Question[] }[] = [
   {
-    name: 'open_video',
-    title: '360° videos in Memories',
-    hint: 'Memories plays a 360° video as a flat, stretched rectangle. This applies to stitched copies and to any MP4 marked as 360° video, in a browser. Memories\' Android app always plays them flat.',
-    choices: [
-      ['sphere', 'Open as a sphere'],
-      ['paused', 'Show flat, without playing; the sphere button plays it as a sphere'],
-      ['play', 'Play flat (Memories default)'],
+    title: 'Opening in Memories',
+    questions: [
+      {
+        name: 'open_video',
+        title: '360° videos',
+        hint: 'Memories plays a 360° video as a flat, stretched rectangle. This applies to stitched copies and to any MP4 marked as 360° video, in a browser. Memories\' Android app always plays them flat.',
+        choices: VIDEO_CHOICES,
+      },
+      {
+        name: 'open_photo',
+        title: '360° photos',
+        hint: 'Memories 10 also has its own "View panorama" button, which shows the same panorama. In Memories\' Android app, photos always open flat and that button is the way to the sphere.',
+        choices: PHOTO_CHOICES,
+      },
     ],
   },
   {
-    name: 'open_photo',
-    title: '360° photos in Memories',
-    hint: 'Memories 10 also has its own "View panorama" button, which shows the same panorama. In Memories\' Android app, photos always open flat and that button is the way to the sphere.',
-    choices: [
-      ['flat', 'Show flat, with a sphere-viewer button'],
-      ['sphere', 'Open as a sphere'],
-    ],
-  },
-  {
-    name: 'share_video',
-    title: '360° videos on links you share from Memories',
+    title: 'On links you share from Memories',
     hint: 'What someone who opens a link you made in Memories sees, signed in or not. A link shared from Files opens a 360° video as a sphere when it\'s clicked.',
-    choices: [
-      ['sphere', 'Open as a sphere'],
-      ['paused', 'Show flat, without playing; the sphere button plays it as a sphere'],
-      ['play', 'Play flat (Memories default)'],
-    ],
-  },
-  {
-    name: 'share_photo',
-    title: '360° photos on links you share from Memories',
-    hint: 'The same, for photos.',
-    choices: [
-      ['flat', 'Show flat, with a sphere-viewer button'],
-      ['sphere', 'Open as a sphere'],
+    questions: [
+      { name: 'share_video', title: '360° videos', choices: VIDEO_CHOICES },
+      { name: 'share_photo', title: '360° photos', choices: PHOTO_CHOICES },
     ],
   },
 ];
@@ -83,13 +82,19 @@ async function save(change: Partial<Preferences>, note: HTMLElement) {
 const root = document.getElementById('golblick-admin');
 if (root) {
   const current = loadState<Preferences>('golblick', 'preferences', { open_video: 'sphere', open_photo: 'flat', share_video: 'sphere', share_photo: 'flat' });
-  for (const question of QUESTIONS) {
-    const note = el('p', { className: 'golblick-feedback', role: 'status' });
-    const options = question.choices.map(([value, label]) => {
-      const input = el('input', { type: 'radio', name: `golblick-${question.name}`, value, checked: current[question.name] === value });
-      input.addEventListener('change', () => { if (input.checked) void save({ [question.name]: value }, note); });
-      return el('div', { className: 'golblick-toggle' }, el('label', {}, input, ` ${label}`));
-    });
-    root.append(el('h3', {}, question.title), el('p', { className: 'settings-hint' }, question.hint), ...options, note);
+  for (const group of GROUPS) {
+    root.append(el('h3', {}, group.title));
+    if (group.hint) root.append(el('p', { className: 'settings-hint' }, group.hint));
+    for (const question of group.questions) {
+      const note = el('p', { className: 'golblick-feedback', role: 'status' });
+      const options = question.choices.map(([value, label]) => {
+        const input = el('input', { type: 'radio', name: `golblick-${question.name}`, value, checked: current[question.name] === value });
+        input.addEventListener('change', () => { if (input.checked) void save({ [question.name]: value }, note); });
+        return el('div', { className: 'golblick-toggle' }, el('label', {}, input, ` ${label}`));
+      });
+      root.append(el('h4', {}, question.title));
+      if (question.hint) root.append(el('p', { className: 'settings-hint' }, question.hint));
+      root.append(...options, note);
+    }
   }
 }
