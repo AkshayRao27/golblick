@@ -90,7 +90,7 @@ final class PublicSphereController extends PublicShareController {
 	public function info(string $token, int $fileId): JSONResponse {
 		[$file, $path] = $this->file($fileId);
 		$answer = SphereController::describe($file, $this->videos);
-		if (($answer['video'] ?? false) && !$this->masterShared($file)) {
+		if (($answer['video'] ?? false) && !$this->mayPlay($file)) {
 			$answer['video'] = false;
 		}
 
@@ -108,9 +108,7 @@ final class PublicSphereController extends PublicShareController {
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/video/{fileId}', requirements: ['fileId' => '\d+'])]
 	public function video(string $token, int $fileId): Response {
 		[$file] = $this->file($fileId);
-		// A clip's copy is keyed on its _00_ file, which has to be in the share
-		// too; a 360 MP4 is its own video, already reached through the share.
-		$allowed = $file !== null && (strcasecmp($file->getExtension(), 'insv') !== 0 || $this->masterShared($file));
+		$allowed = $file !== null && $this->mayPlay($file);
 		$path = $allowed ? $this->videos->playable($file) : null;
 		if ($path === null) {
 			return new JSONResponse([], Http::STATUS_NOT_FOUND);
@@ -132,7 +130,7 @@ final class PublicSphereController extends PublicShareController {
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/motion/{fileId}', requirements: ['fileId' => '\d+'])]
 	public function motion(string $token, int $fileId): JSONResponse {
 		[$file] = $this->file($fileId);
-		$allowed = $file !== null && (strcasecmp($file->getExtension(), 'insv') !== 0 || $this->masterShared($file));
+		$allowed = $file !== null && $this->mayPlay($file);
 		$clip = $allowed ? MotionStore::clipFor($file) : null;
 		$track = $clip === null ? null : $this->motion->track($clip);
 		if ($track === null) {
@@ -150,7 +148,7 @@ final class PublicSphereController extends PublicShareController {
 	#[FrontpageRoute(verb: 'GET', url: '/s/{token}/shutter/{fileId}', requirements: ['fileId' => '\d+'])]
 	public function shutter(string $token, int $fileId): Response {
 		[$file] = $this->file($fileId);
-		$allowed = $file !== null && (strcasecmp($file->getExtension(), 'insv') !== 0 || $this->masterShared($file));
+		$allowed = $file !== null && $this->mayPlay($file);
 		$path = $allowed ? $this->videos->shutter($file) : null;
 		$json = $path === null ? false : @file_get_contents($path);
 		if ($json === false) {
@@ -177,6 +175,14 @@ final class PublicSphereController extends PublicShareController {
 		$response->cacheFor(3600 * 24, false, false);
 
 		return $response;
+	}
+
+	/**
+	 * Whether the share may play $file's video: a 360 MP4 is its own video,
+	 * already reached through the share; a clip needs its _00_ file shared too.
+	 */
+	private function mayPlay(File $file): bool {
+		return strcasecmp($file->getExtension(), 'insv') !== 0 || $this->masterShared($file);
 	}
 
 	/**
